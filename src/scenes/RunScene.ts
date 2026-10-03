@@ -11,6 +11,8 @@ import { NEUTRAL, PLAYER, RunState } from '../game/RunState';
 import { FACTION_INFO } from '../game/factions';
 import { textStyle } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
+import { DPR } from '../ui/screen';
+import { buzz } from '../ui/haptics';
 import { drawUnitIcon } from '../ui/unitIcons';
 import { unitInfo, type Unit } from '../game/units';
 import type { HudScene } from './HudScene';
@@ -381,7 +383,7 @@ export class RunScene extends Phaser.Scene {
 
   private updateLabels() {
     const cam = this.cameras.main;
-    const show = cam.zoom >= CAM.labelMinZoom;
+    const show = cam.zoom >= CAM.labelMinZoom * DPR;
     let used = 0;
     if (show) {
       const view = cam.worldView;
@@ -481,6 +483,7 @@ export class RunScene extends Phaser.Scene {
     const res = this.state.tryConquer(i);
     if (res.ok) {
       this.usage.tocchi++;
+      buzz(res.loot ? 25 : 8);
       this.tapFxTile = i;
       this.redrawOwned();
       this.redrawFrontier(true);
@@ -501,6 +504,7 @@ export class RunScene extends Phaser.Scene {
     this.selectedCard = null;
     this.selectUnit(null);
     this.hud.showEnd(this.state.over!, this.state.victoryReason);
+    buzz(this.state.over === 'victory' ? [40, 60, 40, 60, 120] : 150);
     for (const [k, v] of Object.entries(this.usage)) analytics.design(['controlli', k], v);
     this.time.delayedCall(BALANCE.end.resultDelayMs, () => {
       this.scene.stop('Hud');
@@ -633,7 +637,10 @@ export class RunScene extends Phaser.Scene {
     const { x, y } = sp ? { x: sp.c.x, y: sp.c.y } : center(u.tile);
     this.burst.setParticleTint(FACTION_INFO[u.owner].fill);
     this.burst.explode(14, x, y);
-    if (u.owner === PLAYER) this.floatText(x, y - 6, `${unitInfo(u.type).short} caduta`, PALETTE.ko);
+    if (u.owner === PLAYER) {
+      this.floatText(x, y - 6, `${unitInfo(u.type).short} caduta`, PALETTE.ko);
+      buzz(40);
+    }
   }
 
   /** Casella appena presa (avanzata, pittura, pedine): un lampo piccolo, per non coprire la mappa. */
@@ -655,6 +662,7 @@ export class RunScene extends Phaser.Scene {
     this.burst.setParticleTint(PALETTE.radioattivo);
     this.burst.explode(30, x, y);
     this.cameras.main.shake(260, 0.006);
+    buzz([30, 40, 60]);
   }
 
   /** Una nostra casella è caduta: lampo nel colore del nemico. */
@@ -691,14 +699,14 @@ export class RunScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const m = 400;
     cam.setBounds(-m, -m, WORLD_W + 2 * m, WORLD_H + 2 * m);
-    cam.setZoom(CAM.startZoom);
+    cam.setZoom(CAM.startZoom * DPR); // lo zoom della camera conta i pixel reali dello schermo
     const { x, y } = center(this.map.starts[0]);
     cam.centerOn(x, y);
   }
 
   private zoomAt(sx: number, sy: number, z: number) {
     const cam = this.cameras.main;
-    const nz = Phaser.Math.Clamp(z, CAM.minZoom, CAM.maxZoom);
+    const nz = Phaser.Math.Clamp(z, CAM.minZoom * DPR, CAM.maxZoom * DPR);
     const w = cam.width / 2, h = cam.height / 2;
     const wx = cam.scrollX + w + (sx - w) / cam.zoom;
     const wy = cam.scrollY + h + (sy - h) / cam.zoom;
@@ -715,12 +723,12 @@ export class RunScene extends Phaser.Scene {
     return pixelToIndex(cam.scrollX + w + (sx - w) / cam.zoom, cam.scrollY + h + (sy - h) / cam.zoom);
   }
 
-  /** Casella → coordinate schermo (per frecce e guida). */
+  /** Casella → coordinate schermo in punti CSS (per frecce e guida nell'HUD). */
   tileToScreen(i: number): { x: number; y: number } {
     const cam = this.cameras.main;
     const w = cam.width / 2, h = cam.height / 2;
     const c = center(i);
-    return { x: (c.x - cam.scrollX - w) * cam.zoom + w, y: (c.y - cam.scrollY - h) * cam.zoom + h };
+    return { x: ((c.x - cam.scrollX - w) * cam.zoom + w) / DPR, y: ((c.y - cam.scrollY - h) * cam.zoom + h) / DPR };
   }
 
   /**
@@ -729,7 +737,7 @@ export class RunScene extends Phaser.Scene {
    */
   private setupInput() {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (this.hud.hitUi(p.x, p.y)) return;
+      if (this.hud.hitUi(p.x / DPR, p.y / DPR)) return;
       if (this.activePointers().length === 1) {
         this.down = { x: p.x, y: p.y };
         this.last = { x: p.x, y: p.y };
@@ -761,7 +769,7 @@ export class RunScene extends Phaser.Scene {
         return;
       }
       if (!this.down || !p.isDown) return;
-      if (!this.dragging && Phaser.Math.Distance.Between(p.x, p.y, this.down.x, this.down.y) > CAM.dragThreshold) {
+      if (!this.dragging && Phaser.Math.Distance.Between(p.x, p.y, this.down.x, this.down.y) > CAM.dragThreshold * DPR) {
         this.dragging = true;
       }
       if (this.dragging) {
@@ -790,7 +798,7 @@ export class RunScene extends Phaser.Scene {
 
   /** Dipingi: conquista le caselle di frontiera sotto il dito lungo il tratto percorso. */
   private paintAlong(x0: number, y0: number, x1: number, y1: number) {
-    const steps = Math.max(1, Math.ceil(Phaser.Math.Distance.Between(x0, y0, x1, y1) / 6));
+    const steps = Math.max(1, Math.ceil(Phaser.Math.Distance.Between(x0, y0, x1, y1) / (6 * DPR)));
     for (let k = 1; k <= steps; k++) {
       const i = this.tileAt(x0 + ((x1 - x0) * k) / steps, y0 + ((y1 - y0) * k) / steps);
       if (i < 0 || i === this.lastPainted) continue;

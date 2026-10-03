@@ -3,9 +3,10 @@ import Phaser from 'phaser';
 import { PALETTE, hex } from '../config/palette';
 import type { EventChoice, GameEvent } from '../game/events';
 import { textStyle } from './style';
+import { DPR, view } from './screen';
 
-const W = 380;
-const H = 230;
+const MAX_W = 380;
+const H = 240;
 const SWIPE = 90; // px per confermare con un trascinamento
 
 export class EventCard extends Phaser.GameObjects.Container {
@@ -13,6 +14,7 @@ export class EventCard extends Phaser.GameObjects.Container {
   private leftLbl: Phaser.GameObjects.Text;
   private rightLbl: Phaser.GameObjects.Text;
   private done = false;
+  private cardW = MAX_W;
 
   constructor(
     scene: Phaser.Scene,
@@ -21,7 +23,9 @@ export class EventCard extends Phaser.GameObjects.Container {
     private onChoose: (side: 'left' | 'right') => void,
   ) {
     super(scene, 0, 0);
-    const { width, height } = scene.scale;
+    const { width, height } = view(scene);
+    const W = Math.min(MAX_W, width - 24);
+    this.cardW = W;
     const shade = scene.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.55).setOrigin(0).setInteractive();
     const cx = width / 2, cy = height / 2;
 
@@ -53,7 +57,7 @@ export class EventCard extends Phaser.GameObjects.Container {
     scene.input.setDraggable(bg);
     bg.on('drag', (p: Phaser.Input.Pointer) => {
       if (this.done) return;
-      const dx = p.x - p.downX;
+      const dx = (p.x - p.downX) / DPR;
       this.card.x = cx + dx;
       this.card.angle = dx / 18;
       this.leftLbl.setScale(dx < -20 ? 1.12 : 1);
@@ -74,9 +78,9 @@ export class EventCard extends Phaser.GameObjects.Container {
   private pick(side: 'left' | 'right') {
     if (this.done) return;
     this.done = true;
-    const { width } = this.scene.scale;
+    const { width } = view(this.scene);
     this.scene.tweens.add({
-      targets: this.card, x: side === 'left' ? -W : width + W, angle: side === 'left' ? -25 : 25, duration: 260, ease: 'Quad.easeIn',
+      targets: this.card, x: side === 'left' ? -this.cardW : width + this.cardW, angle: side === 'left' ? -25 : 25, duration: 260, ease: 'Quad.easeIn',
       onComplete: () => this.destroy(),
     });
     this.scene.tweens.add({ targets: [this.leftLbl, this.rightLbl], alpha: 0, duration: 150 });

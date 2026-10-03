@@ -5,6 +5,7 @@ import { PALETTE } from '../config/palette';
 import { PLAYER, type RunState } from '../game/RunState';
 import { hexDistance } from '../map/hexGrid';
 import { textStyle } from './style';
+import { view } from './screen';
 import { analytics } from '../analytics/analytics';
 
 export type GuideSignal = 'conquer' | 'flow' | 'paint' | 'deploy' | 'order';
@@ -16,7 +17,7 @@ export interface GuideApi {
   selectedCard: () => string | null;
   selectedUnit: () => number | null;
   cardPos: () => { x: number; y: number } | null;
-  troopsPos: { x: number; y: number };
+  troopsPos: () => { x: number; y: number };
   labelPos: () => { x: number; y: number }; // in alto al centro, tra i pannelli
   blocked: (x: number, y: number) => boolean; // punto coperto dall'HUD
 }
@@ -69,7 +70,7 @@ export class TutorialGuide {
         return i === undefined ? this.show(null, 'ASPETTA LE TRUPPE') : this.show(this.api.tileToScreen(i), 'TOCCA');
       }
       case 'troops':
-        return this.show({ x: this.api.troopsPos.x, y: this.api.troopsPos.y }, 'LE TRUPPE CRESCONO\nCOL TERRITORIO', true);
+        return this.show(this.api.troopsPos(), 'LE TRUPPE CRESCONO\nCOL TERRITORIO', true);
       case 'flow': {
         if (this.flowTarget < 0 || st.owner[this.flowTarget] === PLAYER) this.flowTarget = this.pickFar(st);
         return this.show(this.flowTarget >= 0 ? this.api.tileToScreen(this.flowTarget) : null, 'TOCCA LONTANO:\nIL CONFINE AVANZA DA SOLO');
@@ -100,7 +101,7 @@ export class TutorialGuide {
   /** Casella neutra lontana qualche passo dal confine, visibile a schermo. */
   private pickFar(st: RunState): number {
     const front = st.frontier(PLAYER);
-    const { width, height } = this.scene.scale;
+    const { width, height } = view(this.scene);
     let best = -1, bestScore = Infinity;
     for (let i = 0; i < st.owner.length; i++) {
       if (st.owner[i] !== -1 || !st.passable(i)) continue;

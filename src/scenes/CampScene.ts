@@ -15,6 +15,7 @@ import { FPS_KEY, fpsEnabled } from '../ui/debug';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
+import { uiCamera, view } from '../ui/screen';
 import { drawSymbol } from '../ui/symbols';
 
 const PAD = 12;
@@ -29,8 +30,11 @@ type Spot = BuildingId | 'spedizione';
 export class CampScene extends Phaser.Scene {
   private profile!: Profile;
   private k = 1; // scala del disegno rispetto a 844×390
-  private groundY = 0;
-  private spots = new Map<Spot, { x: number; g: Phaser.GameObjects.Graphics; deco: Phaser.GameObjects.GameObject[]; label: Phaser.GameObjects.Text }>();
+  private groundY = 0; // orizzonte
+  private centerY = 0; // fuoco e tende
+  private roadY = 0;
+  private portrait = false;
+  private spots = new Map<Spot, { x: number; y: number; g: Phaser.GameObjects.Graphics; deco: Phaser.GameObjects.GameObject[]; label: Phaser.GameObjects.Text }>();
   private stashTexts: Phaser.GameObjects.Text[] = [];
   private timerTexts = new Map<Spot, Phaser.GameObjects.Text>();
   private panel: Phaser.GameObjects.Container | null = null;
@@ -45,19 +49,27 @@ export class CampScene extends Phaser.Scene {
   }
 
   create() {
+    uiCamera(this);
     this.profile = loadProfile();
     this.spots = new Map();
     this.timerTexts = new Map();
     this.panel = null;
     this.panelSpot = null;
-    const { width, height } = this.scale;
-    this.k = Math.min(width / 844, height / 390);
-    this.groundY = height * 0.74;
+    const { width, height } = view(this);
+    // verticale: edifici su due file (dietro sull'orizzonte, davanti in basso), campo al centro
+    this.portrait = height > width;
+    this.k = this.portrait ? Math.min(width / 430, height / 880) : Math.min(width / 844, height / 390);
+    this.groundY = height * (this.portrait ? 0.44 : 0.74);
+    this.centerY = this.portrait ? height * 0.58 : this.groundY;
+    this.roadY = (this.portrait ? height * 0.73 : this.groundY) + 26 * this.k;
 
     this.drawBackdrop();
     this.drawCenter();
-    const xs: Record<Spot, number> = { spedizione: 0.1, fucina: 0.3, radio: 0.7, magazzino: 0.88 };
-    for (const id of [...BUILDINGS, 'spedizione'] as Spot[]) this.makeSpot(id, width * xs[id]);
+    const front = height * 0.73, g0 = this.groundY;
+    const pos: Record<Spot, [number, number]> = this.portrait
+      ? { radio: [0.27, g0], magazzino: [0.75, g0], spedizione: [0.22, front], fucina: [0.74, front] }
+      : { spedizione: [0.1, g0], fucina: [0.3, g0], radio: [0.7, g0], magazzino: [0.88, g0] };
+    for (const id of [...BUILDINGS, 'spedizione'] as Spot[]) this.makeSpot(id, width * pos[id][0], pos[id][1]);
     this.burst = this.add.particles(0, 0, 'dot', {
       speed: { min: 60, max: 180 }, lifespan: 600, scale: { start: 1, end: 0 }, emitting: false,
     }).setDepth(30);
@@ -105,7 +117,7 @@ export class CampScene extends Phaser.Scene {
       const spot = this.spots.get(done)!;
       this.cameras.main.flash(250, 239, 227, 200);
       this.burst.setParticleTint(PALETTE.ocra);
-      this.burst.explode(30, spot.x, this.groundY - 40 * this.k);
+      this.burst.explode(30, spot.x, spot.y - 40 * this.k);
       const lvl = this.profile.buildings[done];
       analytics.design(['accampamento', 'completato', done], lvl);
       this.toast(`${buildingText[done].name.toUpperCase()} LIV. ${lvl} COMPLETATA\n${buildingText[done].levels[lvl - 1]}`, PALETTE.radioattivo);
@@ -123,7 +135,7 @@ export class CampScene extends Phaser.Scene {
   // ---------- disegno ----------
 
   private drawBackdrop() {
-    const { width, height } = this.scale;
+    const { width, height } = view(this);
     const k = this.k;
     this.cameras.main.setBackgroundColor(SKY);
     const g = this.add.graphics();
@@ -144,14 +156,14 @@ export class CampScene extends Phaser.Scene {
     this.tweens.add({ targets: ring, scale: { from: 0.5, to: 3 }, alpha: { from: 0.9, to: 0 }, duration: 2200, repeat: -1 });
     // terreno e strada
     g.fillStyle(GROUND, 1).fillRect(0, this.groundY, width, height - this.groundY);
-    g.fillStyle(0x9e6f2a, 1).fillRect(0, this.groundY + 26 * k, width, 18 * k);
+    g.fillStyle(0x9e6f2a, 1).fillRect(0, this.roadY, width, 18 * k);
     g.lineStyle(2, INK, 0.5).lineBetween(0, this.groundY, width, this.groundY);
   }
 
   /** Fuoco, tende (crescono con le run) e bandiera. */
   private drawCenter() {
-    const { width } = this.scale;
-    const k = this.k, cx = width * 0.5, y = this.groundY;
+    const { width } = view(this);
+    const k = this.k, cx = width * 0.5, y = this.centerY;
     const g = this.add.graphics();
     const n = tents(this.profile);
     for (let i = 0; i < n; i++) {
@@ -178,15 +190,15 @@ export class CampScene extends Phaser.Scene {
     this.add.text(cx, y + 54 * k, `${n} tende · ${this.profile.runs} run`, textStyle(11, INK, false)).setOrigin(0.5);
   }
 
-  private makeSpot(id: Spot, x: number) {
+  private makeSpot(id: Spot, x: number, y: number) {
     const k = this.k;
     const g = this.add.graphics();
     const name = id === 'spedizione' ? 'SPEDIZIONE' : buildingText[id].name.toUpperCase();
-    const label = this.add.text(x, this.groundY + 8 * k, name, textStyle(12, INK)).setOrigin(0.5, 0);
-    const timer = this.add.text(x, this.groundY + 50 * k, '', textStyle(11, PALETTE.ruggine)).setOrigin(0.5, 0);
+    const label = this.add.text(x, y + 8 * k, name, textStyle(12, INK)).setOrigin(0.5, 0);
+    const timer = this.add.text(x, y + 42 * k, '', textStyle(11, PALETTE.ruggine)).setOrigin(0.5, 0);
     this.timerTexts.set(id, timer);
-    this.spots.set(id, { x, g, deco: [], label });
-    const hit = this.add.rectangle(x, this.groundY - 50 * k, 120 * k, 150 * k, 0xffffff, 0.001).setInteractive({ useHandCursor: true });
+    this.spots.set(id, { x, y, g, deco: [], label });
+    const hit = this.add.rectangle(x, y - 50 * k, 130 * k, 160 * k, 0xffffff, 0.001).setInteractive({ useHandCursor: true });
     hit.on('pointerup', () => this.openPanel(id));
   }
 
@@ -195,7 +207,7 @@ export class CampScene extends Phaser.Scene {
     spot.deco.forEach((d) => d.destroy());
     spot.deco = [];
     const g = spot.g.clear();
-    const k = this.k, x = spot.x, y = this.groundY;
+    const k = this.k, x = spot.x, y = spot.y;
     if (id === 'spedizione') return this.drawTruck(spot, g, x, y);
 
     const lvl = this.profile.buildings[id];
@@ -299,20 +311,22 @@ export class CampScene extends Phaser.Scene {
   // ---------- interfaccia ----------
 
   private drawHud() {
-    const { width, height } = this.scale;
+    const { width, height } = view(this);
     // scorta in alto a sinistra
-    const panelW = 240;
-    this.add.rectangle(PAD, PAD, panelW, 56, INK, 0.9).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
-    this.add.text(PAD + 10, PAD + 6, 'SCORTA DELL\'ACCAMPAMENTO', textStyle(10, PALETTE.ocra));
+    const P = this.portrait;
+    const panelW = P ? width - 2 * PAD : 240, panelY = P ? PAD + 52 : PAD, step = P ? (panelW - 20) / 3 : 76;
+    this.add.rectangle(PAD, panelY, panelW, 56, INK, 0.9).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
+    this.add.text(PAD + 10, panelY + 6, 'SCORTA DELL\'ACCAMPAMENTO', textStyle(10, PALETTE.ocra));
     const ig = this.add.graphics();
     this.stashTexts = RESOURCES.map((r, i) => {
-      drawResourceIcon(ig, r, PAD + 18 + i * 76, PAD + 36, 6);
-      return this.add.text(PAD + 30 + i * 76, PAD + 36, '0', textStyle(15, PALETTE.carta)).setOrigin(0, 0.5);
+      drawResourceIcon(ig, r, PAD + 18 + i * step, panelY + 36, 6);
+      return this.add.text(PAD + 30 + i * step, panelY + 36, '0', textStyle(15, PALETTE.carta)).setOrigin(0, 0.5);
     });
     // titolo in alto a destra
     // 5 tocchi sul titolo = contatore FPS nelle run (per i test sui telefoni economici, anche dentro l'app)
     let taps = 0;
-    this.add.text(width - PAD, PAD + 4, 'ASHEN ATLAS', textStyle(20, INK)).setOrigin(1, 0)
+    const titleX = P ? width / 2 : width - PAD, titleO = P ? 0.5 : 1;
+    this.add.text(titleX, PAD + 4, 'ASHEN ATLAS', textStyle(20, INK)).setOrigin(titleO, 0)
       .setInteractive().on('pointerup', () => {
         if (++taps < 5) return;
         taps = 0;
@@ -325,12 +339,14 @@ export class CampScene extends Phaser.Scene {
         this.toast(on ? 'Contatore FPS attivo nelle run' : 'Contatore FPS spento', PALETTE.carta);
       });
     const p = this.profile;
-    this.add.text(width - PAD, PAD + 30, `accampamento · ${p.wins} vittorie su ${p.runs} run`, textStyle(11, PALETTE.ruggine, false)).setOrigin(1, 0);
-    // GIOCA in basso a destra
-    const play = new Button(this, 'GIOCA ▶', 150, 54, () => this.scene.start('Run', { seed: randomSeed() }));
-    play.setPosition(width - PAD - 150, height - PAD - 54).setDepth(20);
-    this.tweens.add({ targets: play, scale: 1.05, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    this.add.text(PAD, height - PAD, 'Tocca un edificio o il camion', textStyle(11, INK, false)).setOrigin(0, 1);
+    this.add.text(titleX, PAD + 30, `accampamento · ${p.wins} vittorie su ${p.runs} run`, textStyle(11, PALETTE.ruggine, false)).setOrigin(titleO, 0);
+    // GIOCA: in basso a destra (orizzontale) o grande in basso al centro (verticale, sotto il pollice)
+    const bw = P ? Math.min(260, width - 2 * PAD) : 150;
+    const play = new Button(this, 'GIOCA ▶', bw, 56, () => this.scene.start('Run', { seed: randomSeed() }));
+    play.setPosition(P ? (width - bw) / 2 : width - PAD - bw, height - PAD - 56).setDepth(20);
+    this.tweens.add({ targets: play, scale: 1.04, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.add.text(P ? width / 2 : PAD, P ? height - PAD - 64 : height - PAD, 'Tocca un edificio o il camion', textStyle(11, INK, false))
+      .setOrigin(P ? 0.5 : 0, 1);
   }
 
   private closePanel() {
@@ -344,8 +360,8 @@ export class CampScene extends Phaser.Scene {
     this.panel?.destroy();
     this.panelSpot = spot;
     this.panelKey = this.panelState(spot, Date.now());
-    const { width, height } = this.scale;
-    const W = 330, H = Math.min(290, height - 2 * PAD);
+    const { width, height } = view(this);
+    const W = Math.min(330, width - 24), H = Math.min(290, height - 2 * PAD);
     const x0 = width / 2 - W / 2, y0 = (height - H) / 2;
     const items: Phaser.GameObjects.GameObject[] = [];
     const shade = this.add.rectangle(0, 0, width, height, INK, 0.35).setOrigin(0).setInteractive();
@@ -378,7 +394,7 @@ export class CampScene extends Phaser.Scene {
           this.updateStash();
           const s = this.spots.get('spedizione')!;
           this.burst.setParticleTint(PALETTE.ocra);
-          this.burst.explode(30, s.x, this.groundY - 30 * this.k);
+          this.burst.explode(30, s.x, s.y - 30 * this.k);
           this.toast(`+${got.rottami} rottami · +${got.carburante} carburante · +${got.viveri} viveri`, PALETTE.radioattivo);
         }));
       } else {
@@ -465,11 +481,13 @@ export class CampScene extends Phaser.Scene {
   }
 
   private toast(msg: string, color: number) {
-    const { width } = this.scale;
+    const { width } = view(this);
     this.lastToast?.destroy();
-    const t = (this.lastToast = this.add.text(width / 2, 90, msg, textStyle(15, color)).setOrigin(0.5).setAlign('center')
+    const ty = this.portrait ? 160 : 90;
+    const t = (this.lastToast = this.add.text(width / 2, ty, msg, textStyle(15, color)).setOrigin(0.5).setAlign('center')
+      .setWordWrapWidth(width - 40)
       .setBackgroundColor(hex(INK)).setPadding(12, 8, 12, 8).setDepth(60).setAlpha(0));
-    this.tweens.add({ targets: t, alpha: 1, y: 80, duration: 220 });
+    this.tweens.add({ targets: t, alpha: 1, y: ty - 10, duration: 220 });
     this.tweens.add({ targets: t, alpha: 0, delay: 2800, duration: 400, onComplete: () => t.destroy() });
   }
 }

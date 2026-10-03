@@ -4,6 +4,7 @@ import { buildLandMask } from '../map/landMask';
 import { randomSeed } from '../map/rng';
 import { loadProfile } from '../save/storage';
 import { textStyle } from '../ui/style';
+import { uiCamera, view } from '../ui/screen';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -11,7 +12,8 @@ export class BootScene extends Phaser.Scene {
   }
 
   create() {
-    const { width, height } = this.scale;
+    uiCamera(this);
+    const { width, height } = view(this);
     this.add.text(width / 2, height / 2, 'RICOGNIZIONE IN CORSO…', textStyle(18, PALETTE.ocra)).setOrigin(0.5);
 
     const g = this.add.graphics().fillStyle(0xffffff).fillRect(0, 0, 6, 6);

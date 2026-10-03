@@ -19,7 +19,7 @@ Gioco mobile single player di conquista sulla mappa del mondo, con un accampamen
 - Phaser 3 + TypeScript + Vite; app con Capacitor (iOS/Android). Niente server.
 - d3-geo + world-atlas 110m per la griglia sul mondo.
 - Salvataggio locale (try/catch); GameAnalytics per D1/D7.
-- Orizzontale, solo orizzontale.
+- Verticale e orizzontale: layout adattivo (decisione di Nico; prima era solo orizzontale).
 - Tutti i numeri in `src/config/balance.ts`. Contenuti (eventi, civiltà, unità, edifici) in JSON in `src/data/`.
 
 ## Run
@@ -85,8 +85,11 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 - `?seed=abc123` nell'URL → mappa riproducibile.
 - Stato: M1 ✅ · M2 ✅ · M3 ✅ · M4 ✅ · M5 ✅ · M6 ✅ lato codice (manca: chiavi GameAnalytics e test sul telefono → `TESTING.md`).
 - M6: analytics in `src/analytics/analytics.ts` (chiavi in `src/config/analytics.ts`, vuote = spento). App Android con Capacitor
-  (`android/`, orizzontale bloccato, schermo intero); l'APK lo compila GitHub Actions a ogni push (`.github/workflows/android-apk.yml`).
-  Web: `vercel.json`. Mappa statica disegnata una volta in una texture (prestazioni). Contatore FPS: 5 tocchi sul titolo
+  (`android/`, verticale e orizzontale, schermo intero); l'APK lo compila GitHub Actions a ogni push (`.github/workflows/android-apk.yml`).
+  Web: `vercel.json`. Mappa statica disegnata una volta in una texture (prestazioni).
+- Schermo: disegno a densità reale (`src/ui/screen.ts`: DPR max 2, 1,5 sui telefoni deboli); le scene di interfaccia ragionano
+  in punti CSS con `view(this)` + `uiCamera(this)`. HUD, accampamento, schermata finale e carte si adattano a verticale/orizzontale.
+  Vibrazioni brevi in `src/ui/haptics.ts`. Contatore FPS: 5 tocchi sul titolo
   nell'accampamento o `?fps=1`. Dopo modifiche web per l'app: `npm run build && npx cap sync android`.
 - Controlli mappa (M5): tocco su casella adiacente = attacco; tocco lontano = **avanzata** (il confine "cola" verso il bersaglio,
   una casella ogni 160 ms finché bastano le truppe; tocco sul tuo territorio = alt); trascinamento che parte dal tuo territorio =

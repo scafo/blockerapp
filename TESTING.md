@@ -7,7 +7,7 @@ Obiettivo: **D7 > 20%** su ~20 tester. Qui: come avere l'app, come accendere le 
 **APK Android (consigliato per il test)**
 1. Ogni push su GitHub compila l'APK da solo: repo → **Actions** → "APK Android (debug)" → ultimo run verde → in fondo **Artifacts** → `ashen-atlas-debug-apk` (zip con dentro `app-debug.apk`).
 2. Sul telefono: apri l'APK, consenti "installa app sconosciute" per il browser/file manager, installa.
-3. L'app è bloccata in orizzontale, a schermo intero, con lo schermo sempre acceso.
+3. L'app gira in verticale e in orizzontale (segue la rotazione del telefono), a schermo intero, con lo schermo sempre acceso.
 
 **Versione web (per chi ha iPhone o non vuole installare)**
 - Vercel: "Add New Project" → importa il repo → Deploy (la config è in `vercel.json`). Il link si manda ai tester.

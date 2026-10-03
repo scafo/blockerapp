@@ -7,7 +7,7 @@ La specifica completa (feeling, lore, MVP, milestone) è in [CLAUDE.md](CLAUDE.m
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173 (--host: apribile dal telefono sulla stessa rete, in orizzontale)
+npm run dev        # http://localhost:5173 (--host: apribile dal telefono sulla stessa rete)
 npm run build      # build di produzione in dist/
 npx cap sync android # copia la build web nell'app Android (APK: GitHub Actions, vedi TESTING.md)
 npm run build:single # una sola pagina HTML con il gioco inline (dist-single/), per artifact e hosting semplice

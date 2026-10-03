@@ -18,13 +18,8 @@ const page = `<title>Ashen Atlas</title>
   #msg { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 8px; padding: 24px;
     color: var(--fg); font: bold 16px "Courier New", Courier, monospace; }
   #msg b { color: var(--accent); font-size: 28px; }
-  #rotate { display: none; position: fixed; inset: 0; z-index: 10; background: var(--bg); color: var(--fg);
-    font: bold 18px "Courier New", Courier, monospace; text-align: center; place-content: center; gap: 16px; padding: 24px; }
-  #rotate b { color: var(--accent); font-size: 44px; display: block; }
-  @media (orientation: portrait) and (pointer: coarse) { #rotate { display: grid; } }
 </style>
 <div id="game"><div id="msg"><b>ASHEN ATLAS</b>caricamento…</div></div>
-<div id="rotate"><b>⟳</b>RUOTA IL TELEFONO<br />Ashen Atlas si gioca in orizzontale</div>
 <script>
   window.addEventListener('error', function (e) {
     var m = document.getElementById('msg') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'msg' }));
