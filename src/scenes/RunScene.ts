@@ -3,6 +3,7 @@ import { BALANCE, type Resource, type UnitType } from '../config/balance';
 import { RESOURCE_INFO } from '../game/resources';
 import { runOptions, settle, type RunOptions } from '../game/camp';
 import { loadProfile, saveProfile } from '../save/storage';
+import { analytics } from '../analytics/analytics';
 import { PALETTE } from '../config/palette';
 import { generateMap, type RunMap } from '../map/generate';
 import { NEIGHBORS, WORLD_H, WORLD_W, center, corners, hexDistance, pixelToIndex } from '../map/hexGrid';
@@ -51,6 +52,8 @@ export class RunScene extends Phaser.Scene {
   private dragMode: 'pan' | 'paint' = 'pan';
   private lastMid: { x: number; y: number } | null = null;
   private lastPainted = -1;
+  /** quante volte si usa ogni controllo (va in analytics a fine run) */
+  private usage = { tocchi: 0, avanzate: 0, pittura: 0, pedine: 0 };
   private ending = false;
   // pedine
   selectedCard: UnitType | null = null;
@@ -75,14 +78,18 @@ export class RunScene extends Phaser.Scene {
     const opts = data.opts ?? runOptions(profile);
     this.map = generateMap(data.seed, this.registry.get('landMask'), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count);
     this.state = new RunState(this.map, opts);
+    analytics.runStart(opts.tutorial, data.seed);
+    this.usage = { tocchi: 0, avanzate: 0, pittura: 0, pedine: 0 };
     this.nextMilestone = 0;
     this.tapFxTile = -1;
     this.labels = [];
     this.lastAffordable = '';
     this.cameras.main.setBackgroundColor(PALETTE.oceano);
 
+    const before = this.children.list.length;
     this.drawGraticule();
     this.drawTerrain();
+    this.bakeStatic(this.children.list.slice(before));
     this.ownedGfx = this.add.graphics();
     this.drawAnomalies();
     this.stormGfx = this.add.graphics();
@@ -199,6 +206,23 @@ export class RunScene extends Phaser.Scene {
 
   private hexPath(g: Phaser.GameObjects.Graphics, x: number, y: number, size: number) {
     g.fillPoints(corners(x, y, size), true);
+  }
+
+  /**
+   * Mare, griglia, terreno e coste non cambiano mai: li disegniamo una volta in una texture invece di ridisegnare
+   * migliaia di esagoni a ogni fotogramma (fondamentale sui telefoni economici).
+   */
+  private bakeStatic(objs: Phaser.GameObjects.GameObject[]) {
+    const M = 12;
+    const renderer = this.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+    const maxTex = typeof renderer.getMaxTextureSize === 'function' ? renderer.getMaxTextureSize() : 4096;
+    const f = Math.max(0.5, Math.min(1.6, (maxTex - 16) / (WORLD_W + 2 * M), (maxTex - 16) / (WORLD_H + 2 * M)));
+    const holder = this.add.container(M * f, M * f, objs).setScale(f);
+    const rt = this.add.renderTexture(-M, -M, Math.ceil((WORLD_W + 2 * M) * f), Math.ceil((WORLD_H + 2 * M) * f))
+      .setOrigin(0).setScale(1 / f);
+    rt.draw(holder);
+    holder.destroy(true);
+    this.children.sendToBack(rt);
   }
 
   private drawGraticule() {
@@ -419,6 +443,8 @@ export class RunScene extends Phaser.Scene {
       this.conquestFx(x, y, BALANCE.units[t].cost, 0);
       this.selectUnit(u.id);
       this.hud.tutorialSignal('deploy');
+      this.usage.pedine++;
+      analytics.design(['pedina', t]);
       return;
     }
     const mine = this.state.unitAt(i);
@@ -447,12 +473,14 @@ export class RunScene extends Phaser.Scene {
         this.flowMarker.setPosition(x, y).setVisible(true);
         this.floatText(x, y - 6, 'avanzata!', PALETTE.carta);
         this.hud.tutorialSignal('flow');
+        this.usage.avanzate++;
         return;
       }
     }
 
     const res = this.state.tryConquer(i);
     if (res.ok) {
+      this.usage.tocchi++;
       this.tapFxTile = i;
       this.redrawOwned();
       this.redrawFrontier(true);
@@ -473,6 +501,7 @@ export class RunScene extends Phaser.Scene {
     this.selectedCard = null;
     this.selectUnit(null);
     this.hud.showEnd(this.state.over!, this.state.victoryReason);
+    for (const [k, v] of Object.entries(this.usage)) analytics.design(['controlli', k], v);
     this.time.delayedCall(BALANCE.end.resultDelayMs, () => {
       this.scene.stop('Hud');
       this.scene.start('Result', this.state.summary());
@@ -769,6 +798,7 @@ export class RunScene extends Phaser.Scene {
       if (!this.state.isFrontier(i) || this.state.troops <= this.state.defenseOf(i)) continue;
       const res = this.state.tryConquer(i);
       if (res.ok) {
+        this.usage.pittura++;
         this.hud.onConquest(res.loot);
         this.hud.tutorialSignal('paint');
         if (res.loot) this.floatText(center(i).x, center(i).y, `+${res.loot} ${RESOURCE_INFO[res.lootType].name.toLowerCase()}`, RESOURCE_INFO[res.lootType].color);

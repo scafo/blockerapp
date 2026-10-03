@@ -8,6 +8,8 @@ import { UNIT_TYPES } from '../game/units';
 import type { GameEvent } from '../game/events';
 import { EventCard } from '../ui/EventCard';
 import { TutorialGuide, type GuideSignal } from '../ui/TutorialGuide';
+import { analytics } from '../analytics/analytics';
+import { fpsEnabled } from '../ui/debug';
 import { Button } from '../ui/Button';
 import { CARD_H, CARD_W, UnitCard } from '../ui/UnitCard';
 import { drawResourceIcon } from '../ui/resourceIcons';
@@ -50,6 +52,7 @@ export class HudScene extends Phaser.Scene {
   private ended = false;
   private eventCard: EventCard | null = null;
   private guide: TutorialGuide | null = null;
+  private fps: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super('Hud');
@@ -115,6 +118,10 @@ export class HudScene extends Phaser.Scene {
       });
     }
 
+    // ?fps=1 → contatore per il test sui telefoni economici
+    this.fps = fpsEnabled()
+      ? this.add.text(PAD, PAD + LEFT_H + 6, '', textStyle(12, PALETTE.radioattivo)).setBackgroundColor('#2b2118').setDepth(60) : null;
+
     this.layout();
     this.scale.on('resize', this.layout, this);
     this.events.once('shutdown', () => this.scale.off('resize', this.layout, this));
@@ -178,6 +185,7 @@ export class HudScene extends Phaser.Scene {
     const st = this.run.state;
     if (!st) return;
     if (!this.ended) this.guide?.update();
+    this.fps?.setText(`${Math.round(this.game.loop.actualFps)} fps`);
     const t = Math.floor(st.troops);
     if (t !== this.shownTroops) {
       this.shownTroops = t;
@@ -252,6 +260,7 @@ export class HudScene extends Phaser.Scene {
     const st = this.run.state;
     this.eventCard = new EventCard(this, ev, (c) => st.canChoose(c), (side) => {
       const msg = st.choose(side);
+      analytics.design(['evento', ev.id, side]);
       this.eventCard = null;
       if (msg) this.toast(msg, PALETTE.carta);
     });

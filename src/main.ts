@@ -1,10 +1,13 @@
 import Phaser from 'phaser';
+import { analytics } from './analytics/analytics';
 import { PALETTE } from './config/palette';
 import { BootScene } from './scenes/BootScene';
 import { CampScene } from './scenes/CampScene';
 import { HudScene } from './scenes/HudScene';
 import { ResultScene } from './scenes/ResultScene';
 import { RunScene } from './scenes/RunScene';
+
+analytics.init();
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,

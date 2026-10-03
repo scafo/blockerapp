@@ -10,6 +10,8 @@ import { FACTION_INFO } from '../game/factions';
 import { RESOURCES, RESOURCE_INFO, type Bag } from '../game/resources';
 import { randomSeed } from '../map/rng';
 import { loadProfile, saveProfile, type BuildingId, type ExpeditionKind, type Profile } from '../save/storage';
+import { analytics } from '../analytics/analytics';
+import { FPS_KEY, fpsEnabled } from '../ui/debug';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
@@ -105,6 +107,7 @@ export class CampScene extends Phaser.Scene {
       this.burst.setParticleTint(PALETTE.ocra);
       this.burst.explode(30, spot.x, this.groundY - 40 * this.k);
       const lvl = this.profile.buildings[done];
+      analytics.design(['accampamento', 'completato', done], lvl);
       this.toast(`${buildingText[done].name.toUpperCase()} LIV. ${lvl} COMPLETATA\n${buildingText[done].levels[lvl - 1]}`, PALETTE.radioattivo);
     }
     if (first) {
@@ -307,7 +310,20 @@ export class CampScene extends Phaser.Scene {
       return this.add.text(PAD + 30 + i * 76, PAD + 36, '0', textStyle(15, PALETTE.carta)).setOrigin(0, 0.5);
     });
     // titolo in alto a destra
-    this.add.text(width - PAD, PAD + 4, 'ASHEN ATLAS', textStyle(20, INK)).setOrigin(1, 0);
+    // 5 tocchi sul titolo = contatore FPS nelle run (per i test sui telefoni economici, anche dentro l'app)
+    let taps = 0;
+    this.add.text(width - PAD, PAD + 4, 'ASHEN ATLAS', textStyle(20, INK)).setOrigin(1, 0)
+      .setInteractive().on('pointerup', () => {
+        if (++taps < 5) return;
+        taps = 0;
+        const on = !fpsEnabled();
+        try {
+          localStorage.setItem(FPS_KEY, on ? '1' : '0');
+        } catch {
+          /* niente storage: pazienza */
+        }
+        this.toast(on ? 'Contatore FPS attivo nelle run' : 'Contatore FPS spento', PALETTE.carta);
+      });
     const p = this.profile;
     this.add.text(width - PAD, PAD + 30, `accampamento · ${p.wins} vittorie su ${p.runs} run`, textStyle(11, PALETTE.ruggine, false)).setOrigin(1, 0);
     // GIOCA in basso a destra
@@ -351,8 +367,11 @@ export class CampScene extends Phaser.Scene {
         items.push(this.add.text(x0 + 16, y0 + 96, 'Il camion è tornato carico!', textStyle(14, 0x1e7a62)));
         items.push(this.bagRow(e.reward, x0 + 16, y0 + 128));
         items.push(this.btn('RITIRA IL BOTTINO', x0 + 16, y0 + H - 60, W - 32, true, () => {
+          const kind = this.profile.expedition?.kind ?? 'breve';
           const got = collectExpedition(this.profile, Date.now());
           if (!got) return;
+          analytics.design(['spedizione', 'ritira', kind]); // % che torna a ritirare
+          analytics.resources('source', got, 'spedizione', kind);
           saveProfile(this.profile);
           this.closePanel();
           this.redrawSpot('spedizione');
@@ -370,6 +389,7 @@ export class CampScene extends Phaser.Scene {
           const lbl = `${T.kinds[kind]} · ${fmtTime(E.timeSec * 1000)} · ${cost ? `${cost} viveri` : 'gratis'}`;
           items.push(this.btn(lbl, x0 + 16, y0 + 92 + i * 52, W - 32, ok, () => {
             if (!startExpedition(this.profile, kind, Date.now())) return;
+            analytics.design(['spedizione', 'parti', kind]);
             saveProfile(this.profile);
             this.closePanel();
             this.redrawSpot('spedizione');
@@ -405,6 +425,8 @@ export class CampScene extends Phaser.Scene {
         const lbl = block ? why[block] : `${lvl ? 'MIGLIORA' : 'COSTRUISCI'} · ${fmtTime(next.timeSec * 1000)}`;
         items.push(this.btn(lbl.toUpperCase(), x0 + 16, y0 + H - 54, W - 32, !block, () => {
           if (!startBuild(this.profile, spot, Date.now())) return;
+          analytics.design(['accampamento', 'costruisci', spot], lvl + 1);
+          analytics.resources('sink', next.cost, 'edificio', spot);
           saveProfile(this.profile);
           this.closePanel();
           this.redrawSpot(spot);

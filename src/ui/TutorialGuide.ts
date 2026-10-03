@@ -5,6 +5,7 @@ import { PALETTE } from '../config/palette';
 import { PLAYER, type RunState } from '../game/RunState';
 import { hexDistance } from '../map/hexGrid';
 import { textStyle } from './style';
+import { analytics } from '../analytics/analytics';
 
 export type GuideSignal = 'conquer' | 'flow' | 'paint' | 'deploy' | 'order';
 type Step = 'tap' | 'troops' | 'flow' | 'paint' | 'unit' | 'order' | 'goal';
@@ -49,6 +50,7 @@ export class TutorialGuide {
   }
 
   private go(step: Step) {
+    analytics.design(['tutorial', step]); // dove si fermano i nuovi giocatori
     this.step = step;
     this.stepAt = this.scene.time.now;
     this.flowTarget = -1;

@@ -5,6 +5,7 @@ import bulletins from '../data/bulletins.json';
 import { RESOURCES, RESOURCE_INFO, addBag } from '../game/resources';
 import type { RunSummary } from '../game/RunState';
 import { loadProfile, saveProfile } from '../save/storage';
+import { analytics } from '../analytics/analytics';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
@@ -31,6 +32,8 @@ export class ResultScene extends Phaser.Scene {
     if (sum.outcome === 'victory') profile.wins++;
     profile.bestTiles = Math.max(profile.bestTiles, sum.maxTiles);
     saveProfile(profile);
+    analytics.runEnd(sum.outcome, sum.reason, sum.maxTiles, sum.timeMs, sum.seed);
+    analytics.resources('source', sum.kept, 'run', sum.outcome);
 
     const { width, height } = this.scale;
     this.cameras.main.setBackgroundColor(PALETTE.inchiostro);
@@ -70,7 +73,10 @@ export class ResultScene extends Phaser.Scene {
     this.add.text(cx, y0 + 236, `Scorta dell'accampamento: ${s.rottami} rottami · ${s.carburante} carburante · ${s.viveri} viveri`,
       textStyle(11, ink, false)).setOrigin(0.5);
 
-    const again = new Button(this, 'RIVINCITA STESSA MAPPA', 250, 46, () => this.scene.start('Run', { seed: sum.seed }));
+    const again = new Button(this, 'RIVINCITA STESSA MAPPA', 250, 46, () => {
+      analytics.design(['run', 'rivincita', sum.outcome]); // % rivincita dopo una sconfitta
+      this.scene.start('Run', { seed: sum.seed });
+    });
     const fresh = new Button(this, 'ACCAMPAMENTO', 170, 46, () => this.scene.start('Camp'));
     const bw = 250 + 12 + 170;
     again.setPosition(cx - bw / 2, y0 + H - 46 - 16);
