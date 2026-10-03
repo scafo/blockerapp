@@ -21,6 +21,7 @@ export interface Unit {
   owner: number;
   tile: number;
   hp: number;
+  maxHp: number;
   path: number[]; // prossime caselle (esclusa quella attuale)
   moveAcc: number;
   inCombat: boolean;

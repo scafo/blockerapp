@@ -3,6 +3,8 @@ import { BALANCE, type Resource, type UnitType } from '../config/balance';
 import { addBag, emptyBag, scaleBag, type Bag } from './resources';
 import { NEIGHBORS, hexDistance } from '../map/hexGrid';
 import { findPath, rps, type Unit } from './units';
+import { DEFAULT_OPTIONS, type RunOptions } from './camp';
+import { EVENTS, type EventChoice, type EventEffects, type GameEvent } from './events';
 import { createRng, type Rng } from '../map/rng';
 import type { RunMap, Tile } from '../map/generate';
 
@@ -21,6 +23,7 @@ export interface Faction {
 export type RunEvent =
   | { type: 'conquer'; by: number; from: number; i: number; cost: number; loot: number; lootType: Resource; unit?: number }
   | { type: 'storm'; phase: 'warn' | 'start' }
+  | { type: 'event'; event: GameEvent }
   | { type: 'unitDied'; unit: Unit }
   | { type: 'eliminated'; faction: number; by: number; loot: Bag };
 
@@ -54,6 +57,14 @@ export class RunState {
   private stormDist: Int16Array;
   private stormMaxR = 0;
   private stormPhase: 'none' | 'warn' | 'active' = 'none';
+  private stormDelayMs = 0;
+  // eventi
+  pendingEvent: GameEvent | null = null;
+  private nextEventAt: number = BALANCE.events.firstMs;
+  private seenEvents = new Set<string>();
+  private evRng: Rng;
+  private growthBoost = { mult: 1, until: 0 };
+  private anomalyDefMult = 1;
   units: Unit[] = [];
   /** fazione → tipo → tempo di gioco in cui la carta torna disponibile */
   readonly cooldowns: Record<UnitType, number>[];
@@ -65,9 +76,10 @@ export class RunState {
   private frontierCache = new Map<number, number[]>();
   private aiRng: Rng;
 
-  constructor(readonly map: RunMap) {
+  constructor(readonly map: RunMap, readonly opts: RunOptions = DEFAULT_OPTIONS) {
     this.owner = new Int8Array(map.tiles.length).fill(NEUTRAL);
     this.aiRng = createRng(map.seed + ':ia');
+    this.evRng = createRng(map.seed + ':eventi');
     this.factions = map.starts.map((_, id) => ({
       id,
       troops: id === PLAYER ? BALANCE.start.troops : BALANCE.ai.startTroops,
@@ -135,7 +147,7 @@ export class RunState {
 
   /** Avanza il tempo; ritorna quanti tick sono scattati. */
   update(deltaMs: number): number {
-    if (this.over) return 0;
+    if (this.over || this.pendingEvent) return 0; // con una carta evento aperta la run è in pausa
     const dt = deltaMs * this.speed;
     this.gameTimeMs += dt;
     this.tickAcc += dt;
@@ -149,23 +161,28 @@ export class RunState {
   }
 
   private growth(f: Faction): number {
-    const mult = f.id === PLAYER ? 1 : BALANCE.ai.growthMult;
+    const boost = this.gameTimeMs < this.growthBoost.until ? this.growthBoost.mult : 1;
+    const mult = f.id === PLAYER ? boost : BALANCE.ai.growthMult;
     return f.tiles * BALANCE.tick.troopsPerTile * mult;
   }
 
   // ---------- tempesta ----------
 
+  get stormStartMs(): number {
+    return BALANCE.storm.startMs + this.stormDelayMs;
+  }
+
   /** Raggio sicuro attuale attorno all'occhio (Infinity prima dell'arrivo). */
   get stormRadius(): number {
     const S = BALANCE.storm;
-    if (this.gameTimeMs < S.startMs) return Infinity;
-    const k = Math.min(1, (this.gameTimeMs - S.startMs) / S.durationMs);
+    if (this.gameTimeMs < this.stormStartMs) return Infinity;
+    const k = Math.min(1, (this.gameTimeMs - this.stormStartMs) / S.durationMs);
     return this.stormMaxR + (S.finalRadius - this.stormMaxR) * k;
   }
 
   /** ms di gioco all'arrivo della tempesta (negativo = già arrivata). */
   get stormIn(): number {
-    return BALANCE.storm.startMs - this.gameTimeMs;
+    return this.stormStartMs - this.gameTimeMs;
   }
 
   inStorm(i: number): boolean {
@@ -174,7 +191,7 @@ export class RunState {
 
   private stormTick() {
     const S = BALANCE.storm;
-    if (this.stormPhase === 'none' && this.stormIn <= S.warnMs) {
+    if (this.stormPhase === 'none' && this.stormIn <= S.warnMs + this.opts.warnBonusMs) {
       this.stormPhase = 'warn';
       this.events.push({ type: 'storm', phase: 'warn' });
     }
@@ -198,7 +215,7 @@ export class RunState {
     for (const u of this.units) if (this.stormed[u.tile]) u.hp -= S.unitDamage;
     this.removeDead();
     if (this.over) return;
-    if (this.gameTimeMs >= S.startMs + S.durationMs) {
+    if (this.gameTimeMs >= this.stormStartMs + S.durationMs) {
       // la tempesta è arrivata: vince chi ha più territorio
       const best = Math.max(...this.factions.filter((f) => f.alive).map((f) => f.tiles));
       this.end(this.player.tiles >= best ? 'victory' : 'storm', 'storm');
@@ -234,7 +251,7 @@ export class RunState {
     const outcome = this.over ?? 'retreat';
     const bag = this.player.loot;
     const k = outcome === 'victory' ? 1 + BALANCE.victory.bonus
-      : outcome === 'retreat' ? 1 : 1 - BALANCE.end.eliminatedLoss;
+      : outcome === 'retreat' ? 1 + this.opts.retreatBonus : 1 - this.opts.eliminatedLoss;
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
       maxTiles: this.player.maxTiles, anomalies: this.anomaliesOwned(), backpack: { ...bag }, kept: scaleBag(bag, k),
@@ -253,6 +270,64 @@ export class RunState {
     this.unitsTick();
     this.stormTick();
     this.checkVictory();
+    this.eventTick();
+  }
+
+  // ---------- eventi ----------
+
+  private eventTick() {
+    if (this.over || this.opts.events <= 0 || this.gameTimeMs < this.nextEventAt) return;
+    const E = BALANCE.events;
+    this.nextEventAt = this.gameTimeMs + E.everyMs + (this.evRng() * 2 - 1) * E.jitterMs;
+    const pool = EVENTS.filter((e) => !this.seenEvents.has(e.id) && (!e.rare || this.opts.events >= 2));
+    if (!pool.length) return;
+    // i rari, quando ammessi, escono un po' più spesso: è la Radio che li cerca
+    const rare = pool.filter((e) => e.rare);
+    const ev = rare.length && this.evRng() < 0.35 ? rare[Math.floor(this.evRng() * rare.length)] : pool[Math.floor(this.evRng() * pool.length)];
+    this.seenEvents.add(ev.id);
+    this.pendingEvent = ev;
+    this.events.push({ type: 'event', event: ev });
+  }
+
+  /** La scelta è possibile? (costi in truppe o risorse coperti) */
+  canChoose(c: EventChoice): boolean {
+    const fx = c.effects;
+    if (fx.troops && fx.troops < 0 && this.troops <= -fx.troops) return false;
+    if (fx.loot) for (const [r, v] of Object.entries(fx.loot)) if (v < 0 && this.backpack[r as Resource] < -v) return false;
+    return true;
+  }
+
+  /** Applica la scelta dell'evento aperto e riprende la run; ritorna il testo del risultato. */
+  choose(side: 'left' | 'right'): string {
+    const ev = this.pendingEvent;
+    if (!ev) return '';
+    const c = ev[side];
+    if (!this.canChoose(c)) return '';
+    const success = c.chance === undefined || this.evRng() < c.chance;
+    this.applyEffects(success ? c.effects : c.fail ?? {});
+    this.pendingEvent = null;
+    return success ? c.result : c.failResult ?? c.result;
+  }
+
+  private applyEffects(fx: EventEffects) {
+    const p = this.player;
+    if (fx.troops) p.troops = Math.max(0, p.troops + fx.troops);
+    if (fx.loot) for (const [r, v] of Object.entries(fx.loot)) p.loot[r as Resource] = Math.max(0, p.loot[r as Resource] + v);
+    if (fx.growth) this.growthBoost = { mult: fx.growth.mult, until: this.gameTimeMs + fx.growth.durationMs };
+    if (fx.anomalyDefense) this.anomalyDefMult *= fx.anomalyDefense;
+    if (fx.stormDelayMs) this.stormDelayMs += fx.stormDelayMs;
+    if (fx.unit) {
+      // pedina gratuita su una nostra casella di confine; se non c'è posto, valore in truppe
+      const border = [];
+      for (let i = 0; i < this.owner.length; i++) {
+        if (this.owner[i] === PLAYER && !this.unitAt(i) && NEIGHBORS[i].some((n) => n >= 0 && this.owner[n] !== PLAYER)) border.push(i);
+      }
+      if (border.length && this.unitsOf(PLAYER).length < BALANCE.units.maxPerFaction) {
+        this.deploy(PLAYER, fx.unit, border[Math.floor(this.evRng() * border.length)], true);
+      } else {
+        p.troops += BALANCE.units[fx.unit].cost;
+      }
+    }
   }
 
   // ---------- pedine ----------
@@ -266,7 +341,8 @@ export class RunState {
   }
 
   /** Perché non si può schierare (null = si può). */
-  deployBlock(f: number, type: UnitType, i?: number): null | 'cooldown' | 'troops' | 'cap' | 'tile' {
+  deployBlock(f: number, type: UnitType, i?: number): null | 'locked' | 'cooldown' | 'troops' | 'cap' | 'tile' {
+    if (f === PLAYER && !this.opts.units.includes(type)) return 'locked';
     if (this.gameTimeMs < this.cooldowns[f][type]) return 'cooldown';
     if (this.unitsOf(f).length >= BALANCE.units.maxPerFaction) return 'cap';
     if (this.factions[f].troops < BALANCE.units[type].cost) return 'troops';
@@ -274,12 +350,15 @@ export class RunState {
     return null;
   }
 
-  deploy(f: number, type: UnitType, i: number): Unit | null {
-    if (this.deployBlock(f, type, i)) return null;
-    this.factions[f].troops -= BALANCE.units[type].cost;
-    this.cooldowns[f][type] = this.gameTimeMs + BALANCE.units.cooldownMs;
+  deploy(f: number, type: UnitType, i: number, free = false): Unit | null {
+    if (!free && this.deployBlock(f, type, i)) return null;
+    if (!free) {
+      this.factions[f].troops -= BALANCE.units[type].cost;
+      this.cooldowns[f][type] = this.gameTimeMs + BALANCE.units.cooldownMs;
+    }
+    const maxHp = BALANCE.units[type].hp * (f === PLAYER ? this.opts.unitHpMult : 1);
     const u: Unit = {
-      id: this.nextUnitId++, type, owner: f, tile: i, hp: BALANCE.units[type].hp,
+      id: this.nextUnitId++, type, owner: f, tile: i, hp: maxHp, maxHp,
       path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs,
     };
     this.units.push(u);
@@ -333,7 +412,7 @@ export class RunState {
         u.hp -= this.defenseOf(u.tile) * stats.captureCost;
         if (u.hp > 0) this.transfer(u.owner, u.tile, 0, u.id);
       } else if (!u.inCombat) {
-        u.hp = Math.min(stats.hp, u.hp + U.healPerTick);
+        u.hp = Math.min(u.maxHp, u.hp + U.healPerTick);
       }
     }
     this.removeDead();
@@ -416,10 +495,11 @@ export class RunState {
   defenseOf(i: number): number {
     const t = this.map.tiles[i]!;
     const o = this.owner[i];
-    if (o === NEUTRAL) return t.defense;
+    const base = t.type === 'anomalia' ? Math.ceil(t.defense * this.anomalyDefMult) : t.defense;
+    if (o === NEUTRAL) return base;
     const f = this.factions[o];
     const garrison = Math.min((f.troops / Math.max(1, f.tiles)) * BALANCE.owned.garrison, BALANCE.owned.garrisonMax);
-    return Math.ceil(t.defense * BALANCE.owned.defenseMult + garrison);
+    return Math.ceil(base * BALANCE.owned.defenseMult + garrison);
   }
 
   isFrontier(i: number, f = PLAYER): boolean {

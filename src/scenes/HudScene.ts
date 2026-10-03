@@ -5,6 +5,8 @@ import { PLAYER, type Outcome, type VictoryReason } from '../game/RunState';
 import { FACTION_INFO } from '../game/factions';
 import { RESOURCES, bagTotal, type Bag } from '../game/resources';
 import { UNIT_TYPES } from '../game/units';
+import type { GameEvent } from '../game/events';
+import { EventCard } from '../ui/EventCard';
 import { Button } from '../ui/Button';
 import { CARD_H, CARD_W, UnitCard } from '../ui/UnitCard';
 import { drawResourceIcon } from '../ui/resourceIcons';
@@ -45,6 +47,7 @@ export class HudScene extends Phaser.Scene {
   private cards: UnitCard[] = [];
   private shownTroops = -1;
   private ended = false;
+  private eventCard: EventCard | null = null;
 
   constructor() {
     super('Hud');
@@ -59,6 +62,7 @@ export class HudScene extends Phaser.Scene {
     this.aliveKey = '';
     this.ended = false;
     this.retreatArmed = null;
+    this.eventCard = null;
 
     // pannello sinistro: truppe, territorio/obiettivi, zaino, tempesta
     this.leftPanel = this.add.rectangle(PAD, PAD, LEFT_W, LEFT_H, PALETTE.inchiostro, 0.88).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
@@ -84,7 +88,8 @@ export class HudScene extends Phaser.Scene {
       .setOrigin(0.5, 0).setAlign('center').setBackgroundColor('#2b2118').setPadding(10, 6, 10, 6);
 
     // comandi: carte in basso a sinistra; ritirata e velocità in basso a destra
-    this.cards = UNIT_TYPES.map((t) => new UnitCard(this, t, () => this.onCard(t)));
+    // solo le unità sbloccate dalla Fucina
+    this.cards = UNIT_TYPES.filter((t) => this.run.state.opts.units.includes(t)).map((t) => new UnitCard(this, t, () => this.onCard(t)));
     this.speedBtn = new Button(this, 'x1', 56, 44, () => {
       const sp = BALANCE.speeds as readonly number[];
       this.setSpeed(sp[(sp.indexOf(this.run.state.speed) + 1) % sp.length]);
@@ -121,7 +126,7 @@ export class HudScene extends Phaser.Scene {
   private onCard(t: UnitType) {
     const block = this.run.toggleCard(t);
     if (!block) return;
-    const msg = ({ cooldown: 'carta in ricarica', troops: 'truppe insufficienti', cap: 'massimo pedine in campo', tile: '' } as const)[block];
+    const msg = ({ locked: 'serve la Fucina', cooldown: 'carta in ricarica', troops: 'truppe insufficienti', cap: 'massimo pedine in campo', tile: '' } as const)[block];
     const card = this.cards.find((c) => c.type === t)!;
     this.tweens.add({ targets: card, x: card.x + 4, duration: 50, yoyo: true, repeat: 2 });
     if (msg) this.toast(msg, PALETTE.ko);
@@ -221,6 +226,16 @@ export class HudScene extends Phaser.Scene {
     this.tweens.add({ targets: t, alpha: 0, delay: 2600, duration: 400, onComplete: () => t.destroy() });
   }
 
+  /** Carta evento: la run resta in pausa finché non scegli. */
+  showEvent(ev: GameEvent) {
+    const st = this.run.state;
+    this.eventCard = new EventCard(this, ev, (c) => st.canChoose(c), (side) => {
+      const msg = st.choose(side);
+      this.eventCard = null;
+      if (msg) this.toast(msg, PALETTE.carta);
+    });
+  }
+
   /** Cartello di fine run, mostrato prima della schermata finale. */
   showEnd(outcome: Outcome, reason?: VictoryReason) {
     this.ended = true;
@@ -246,7 +261,7 @@ export class HudScene extends Phaser.Scene {
 
   /** true se il punto (schermo) cade su un elemento dell'HUD. */
   hitUi(x: number, y: number): boolean {
-    if (this.ended) return true;
+    if (this.ended || this.eventCard) return true;
     const inRect = (r: Phaser.GameObjects.Rectangle) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
     if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
     return [this.speedBtn, this.retreatBtn, ...this.cards].some((b) => b.contains(x, y));

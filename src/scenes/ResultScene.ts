@@ -4,7 +4,6 @@ import { PALETTE } from '../config/palette';
 import bulletins from '../data/bulletins.json';
 import { RESOURCES, RESOURCE_INFO, addBag } from '../game/resources';
 import type { RunSummary } from '../game/RunState';
-import { randomSeed } from '../map/rng';
 import { loadProfile, saveProfile } from '../save/storage';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
@@ -72,7 +71,7 @@ export class ResultScene extends Phaser.Scene {
       textStyle(11, ink, false)).setOrigin(0.5);
 
     const again = new Button(this, 'RIVINCITA STESSA MAPPA', 250, 46, () => this.scene.start('Run', { seed: sum.seed }));
-    const fresh = new Button(this, 'NUOVA MAPPA', 170, 46, () => this.scene.start('Run', { seed: randomSeed() }));
+    const fresh = new Button(this, 'ACCAMPAMENTO', 170, 46, () => this.scene.start('Camp'));
     const bw = 250 + 12 + 170;
     again.setPosition(cx - bw / 2, y0 + H - 46 - 16);
     fresh.setPosition(cx - bw / 2 + 262, y0 + H - 46 - 16);

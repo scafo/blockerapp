@@ -97,6 +97,46 @@ export const BALANCE = {
     finalRadius: 3,
     unitDamage: 6, // hp per tick alle pedine nella cenere
   },
+  // Eventi stile Reigns (servono la Radio): una carta con 2 scelte, la run è in pausa mentre è aperta.
+  events: {
+    firstMs: 45_000,
+    everyMs: 90_000,
+    jitterMs: 15_000,
+  },
+  // Accampamento: 1 cantiere alla volta, timer in tempo reale (secondi). I timer non bloccano mai le run.
+  camp: {
+    buildings: {
+      fucina: [
+        { cost: { rottami: 40, carburante: 10, viveri: 0 }, timeSec: 60 },
+        { cost: { rottami: 120, carburante: 40, viveri: 0 }, timeSec: 180 },
+        { cost: { rottami: 250, carburante: 90, viveri: 0 }, timeSec: 300 },
+      ],
+      radio: [
+        { cost: { rottami: 30, carburante: 0, viveri: 15 }, timeSec: 60 },
+        { cost: { rottami: 90, carburante: 20, viveri: 40 }, timeSec: 180 },
+        { cost: { rottami: 200, carburante: 60, viveri: 80 }, timeSec: 300 },
+      ],
+      magazzino: [
+        { cost: { rottami: 50, carburante: 0, viveri: 20 }, timeSec: 90 },
+        { cost: { rottami: 140, carburante: 0, viveri: 60 }, timeSec: 240 },
+        { cost: { rottami: 260, carburante: 60, viveri: 120 }, timeSec: 300 },
+      ],
+    },
+    // effetti per livello (indice = livello, 0 = non costruito)
+    fucinaUnits: [['fanteria'], ['fanteria', 'raider'], ['fanteria', 'raider', 'artiglieria'], ['fanteria', 'raider', 'artiglieria']],
+    fucinaHpMult: [1, 1, 1, 1.25],
+    radioEvents: [0, 1, 2, 2], // 0 = niente eventi, 1 = comuni, 2 = anche rari
+    radioWarnBonusMs: [0, 0, 0, 30_000],
+    magazzinoLoss: [0.7, 0.4, 0.25, 0.25],
+    magazzinoRetreatBonus: [0, 0, 0, 0.1], // +10% zaino in ritirata al liv. 3
+    expeditions: {
+      breve: { timeSec: 30 * 60, cost: 0, rottami: [15, 30], carburante: [3, 8], viveri: [5, 10] },
+      media: { timeSec: 4 * 3600, cost: 15, rottami: [80, 140], carburante: [20, 40], viveri: [10, 25] },
+      lunga: { timeSec: 8 * 3600, cost: 30, rottami: [160, 260], carburante: [45, 80], viveri: [25, 50] },
+    },
+    tentsBase: 2, // tende all'inizio; +1 ogni 2 run, fino a tentsMax
+    tentsMax: 7,
+  },
   end: {
     eliminatedLoss: 0.7, // zaino perso se eliminato (o travolto dalla tempesta)
     resultDelayMs: 1200, // pausa prima della schermata finale

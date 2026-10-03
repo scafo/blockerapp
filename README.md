@@ -14,7 +14,7 @@ npm run check:land # verifica la maschera terra contro d3 geoContains (se cambi 
 npx vite-node scripts/sim.ts 1 6 1 # simula run senza grafica per tarare balance.ts
 ```
 
-- `?seed=abc123` nell'URL → mappa riproducibile.
+- `?seed=abc123` nell'URL → salta l'accampamento e apre quella mappa.
 - Controlli: tap = attacca, trascina = sposta, pinch/rotella = zoom.
 - Pedine: tocca una carta → un tuo territorio; tocca una pedina → una destinazione.
 
@@ -25,6 +25,6 @@ npx vite-node scripts/sim.ts 1 6 1 # simula run senza grafica per tarare balance
 | 1. Mappa + conquista a tap | ✅ |
 | 2. IA + combattimento + unità | ✅ (pedine sulla mappa) |
 | 3. Zaino, ritirata, tempesta, schermata finale | ✅ |
-| 4. Accampamento + eventi | — |
+| 4. Accampamento + eventi | ✅ |
 | 5. Juice, onboarding, estetica placeholder | — |
 | 6. Analytics + build Capacitor + test Android | — |

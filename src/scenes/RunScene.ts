@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { BALANCE, type Resource, type UnitType } from '../config/balance';
 import { RESOURCE_INFO } from '../game/resources';
+import { runOptions, settle, type RunOptions } from '../game/camp';
+import { loadProfile, saveProfile } from '../save/storage';
 import { PALETTE } from '../config/palette';
 import { generateMap, type RunMap } from '../map/generate';
 import { NEIGHBORS, WORLD_H, WORLD_W, center, corners, hexDistance, pixelToIndex } from '../map/hexGrid';
@@ -54,9 +56,12 @@ export class RunScene extends Phaser.Scene {
     super('Run');
   }
 
-  create(data: { seed: string }) {
+  create(data: { seed: string; opts?: RunOptions }) {
     this.map = generateMap(data.seed, this.registry.get('landMask'));
-    this.state = new RunState(this.map);
+    // l'accampamento decide cosa è sbloccato in questa run
+    const profile = loadProfile();
+    if (settle(profile, Date.now())) saveProfile(profile);
+    this.state = new RunState(this.map, data.opts ?? runOptions(profile));
     this.labels = [];
     this.lastAffordable = '';
     this.cameras.main.setBackgroundColor(PALETTE.oceano);
@@ -112,6 +117,10 @@ export class RunScene extends Phaser.Scene {
         }
       } else if (e.type === 'unitDied') {
         this.unitDeathFx(e.unit);
+      } else if (e.type === 'event') {
+        this.selectedCard = null;
+        this.selectUnit(null);
+        this.hud.showEvent(e.event);
       } else if (e.type === 'storm') {
         this.hud.onStorm(e.phase);
       } else {
@@ -471,7 +480,7 @@ export class RunScene extends Phaser.Scene {
         const dur = Math.min(400, BALANCE.units[u.type].moveMs / this.state.speed);
         this.tweens.add({ targets: sp.c, x, y, duration: dur, ease: 'Sine.easeInOut' });
       }
-      const hpPct = Math.round((u.hp / BALANCE.units[u.type].hp) * 10);
+      const hpPct = Math.round((u.hp / u.maxHp) * 10);
       if (hpPct !== sp.hpShown) {
         sp.hpShown = hpPct;
         sp.hp.clear().fillStyle(PALETTE.inchiostro, 0.9).fillRect(-S * 0.7, S * 0.82, S * 1.4, 2.6);

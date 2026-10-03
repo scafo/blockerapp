@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import { PALETTE } from '../config/palette';
 import { buildLandMask } from '../map/landMask';
-import { randomSeed } from '../map/rng';
 import { textStyle } from '../ui/style';
 
 export class BootScene extends Phaser.Scene {
@@ -19,8 +18,10 @@ export class BootScene extends Phaser.Scene {
     // Lascia disegnare il testo di caricamento prima del calcolo (sincrono).
     this.time.delayedCall(30, () => {
       this.registry.set('landMask', buildLandMask());
-      const seed = new URLSearchParams(location.search).get('seed') || randomSeed();
-      this.scene.start('Run', { seed });
+      // ?seed=... salta l'accampamento e apre subito quella mappa (test e rivincite condivise)
+      const seed = new URLSearchParams(location.search).get('seed');
+      if (seed) this.scene.start('Run', { seed });
+      else this.scene.start('Camp');
     });
   }
 }

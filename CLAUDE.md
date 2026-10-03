@@ -82,7 +82,13 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 - `npm run check:land` — verifica la maschera terra contro `geoContains` (a runtime si usa un point-in-polygon planare: 50 ms invece di 5 s).
 - `npx vite-node scripts/sim.ts 1 6 1` — simula 6 run senza grafica (giocatore 1 tap/s, usa le pedine) per tarare `balance.ts`.
 - `?seed=abc123` nell'URL → mappa riproducibile.
-- Stato: M1 ✅ · M2 ✅ · M3 ✅ (in attesa dei 10 minuti di Nico).
+- Stato: M1 ✅ · M2 ✅ · M3 ✅ · M4 ✅ (in attesa dei 10 minuti di Nico).
+- M4 (decisioni del dev): l'app si apre sull'**accampamento** (`CampScene`; `?seed=` salta direttamente in una run).
+  3 edifici a 3 livelli, 1 cantiere alla volta, timer reali 1–5 min. Fucina: liv.0 solo Fanteria → +Raider → +Artiglieria → +25% vita.
+  Radio: eventi → eventi rari (lore del Silenzio) → avviso tempesta +30 s. Magazzino: perdita 70% → 40% → 25% → +10% in ritirata.
+  Spedizioni 30 min (gratis) / 4 h / 8 h, pagate in viveri, una alla volta, bottino deciso alla partenza.
+  Tende: +1 ogni 2 run. Eventi: 10 in `src/data/events.json` (7 comuni, 3 rari), ~ogni 90 s, run in pausa, carta da trascinare.
+  Testi edifici in `src/data/buildings.json`, numeri in `balance.ts` (`camp`, `events`).
 - M3 (decisioni del dev, tutte in `balance.ts`): le rovine contengono una sola risorsa (Rottami 50%, Carburante 25%, Viveri 25%).
   5 anomalie (caselle-segnale, difesa alta) nella regione del giocatore; tenerne 3 = vittoria. 60% = della regione raggiungibile.
   Tempesta di cenere: avviso a 7:00 col confine finale, arriva a 8:00 e si chiude in 90 s attorno a un punto vicino al baricentro
