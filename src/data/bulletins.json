@@ -1,22 +1,22 @@
 {
   "victory": [
-    "Radio Atlas annuncia: un nuovo impero sorge dalle ceneri. Le ceneri chiedono di non essere disturbate.",
-    "Festeggiamenti in tutto il territorio conquistato. Il resto del mondo non è stato informato.",
-    "Il segnale delle anomalie tace per un istante. Poi riprende, più forte. Nessuno ne parla a cena."
+    "Rapporto al Comando: la regione è sotto controllo. Le altre potenze hanno ricevuto il messaggio.",
+    "Dominio confermato. Sugli schermi del Comando la mappa ha un solo colore, per ora.",
+    "Il segnale delle anomalie risponde ai nostri codici. Nessuno sa ancora cosa stia chiedendo in cambio."
   ],
   "retreat": [
-    "La spedizione rientra in buon ordine. Il buon ordine è stato raggiunto correndo.",
-    "Ritirata strategica completata. Gli strateghi confermano: era strategica.",
-    "Il convoglio torna all'accampamento con il bottino e quasi tutti i passeggeri."
+    "Ritirata eseguita secondo protocollo. Il bottino è al sicuro nel Deposito.",
+    "Le squadre rientrano. Il Comando registra la campagna come interrotta, non persa.",
+    "Ripiegamento completato. La regione resta contesa: ci torneremo con mezzi migliori."
   ],
   "eliminated": [
-    "Notizie dal fronte: il fronte non risponde. Parte dello zaino è ora proprietà altrui.",
-    "La spedizione è stata sciolta. Anche le truppe, in parte.",
-    "Il nemico ringrazia per l'equipaggiamento e lo considera un regalo."
+    "Collegamento perso con il fronte. Parte del bottino è ora nelle mani di un'altra potenza.",
+    "La campagna è fallita. Il Comando chiede un rapporto; nessuno è rimasto a scriverlo.",
+    "Le linee sono cadute. Il nemico conta il nostro equipaggiamento."
   ],
   "storm": [
-    "La tempesta di cenere ha preso quasi tutto, tranne la vergogna. Quella torna a casa con voi.",
-    "Previsioni del tempo: cenere, poi altra cenere. Si consiglia di partire prima.",
-    "Dal 1971 il cielo non perdona i ritardatari. Oggi nemmeno."
+    "La tempesta ha chiuso la regione. Restano solo le coordinate di quello che avevamo.",
+    "Dopo la Caduta il cielo non aspetta nessuno. Oggi non ha aspettato noi.",
+    "Fine delle trasmissioni dalla regione. La tempesta decide chi resta."
   ]
 }

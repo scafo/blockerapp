@@ -30,7 +30,7 @@ export class EventCard extends Phaser.GameObjects.Container {
     const cx = width / 2, cy = height / 2;
 
     const bg = scene.add.rectangle(0, 0, W, H, PALETTE.inchiostro).setStrokeStyle(2, ev.rare ? PALETTE.radioattivo : PALETTE.ocra);
-    const head = scene.add.text(-W / 2 + 16, -H / 2 + 12, ev.rare ? '◉ SEGNALE DAL SILENZIO' : 'BOLLETTINO RADIO', textStyle(11, ev.rare ? PALETTE.radioattivo : PALETTE.ruggine));
+    const head = scene.add.text(-W / 2 + 16, -H / 2 + 12, ev.rare ? '◉ FRAMMENTO DALLA CADUTA' : 'RAPPORTO DAL CAMPO', textStyle(11, ev.rare ? PALETTE.radioattivo : PALETTE.ruggine));
     const body = scene.add.text(0, -H / 2 + 40, ev.text, textStyle(15, PALETTE.carta, false))
       .setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(W - 40).setLineSpacing(3);
     const hintTxt = scene.add.text(0, H / 2 - 64, '← trascina la carta →', textStyle(10, PALETTE.ruggine, false)).setOrigin(0.5);

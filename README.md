@@ -1,7 +1,9 @@
 # Ashen Atlas
 
-Gioco mobile single player di conquista sulla mappa del mondo, stile analogico anni '40–'70 dopo "il Silenzio".
-La specifica completa (feeling, lore, MVP, milestone) è in [CLAUDE.md](CLAUDE.md).
+Gioco single player di conquista sulla mappa del mondo. Dopo **la Caduta**, un cataclisma che ha cambiato il mondo, le potenze
+(Imperium, Republica, Aristocrazia, Cabal) si contendono il dominio dopo la scoperta di una nuova tecnologia.
+Campagne sulla mappa → risorse (cibo, metallo, benzina) → l'HQ cresce → la campagna dopo è diversa.
+Visione completa nel Figma di Nico e in [CLAUDE.md](CLAUDE.md). **Prima si valida su browser**, poi app.
 
 ## Avvio
 

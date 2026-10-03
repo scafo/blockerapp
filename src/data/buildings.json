@@ -1,22 +1,22 @@
 {
-  "fucina": {
-    "name": "Fucina",
-    "desc": "Martelli, lamiere e un fabbro che giura di aver lavorato per l'esercito. Quale, non lo dice.",
-    "levels": ["Sblocca il Raider nelle run", "Sblocca l'Artiglieria nelle run", "Pedine più robuste (+25% vita)"]
+  "arsenale": {
+    "name": "Arsenale",
+    "desc": "Sblocca e migliora unità e armamenti. Le casse arrivano sigillate: nessuno chiede da dove.",
+    "levels": ["Sblocca i Ricognitori nelle campagne", "Sblocca l'Artiglieria nelle campagne", "Unità più robuste (+25% vita)"]
   },
-  "radio": {
-    "name": "Radio",
-    "desc": "Un traliccio, una manopola e tanta pazienza. Ogni tanto qualcuno risponde.",
-    "levels": ["Eventi durante le run", "Eventi rari: voci dal Silenzio", "Bollettino meteo: la tempesta si annuncia 30 s prima"]
+  "comando": {
+    "name": "Centro di Comando",
+    "desc": "Il quartier generale. Il suo livello sblocca tutto: le altre postazioni non possono superarlo di più di un livello.",
+    "levels": ["Rapporti dal campo: eventi durante le campagne", "Intercettazioni: frammenti sul mistero della Caduta", "Rete di allerta: la tempesta si annuncia 30 s prima"]
   },
-  "magazzino": {
-    "name": "Magazzino",
-    "desc": "Casse, lucchetti e un inventario scritto a matita. Quello che entra qui non lo perdi.",
-    "levels": ["Se eliminato perdi solo il 40% dello zaino", "Se eliminato perdi solo il 25%", "Ritirata ordinata: +10% sullo zaino"]
+  "deposito": {
+    "name": "Deposito",
+    "desc": "Capacità delle risorse e quanto bottino salvi se la campagna va male.",
+    "levels": ["Se eliminato perdi solo il 40% del bottino", "Se eliminato perdi solo il 25%", "Ritirata ordinata: +10% sul bottino"]
   },
   "spedizione": {
-    "name": "Spedizione",
-    "desc": "Il camion parte con chi ha voglia di camminare e torna con quello che ha trovato.",
-    "kinds": { "breve": "Giro dei dintorni", "media": "Fino alla vecchia città", "lunga": "Oltre la cenere" }
+    "name": "Squadre di Estrazione",
+    "desc": "Spedizioni a tempo nelle terre della Caduta. Tornano con cibo, metallo e benzina.",
+    "kinds": { "breve": "Ricognizione dei dintorni", "media": "Le città spente", "lunga": "Oltre il cratere" }
   }
 }

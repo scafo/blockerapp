@@ -67,8 +67,8 @@ export class CampScene extends Phaser.Scene {
     this.drawCenter();
     const front = height * 0.73, g0 = this.groundY;
     const pos: Record<Spot, [number, number]> = this.portrait
-      ? { radio: [0.27, g0], magazzino: [0.75, g0], spedizione: [0.22, front], fucina: [0.74, front] }
-      : { spedizione: [0.1, g0], fucina: [0.3, g0], radio: [0.7, g0], magazzino: [0.88, g0] };
+      ? { comando: [0.27, g0], deposito: [0.75, g0], spedizione: [0.22, front], arsenale: [0.74, front] }
+      : { spedizione: [0.1, g0], arsenale: [0.3, g0], comando: [0.7, g0], deposito: [0.88, g0] };
     for (const id of [...BUILDINGS, 'spedizione'] as Spot[]) this.makeSpot(id, width * pos[id][0], pos[id][1]);
     this.burst = this.add.particles(0, 0, 'dot', {
       speed: { min: 60, max: 180 }, lifespan: 600, scale: { start: 1, end: 0 }, emitting: false,
@@ -187,13 +187,13 @@ export class CampScene extends Phaser.Scene {
     fire.fillStyle(PALETTE.ruggine, 1).fillTriangle(-10 * k, 0, 10 * k, 0, 0, -24 * k);
     fire.fillStyle(PALETTE.ocra, 1).fillTriangle(-6 * k, 0, 6 * k, 0, 0, -15 * k);
     this.tweens.add({ targets: fire, scaleY: 0.75, scaleX: 1.1, duration: 180, yoyo: true, repeat: -1 });
-    this.add.text(cx, y + 54 * k, `${n} tende · ${this.profile.runs} run`, textStyle(11, INK, false)).setOrigin(0.5);
+    this.add.text(cx, y + 54 * k, `${n} tende · ${this.profile.runs} campagne`, textStyle(11, INK, false)).setOrigin(0.5);
   }
 
   private makeSpot(id: Spot, x: number, y: number) {
     const k = this.k;
     const g = this.add.graphics();
-    const name = id === 'spedizione' ? 'SPEDIZIONE' : buildingText[id].name.toUpperCase();
+    const name = id === 'spedizione' ? 'ESTRAZIONE' : buildingText[id].name.toUpperCase();
     const label = this.add.text(x, y + 8 * k, name, textStyle(12, INK)).setOrigin(0.5, 0);
     const timer = this.add.text(x, y + 42 * k, '', textStyle(11, PALETTE.ruggine)).setOrigin(0.5, 0);
     this.timerTexts.set(id, timer);
@@ -238,7 +238,7 @@ export class CampScene extends Phaser.Scene {
 
   private drawBuilding(spot: { deco: Phaser.GameObjects.GameObject[] }, g: Phaser.GameObjects.Graphics, id: BuildingId, lvl: number, x: number, y: number) {
     const k = this.k * (0.85 + lvl * 0.12);
-    if (id === 'fucina') {
+    if (id === 'arsenale') {
       g.fillStyle(PALETTE.ruggine, 1).fillRect(x - 40 * k, y - 44 * k, 80 * k, 44 * k);
       g.fillStyle(INK, 1).fillTriangle(x - 46 * k, y - 44 * k, x + 46 * k, y - 44 * k, x, y - 66 * k);
       g.fillStyle(PALETTE.ocra, 1).fillRect(x - 12 * k, y - 26 * k, 24 * k, 26 * k); // porta del forno
@@ -250,7 +250,7 @@ export class CampScene extends Phaser.Scene {
         spot.deco.push(smoke);
       }
       if (lvl >= 3) g.fillStyle(PALETTE.carta, 1).fillRect(x - 34 * k, y - 38 * k, 14 * k, 8 * k); // insegna
-    } else if (id === 'radio') {
+    } else if (id === 'comando') {
       g.fillStyle(0x1d3a31, 1).fillRect(x - 30 * k, y - 36 * k, 60 * k, 36 * k).lineStyle(2, INK, 1).strokeRect(x - 30 * k, y - 36 * k, 60 * k, 36 * k);
       g.fillStyle(INK, 1).fillRect(x - 34 * k, y - 42 * k, 68 * k, 7 * k);
       const mastH = (50 + lvl * 22) * k;
@@ -339,13 +339,13 @@ export class CampScene extends Phaser.Scene {
         this.toast(on ? 'Contatore FPS attivo nelle run' : 'Contatore FPS spento', PALETTE.carta);
       });
     const p = this.profile;
-    this.add.text(titleX, PAD + 30, `accampamento · ${p.wins} vittorie su ${p.runs} run`, textStyle(11, PALETTE.ruggine, false)).setOrigin(titleO, 0);
+    this.add.text(titleX, PAD + 30, `accampamento · ${p.wins} vittorie su ${p.runs} campagne`, textStyle(11, PALETTE.ruggine, false)).setOrigin(titleO, 0);
     // GIOCA: in basso a destra (orizzontale) o grande in basso al centro (verticale, sotto il pollice)
     const bw = P ? Math.min(260, width - 2 * PAD) : 150;
     const play = new Button(this, 'GIOCA ▶', bw, 56, () => this.scene.start('Run', { seed: randomSeed() }));
     play.setPosition(P ? (width - bw) / 2 : width - PAD - bw, height - PAD - 56).setDepth(20);
     this.tweens.add({ targets: play, scale: 1.04, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    this.add.text(P ? width / 2 : PAD, P ? height - PAD - 64 : height - PAD, 'Tocca un edificio o il camion', textStyle(11, INK, false))
+    this.add.text(P ? width / 2 : PAD, P ? height - PAD - 64 : height - PAD, 'Tocca una postazione o il convoglio', textStyle(11, INK, false))
       .setOrigin(P ? 0.5 : 0, 1);
   }
 
@@ -380,7 +380,7 @@ export class CampScene extends Phaser.Scene {
       if (e && e.until > now) {
         items.push(this.add.text(x0 + 16, y0 + 100, `${T.kinds[e.kind]}\nIn viaggio: torna tra ${fmtTime(e.until - now)}`, textStyle(14, PALETTE.ruggine)));
       } else if (e) {
-        items.push(this.add.text(x0 + 16, y0 + 96, 'Il camion è tornato carico!', textStyle(14, PALETTE.ocra)));
+        items.push(this.add.text(x0 + 16, y0 + 96, 'Le squadre sono rientrate cariche!', textStyle(14, PALETTE.ocra)));
         items.push(this.bagRow(e.reward, x0 + 16, y0 + 128));
         items.push(this.btn('RITIRA IL BOTTINO', x0 + 16, y0 + H - 60, W - 32, true, () => {
           const kind = this.profile.expedition?.kind ?? 'breve';
@@ -395,14 +395,14 @@ export class CampScene extends Phaser.Scene {
           const s = this.spots.get('spedizione')!;
           this.burst.setParticleTint(PALETTE.ocra);
           this.burst.explode(30, s.x, s.y - 30 * this.k);
-          this.toast(`+${got.rottami} rottami · +${got.carburante} carburante · +${got.viveri} viveri`, PALETTE.radioattivo);
+          this.toast(`+${got.metallo} metallo · +${got.benzina} benzina · +${got.cibo} cibo`, PALETTE.radioattivo);
         }));
       } else {
         EXPEDITIONS.forEach((kind: ExpeditionKind, i) => {
           const E = BALANCE.camp.expeditions[kind];
           const cost = expeditionCost(kind);
-          const ok = this.profile.stash.viveri >= cost;
-          const lbl = `${T.kinds[kind]} · ${fmtTime(E.timeSec * 1000)} · ${cost ? `${cost} viveri` : 'gratis'}`;
+          const ok = this.profile.stash.cibo >= cost;
+          const lbl = `${T.kinds[kind]} · ${fmtTime(E.timeSec * 1000)} · ${cost ? `${cost} cibo` : 'gratis'}`;
           items.push(this.btn(lbl, x0 + 16, y0 + 92 + i * 52, W - 32, ok, () => {
             if (!startExpedition(this.profile, kind, Date.now())) return;
             analytics.design(['spedizione', 'parti', kind]);
@@ -410,9 +410,9 @@ export class CampScene extends Phaser.Scene {
             this.closePanel();
             this.redrawSpot('spedizione');
             this.updateStash();
-            this.toast('Il camion parte. Tornerà, con qualcosa.', PALETTE.carta);
+            this.toast('Le squadre partono. Torneranno con quello che trovano.', PALETTE.carta);
           }));
-          items.push(this.add.text(x0 + 24, y0 + 92 + i * 52 + 42, `≈ ${E.rottami[0]}–${E.rottami[1]} rottami, ${E.carburante[0]}–${E.carburante[1]} carb., ${E.viveri[0]}–${E.viveri[1]} viveri`,
+          items.push(this.add.text(x0 + 24, y0 + 92 + i * 52 + 42, `≈ ${E.metallo[0]}–${E.metallo[1]} metallo, ${E.benzina[0]}–${E.benzina[1]} carb., ${E.cibo[0]}–${E.cibo[1]} cibo`,
             textStyle(9, INK, false)));
         });
       }
@@ -437,7 +437,7 @@ export class CampScene extends Phaser.Scene {
       } else if (next) {
         items.push(this.bagRow(next.cost, x0 + 16, y0 + H - 84, this.profile.stash));
         const block = buildBlock(this.profile, spot);
-        const why = { busy: 'cantiere occupato', cost: 'risorse insufficienti', max: '' } as const;
+        const why = { busy: 'cantiere occupato', cost: 'risorse insufficienti', comando: 'serve il centro di comando', max: '' } as const;
         const lbl = block ? why[block] : `${lvl ? 'MIGLIORA' : 'COSTRUISCI'} · ${fmtTime(next.timeSec * 1000)}`;
         items.push(this.btn(lbl.toUpperCase(), x0 + 16, y0 + H - 54, W - 32, !block, () => {
           if (!startBuild(this.profile, spot, Date.now())) return;

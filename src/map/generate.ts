@@ -55,7 +55,7 @@ export function generateMap(seed: string, landMask: Uint8Array, aiCount: number 
     const inBand = absLat >= M.desertLatBand[0] && absLat <= M.desertLatBand[1];
     const desert = rng() < (inBand ? M.desertChance : M.desertSprinkle);
     tiles[i] = {
-      i, type: desert ? 'deserto' : 'terra', defense: 0, loot: 0, lootType: 'rottami',
+      i, type: desert ? 'deserto' : 'terra', defense: 0, loot: 0, lootType: 'metallo',
       country: countries ? countries.country[i] : -1, province: -1, city: false, capital: false,
     };
     land.push(i);

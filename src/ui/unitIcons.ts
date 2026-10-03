@@ -1,4 +1,4 @@
-// Icone piatte delle unità: scudo (fanteria), doppia freccia (raider), cannone (artiglieria).
+// Icone piatte delle unità: scudo (fanteria), doppia freccia (ricognitori), cannone (artiglieria).
 import Phaser from 'phaser';
 import type { UnitType } from '../config/balance';
 
@@ -9,7 +9,7 @@ export function drawUnitIcon(g: Phaser.GameObjects.Graphics, type: UnitType, x: 
       { x: x - r * 0.8, y: y - r * 0.8 }, { x: x + r * 0.8, y: y - r * 0.8 }, { x: x + r * 0.8, y: y + r * 0.1 },
       { x, y: y + r }, { x: x - r * 0.8, y: y + r * 0.1 },
     ], true);
-  } else if (type === 'raider') {
+  } else if (type === 'ricognitori') {
     for (const dx of [-0.55, 0.25]) {
       const cx = x + dx * r;
       g.fillPoints([

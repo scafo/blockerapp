@@ -1,82 +1,79 @@
 # CLAUDE.md — Ashen Atlas (nome di lavoro)
 
-Sei il developer di questo gioco. Nico è designer/art director e decide estetica, feeling e bilanciamento. Lavora una milestone alla volta. Chiedi solo se una decisione non è scritta qui.
+Sei il developer di questo gioco. Nico è designer/art director e decide estetica, feeling e bilanciamento.
+Lavora una milestone alla volta. Chiedi solo se una decisione non è scritta qui.
+**Fonte della visione: il Figma di Nico** (https://www.figma.com/design/wiJbr892yftHAh6St8jTHd): lore, civiltà, regole, risorse, truppe,
+postazioni, estetica. Se questo file e il Figma non coincidono, vale il Figma.
+**Il gioco si valida prima su browser** (pagina web / artifact), poi app.
 
 ## Cos'è
-
-Gioco mobile single player di conquista sulla mappa del mondo, con un accampamento personale. Loop: run sulla mappa → bottino → l'accampamento cresce → la run successiva è diversa. Formula: si impara come Territorial, si torna come in Clash, si ragiona come in HOI4, si paga come in Polytopia.
-
-## Feeling (verifica ogni scelta contro queste 3 parole)
-
-**Epico** (costruire un impero, chiarezza) · **Curioso** (mistero, esplorazione) · **Ironico** (umorismo nero, calore nella rovina). Tecnologia analogica anni '40–'70 + un solo elemento inventato: le anomalie. Evita: ottone/ingranaggi (steampunk), HUD tattici moderni (MW3), qualsiasi IP Fallout (vault, mascotte, nomi).
+Gioco **single player** di conquista sulla mappa del mondo, con un **accampamento/HQ** personale.
+Loop (Figma, "Regole"): **partita sandbox per estrarre risorse → Centro di Comando con upgrade a tempo → migliorie e prossimi nemici → estrazione risorse.**
+Progressione con **campagne** di durata selezionabile (più lunghe = più risorse) che portano risorse per migliorare l'HQ, che aiuta a progredire.
+Formula: si impara come Territorial, si torna come in Clash, si ragiona come in HOI4, si paga come in Polytopia.
 
 ## Lore
+Mondo alternativo dopo un cataclisma, **la Caduta**. Le potenze mondiali si contendono il dominio del mondo dopo la scoperta di
+**una nuova tecnologia**. Chi riuscirà a dominare il mondo? Il mistero della Caduta si svela poco alla volta (eventi rari, poi Laboratorio).
+Tono: misterioso, freddo, tecnologico, tensione da potere e dominio (rapporti operativi, intercettazioni). Niente ironia da cartone.
 
-1971: un segnale misterioso, "il Silenzio", spegne la tecnologia avanzata. 40 anni dopo le fazioni ricostruiscono imperi quasi feudali. Le zone di anomalia emettono ancora il segnale. Il mistero si svela poco alla volta negli eventi. Tono: bollettino radio anni '50, ironico.
+## Civiltà (sistemi politici, non nazioni)
+- **Imperium** — ordine e dominio
+- **Republica** — senato e stabilità
+- **Aristocrazia** — cultura, tecnologia e degrado
+- **Cabal** — lavori nell'ombra ed economia
+Ognuna: 1 bonus, 1 unità unica, 1 edificio unico, una regione di partenza. Diverse, mai più forti. MVP: il giocatore è la Republica,
+le altre tre sono le IA.
 
-## Stack
+## Risorse
+**Cibo, Metallo, Benzina.** Il bottino della campagna finisce nel Deposito.
 
-- Phaser 3 + TypeScript + Vite; app con Capacitor (iOS/Android). Niente server.
-- d3-geo + world-atlas 110m per la griglia sul mondo.
-- Salvataggio locale (try/catch); GameAnalytics per D1/D7.
-- Verticale e orizzontale: layout adattivo (decisione di Nico; prima era solo orizzontale).
-- Tutti i numeri in `src/config/balance.ts`. Contenuti (eventi, civiltà, unità, edifici) in JSON in `src/data/`.
+## Truppe
+Fanteria, Ricognitori, Artiglieria (base; fanteria > ricognitori > artiglieria > fanteria) → Corazzati, Genio, Cannoniera →
+Ricognizione aerea, Bombardamento (abilità) → unità unica per ogni civiltà.
 
-## Run
+## Postazioni (HQ)
+1. **Centro di Comando** — il quartier generale. Il suo livello sblocca tutto.
+2. **Sala Radar** — classifica e altro online (fuori MVP).
+3. **Laboratorio** — studia la nuova tecnologia: albero tecnologico e, poco alla volta, il mistero della Caduta (fuori MVP).
+4. **Arsenale** — sblocca e migliora unità e armamenti.
+5. **Squadre di Estrazione** — spedizioni a tempo che tornano con cibo, metallo e benzina.
+6. **Deposito** — capacità delle risorse e quanto bottino salvi se la campagna va male.
+Timer brevi all'inizio, lunghi dopo. **I timer non bloccano mai le campagne.**
 
-- Mappa del mondo a esagoni, riconoscibile ma alterata: coste, rovine, zone tossiche e partenza cambiano a ogni run (seed).
-- Truppe generiche (pool) crescono col territorio; tap su casella adiacente = attacco (`troops > defense`).
-- Unità speciali come carte: fanteria pesante, raider, artiglieria (sasso-carta-forbice). Mare e aria si sbloccano dopo; gli aerei sono abilità a ricarica, non unità.
-- Economia a 2 leve: soldati vs lavoratori.
-- Risorse: Rottami, Carburante, Viveri. Bottino nello zaino.
-- Eventi stile Reigns: carta con 2 scelte, ~ogni 90 s.
-- Fine: tempesta che restringe la mappa (~8 min base). Ritirati = tieni lo zaino; eliminato = perdi il 70%. Tasto Rivincita stessa mappa.
-- Vittoria: 60% della mappa / 3 anomalie / più territorio all'arrivo della tempesta.
-- Velocità x1/x2/x4. Difficoltà: Recluta, Comandante, Generale, Incubo.
-- IA: fazioni che attaccano la casella vicina più debole (poi migliorabile).
+## Estetica (Figma, "Estetica" e "Loading screens")
+Notte, centri di comando, radar e terminali verdi, mappe a griglia luminosa tipo heatmap, operazioni speciali con visori notturni,
+toppe/insegne di reparto, tipografia luminosa. Leggibilità prima di tutto: colori fazione forti + simboli (daltonismo).
 
-## Civiltà
-
-Scelta a ogni run; ognuna ha 1 bonus, 1 unità unica, 1 edificio unico, una regione di partenza. Diverse, mai più forti. Lancio: Nuova Roma, Lega Baltica (gratis), Dominio delle Sabbie, Ordine del Segnale (da sbloccare).
-
-## Accampamento (home)
-
-Sezioni: Accampamento · Gioca · Civiltà e generali · Sfide · Negozio. Edifici: Comando, Mensa, Hangar spedizioni, Fucina, Magazzino, Radio, Archivio, Cartografo, Caserma generali, Molo, Pista, Sala trofei. Ogni edificio sblocca opzioni nelle run, non solo numeri. Timer: liv. 1–3 fino a 5 min, 4–6 fino a 2 h, 7+ 4–8 h. Spedizioni 30 min / 4 h / 8 h. I timer non bloccano mai le run.
-
-## Progressione
-
-4 livelli di complessità, un sistema nuovo alla volta, insegnato giocando:
-
-1. prime 3 run: truppe + 1 unità, prima vittoria entro 2 min
-2. run 4–10: accampamento, 3 risorse, eventi, ritirata
-3. dopo ~1 settimana: civiltà, tecnologie (max 20–25), mare/aria
-4. veterani: generali, sfide, (futuro) multiplayer
+## Run (campagna sulla mappa)
+- Mappa del mondo a esagoni, riconoscibile ma alterata (seed), divisa in nazioni reali e province con città.
+- Truppe generiche (pool) che crescono col territorio; tap/avanzata per conquistare; unità come pedine.
+- Eventi a carta con 2 scelte ~ogni 90 s. Fine: tempesta che restringe la mappa (~8 min). Ritirata = tieni il bottino; eliminato = perdi il 70%.
+- Vittoria: 60% della regione / 3 anomalie / più territorio all'arrivo della tempesta.
 
 ## Regole di design
-
 - Max 5–6 scelte a schermo. Mappa sempre libera al centro, comandi negli angoli in basso.
-- Leggibilità > atmosfera: colori fazione forti + simboli (daltonismo).
-- Ogni conquista dà soddisfazione visiva.
-- Mai pay-to-win, mai loot box a pagamento.
+- Ogni conquista dà soddisfazione visiva. Mai pay-to-win, mai loot box a pagamento.
+- Tutti i numeri in `src/config/balance.ts`. Contenuti (eventi, unità, edifici) in JSON in `src/data/`.
 
 ## MVP (costruisci SOLO questo)
-
-1 civiltà, 3 unità, 3 risorse, 10 eventi, 3 edifici (Fucina, Radio, Magazzino), spedizioni, tempesta, ritirata, rivincita, onboarding, analytics. Fuori dall'MVP: multiplayer, account, acquisti, sandbox, stagioni, classifiche online.
+1 civiltà, 3 unità, 3 risorse, 10 eventi, 4 postazioni (Centro di Comando, Arsenale, Estrazione, Deposito), tempesta, ritirata,
+rivincita, onboarding, analytics. **Fuori dall'MVP:** multiplayer, account, acquisti, sandbox libera, stagioni, classifiche online.
 
 ## Milestone
-
-1. Mappa + conquista a tap
-2. IA + combattimento + unità
-3. Zaino, ritirata, tempesta, schermata finale
-4. Accampamento + eventi
-5. Juice, onboarding, estetica placeholder
-6. Analytics + build Capacitor + test su Android economico
-
+1. Mappa + conquista a tap · 2. IA + combattimento + unità · 3. Zaino, ritirata, tempesta, schermata finale · 4. Accampamento + eventi ·
+5. Juice, onboarding, estetica placeholder · 6. Analytics + build (prima web, poi Capacitor) + test.
 Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del test: D7 > 20% su ~20 tester.
 
 ---
 
 ## Note del developer (stato e comandi)
+
+- **Allineamento al Figma** (ultima modifica): lore della Caduta al posto del "Silenzio"; fazioni Republica (tu), Imperium, Aristocrazia,
+  Cabal; risorse Cibo/Metallo/Benzina; Ricognitori al posto dei Raider; postazioni Arsenale (ex Fucina), Centro di Comando (ex Radio:
+  eventi, frammenti sulla Caduta, allerta tempesta; le altre postazioni non lo superano di più di un livello), Deposito (ex Magazzino),
+  Squadre di Estrazione (ex camion). Testi in `src/data/*.json` riscritti nel tono del Figma. I vecchi salvataggi vengono convertiti
+  (`migrate` in `src/save/storage.ts`). Le note sotto possono usare ancora i nomi vecchi.
 
 - `npm run dev` · `npm run build` · `npm run typecheck`
 - `npm run build:single` — pagina unica con JS inline (`dist-single/`): gli artifact bloccano gli script esterni, usare questa.

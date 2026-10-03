@@ -31,7 +31,7 @@ export const analytics = {
     if (!enabled) return debug('spento: aggiungi le chiavi in src/config/analytics.ts');
     safe(() => {
       GA.configureBuild(GA_BUILD);
-      GA.configureAvailableResourceCurrencies(['rottami', 'carburante', 'viveri']);
+      GA.configureAvailableResourceCurrencies(['metallo', 'benzina', 'cibo']);
       GA.configureAvailableResourceItemTypes(['run', 'edificio', 'spedizione']);
       GA.initialize(GA_KEYS.gameKey, GA_KEYS.secretKey);
       // app in background / di nuovo in primo piano: chiude e riapre la sessione

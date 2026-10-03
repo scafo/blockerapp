@@ -676,7 +676,7 @@ export class RunScene extends Phaser.Scene {
     return hexDistance(i, this.map.stormCenter);
   }
 
-  private conquestFx(x: number, y: number, cost: number, loot: number, lootType: Resource = 'rottami') {
+  private conquestFx(x: number, y: number, cost: number, loot: number, lootType: Resource = 'metallo') {
     const flash = this.add.graphics({ x, y }).setDepth(9);
     flash.fillStyle(0xffffff, 1).fillPoints(corners(0, 0, S), true);
     this.tweens.add({ targets: flash, scale: 1.8, alpha: 0, duration: 380, ease: 'Cubic.easeOut', onComplete: () => flash.destroy() });

@@ -137,7 +137,7 @@ export class RunState {
         }
       }
     }
-    this.cooldowns = this.factions.map(() => ({ fanteria: 0, raider: 0, artiglieria: 0 }));
+    this.cooldowns = this.factions.map(() => ({ fanteria: 0, ricognitori: 0, artiglieria: 0 }));
     this.aiSpawnAt = this.factions.map(() => BALANCE.ai.graceMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
     map.starts.forEach((s, f) => {
       this.claim(f, s);
@@ -296,7 +296,7 @@ export class RunState {
       this.owner[i] = NEUTRAL;
       this.factions[o].tiles--;
       this.frontierCache.clear();
-      this.events.push({ type: 'conquer', by: NEUTRAL, from: o, i, cost: 0, loot: 0, lootType: 'rottami' });
+      this.events.push({ type: 'conquer', by: NEUTRAL, from: o, i, cost: 0, loot: 0, lootType: 'metallo' });
       if (this.factions[o].tiles <= 0 && this.factions[o].alive) this.eliminate(o, NEUTRAL);
     }
     for (const u of this.units) if (this.stormed[u.tile]) u.hp -= S.unitDamage;
@@ -660,7 +660,7 @@ export class RunState {
     if (this.gameTimeMs < this.aiSpawnAt[f.id] || this.unitsOf(f.id).length >= A.maxUnits) return;
     this.aiSpawnAt[f.id] = this.gameTimeMs + A.spawnEveryMs + (this.aiRng() * 2 - 1) * A.spawnJitterMs;
     const dominant = A.dominant[f.id] as UnitType;
-    const types: UnitType[] = ['fanteria', 'raider', 'artiglieria'];
+    const types: UnitType[] = ['fanteria', 'ricognitori', 'artiglieria'];
     const type = this.aiRng() < A.dominantChance ? dominant : types[Math.floor(this.aiRng() * 3)];
     if (f.troops < BALANCE.units[type].cost * A.reserve) return;
     const anchor = this.map.starts[f.id];

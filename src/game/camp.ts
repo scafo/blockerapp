@@ -3,7 +3,7 @@ import { BALANCE, type UnitType } from '../config/balance';
 import type { BuildingId, ExpeditionKind, Profile } from '../save/storage';
 import { RESOURCES, type Bag } from './resources';
 
-export const BUILDINGS: BuildingId[] = ['fucina', 'radio', 'magazzino'];
+export const BUILDINGS: BuildingId[] = ['arsenale', 'comando', 'deposito'];
 export const EXPEDITIONS: ExpeditionKind[] = ['breve', 'media', 'lunga'];
 const C = BALANCE.camp;
 
@@ -21,19 +21,19 @@ export interface RunOptions {
 
 /** Tutto sbloccato, niente eventi: usato dal simulatore e come ripiego. */
 export const DEFAULT_OPTIONS: RunOptions = {
-  units: ['fanteria', 'raider', 'artiglieria'], unitHpMult: 1, events: 0, warnBonusMs: 0,
+  units: ['fanteria', 'ricognitori', 'artiglieria'], unitHpMult: 1, events: 0, warnBonusMs: 0,
   eliminatedLoss: BALANCE.end.eliminatedLoss, retreatBonus: 0, tutorial: false, fog: false,
 };
 
 export function runOptions(p: Profile): RunOptions {
-  const { fucina, radio, magazzino } = p.buildings;
+  const { arsenale, comando, deposito } = p.buildings;
   return {
-    units: [...C.fucinaUnits[fucina]] as UnitType[],
-    unitHpMult: C.fucinaHpMult[fucina],
-    events: C.radioEvents[radio],
-    warnBonusMs: C.radioWarnBonusMs[radio],
-    eliminatedLoss: C.magazzinoLoss[magazzino],
-    retreatBonus: C.magazzinoRetreatBonus[magazzino],
+    units: [...C.arsenaleUnits[arsenale]] as UnitType[],
+    unitHpMult: C.arsenaleHpMult[arsenale],
+    events: C.comandoEvents[comando],
+    warnBonusMs: C.comandoWarnBonusMs[comando],
+    eliminatedLoss: C.depositoLoss[deposito],
+    retreatBonus: C.depositoRetreatBonus[deposito],
     tutorial: p.runs === 0,
     fog: p.runs > 0, // niente nebbia nella run guidata: un sistema nuovo alla volta
   };
@@ -45,11 +45,12 @@ export const canAfford = (stash: Bag, cost: Bag) => RESOURCES.every((r) => stash
 
 const pay = (stash: Bag, cost: Bag) => RESOURCES.forEach((r) => (stash[r] -= cost[r]));
 
-export type BuildBlock = 'max' | 'busy' | 'cost';
+export type BuildBlock = 'max' | 'busy' | 'cost' | 'comando';
 
 export function buildBlock(p: Profile, id: BuildingId): BuildBlock | null {
   const lvl = nextLevel(p, id);
   if (!lvl) return 'max';
+  if (id !== 'comando' && p.buildings[id] >= p.buildings.comando + 1) return 'comando'; // il Centro di Comando sblocca tutto
   if (p.construction) return 'busy';
   if (!canAfford(p.stash, lvl.cost)) return 'cost';
   return null;
@@ -76,10 +77,10 @@ export const expeditionCost = (kind: ExpeditionKind) => C.expeditions[kind].cost
 
 export function startExpedition(p: Profile, kind: ExpeditionKind, now: number, rnd: () => number = Math.random): boolean {
   const E = C.expeditions[kind];
-  if (p.expedition || p.stash.viveri < E.cost) return false;
-  p.stash.viveri -= E.cost;
+  if (p.expedition || p.stash.cibo < E.cost) return false;
+  p.stash.cibo -= E.cost;
   const roll = (r: readonly [number, number]) => r[0] + Math.floor(rnd() * (r[1] - r[0] + 1));
-  p.expedition = { kind, until: now + E.timeSec * 1000, reward: { rottami: roll(E.rottami), carburante: roll(E.carburante), viveri: roll(E.viveri) } };
+  p.expedition = { kind, until: now + E.timeSec * 1000, reward: { metallo: roll(E.metallo), benzina: roll(E.benzina), cibo: roll(E.cibo) } };
   return true;
 }
 

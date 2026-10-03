@@ -14,12 +14,12 @@ const TITLES: Record<RunSummary['outcome'], string> = {
   victory: 'VITTORIA',
   retreat: 'RITIRATA',
   eliminated: 'ELIMINATO',
-  storm: 'TRAVOLTO DALLA CENERE',
+  storm: 'TRAVOLTO DALLA TEMPESTA',
 };
 
 const REASONS = { map: 'Impero sul 60% della regione', anomalies: '3 anomalie in mano tua', storm: 'Più territorio alla fine della tempesta', tutorial: 'Il primo pezzo di mondo è tuo' };
 
-/** Schermata finale stile manifesto: esito, bollettino radio, bottino portato a casa, rivincita. */
+/** Schermata finale stile manifesto: esito, bollettino comando, bottino portato a casa, rivincita. */
 export class ResultScene extends Phaser.Scene {
   constructor() {
     super('Result');
@@ -45,7 +45,7 @@ export class ResultScene extends Phaser.Scene {
     const cx = width / 2;
     const ink = PALETTE.carta; // testo chiaro sul pannello scuro
 
-    this.add.text(x0 + 16, y0 + 12, `BOLLETTINO N° ${profile.runs}`, textStyle(11, PALETTE.ruggine));
+    this.add.text(x0 + 16, y0 + 12, `RAPPORTO OPERATIVO N° ${profile.runs}`, textStyle(11, PALETTE.ruggine));
     this.add.text(x0 + W - 16, y0 + 12, `mappa #${sum.seed}`, textStyle(11, PALETTE.ruggine, false)).setOrigin(1, 0);
     const color = sum.outcome === 'victory' ? PALETTE.ocra : sum.outcome === 'retreat' ? ink : PALETTE.ruggine;
     const title = this.add.text(cx, y0 + 50, TITLES[sum.outcome], textStyle(P ? 26 : 34, color)).setOrigin(0.5)
@@ -62,7 +62,7 @@ export class ResultScene extends Phaser.Scene {
     this.add.text(cx, y, P ? `TERRITORIO MAX ${sum.maxTiles}\nTEMPO ${time} · ANOMALIE ${sum.anomalies}`
       : `TERRITORIO MAX ${sum.maxTiles}   ·   TEMPO ${time}   ·   ANOMALIE ${sum.anomalies}`, textStyle(13, ink)).setOrigin(0.5).setAlign('center');
 
-    // bottino: portato a casa (e quanto zaino c'era, se è cambiato: bonus vittoria o perdita, Magazzino incluso)
+    // bottino: portato a casa (e quanto zaino c'era, se è cambiato: bonus vittoria o perdita, Deposito incluso)
     const had = bagTotal(sum.backpack), kept = bagTotal(sum.kept);
     const pct = had ? Math.round((kept / had - 1) * 100) : 0;
     const delta = pct > 0 ? `+${pct}% vittoria` : pct < 0 ? `${pct}% perso` : '';
@@ -81,7 +81,7 @@ export class ResultScene extends Phaser.Scene {
     });
     y += P ? 32 + 3 * 40 + 6 : 74;
     const s = profile.stash;
-    this.add.text(cx, y, `Scorta dell'accampamento: ${s.rottami} rottami · ${s.carburante} carburante · ${s.viveri} viveri`,
+    this.add.text(cx, y, `Scorta dell'accampamento: ${s.metallo} metallo · ${s.benzina} benzina · ${s.cibo} cibo`,
       textStyle(11, ink, false)).setOrigin(0.5).setAlign('center').setWordWrapWidth(W - 32);
 
     // pulsanti: affiancati in orizzontale, impilati e larghi in verticale (comodi col pollice)

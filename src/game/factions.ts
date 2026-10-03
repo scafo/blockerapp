@@ -5,8 +5,9 @@ import type { SymbolKind } from '../ui/symbols';
 
 // Ogni fazione ha colore + simbolo (leggibile anche per i daltonici).
 export const FACTION_INFO = [
-  { name: 'TU', short: 'TU', symbol: 'stella' as SymbolKind },
-  { name: 'Corvi della Ruggine', short: 'CORVI', symbol: 'triangolo' as SymbolKind },
-  { name: 'Chiesa del Neon', short: 'NEON', symbol: 'rombo' as SymbolKind },
-  { name: 'Lega del Sale', short: 'SALE', symbol: 'quadrato' as SymbolKind },
+  // le potenze dopo la Caduta (sistemi politici, non nazioni): il giocatore guida la Republica
+  { name: 'Republica', short: 'TU', symbol: 'stella' as SymbolKind },
+  { name: 'Imperium', short: 'IMPERIUM', symbol: 'triangolo' as SymbolKind },
+  { name: 'Aristocrazia', short: 'ARISTOCR.', symbol: 'rombo' as SymbolKind },
+  { name: 'Cabal', short: 'CABAL', symbol: 'quadrato' as SymbolKind },
 ].map((f, k) => ({ ...f, ...PALETTE.factions[k] }));

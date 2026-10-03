@@ -106,7 +106,7 @@ export class HudScene extends Phaser.Scene {
       .setOrigin(0.5, 0).setAlign('center').setBackgroundColor(hex(PALETTE.inchiostro)).setPadding(10, 6, 10, 6);
 
     // comandi: carte in basso a sinistra; ritirata e velocità in basso a destra
-    // solo le unità sbloccate dalla Fucina
+    // solo le unità sbloccate dalla Arsenale
     this.cards = UNIT_TYPES.filter((t) => this.run.state.opts.units.includes(t)).map((t) => new UnitCard(this, t, () => this.onCard(t)));
     this.speedBtn = new Button(this, 'x1', 56, 44, () => {
       const sp = BALANCE.speeds as readonly number[];
@@ -196,7 +196,7 @@ export class HudScene extends Phaser.Scene {
   private onCard(t: UnitType) {
     const block = this.run.toggleCard(t);
     if (!block) return;
-    const msg = ({ locked: 'serve la Fucina', cooldown: 'carta in ricarica', troops: 'truppe insufficienti', cap: 'massimo pedine in campo', tile: '' } as const)[block];
+    const msg = ({ locked: 'serve la Arsenale', cooldown: 'carta in ricarica', troops: 'truppe insufficienti', cap: 'massimo pedine in campo', tile: '' } as const)[block];
     const card = this.cards.find((c) => c.type === t)!;
     this.tweens.add({ targets: card, x: card.x + 4, duration: 50, yoyo: true, repeat: 2 });
     if (msg) this.toast(msg, PALETTE.ko);
@@ -294,10 +294,10 @@ export class HudScene extends Phaser.Scene {
     if (st.opts.tutorial) {
       this.stormText.setText(`prima missione: ${BALANCE.tutorial.goalTiles} caselle`).setColor(hex(PALETTE.radioattivo));
     } else if (st.stormIn > 0) {
-      this.stormText.setText(`${this.portrait ? 'cenere' : 'tempesta di cenere'} tra ${mmss(st.stormIn)}`).setColor(st.stormIn <= BALANCE.storm.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
+      this.stormText.setText(`${this.portrait ? 'tempesta' : 'tempesta della Caduta'} tra ${mmss(st.stormIn)}`).setColor(st.stormIn <= BALANCE.storm.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
     } else {
       const left = BALANCE.storm.startMs + BALANCE.storm.durationMs - st.gameTimeMs;
-      this.stormText.setText(`LA CENERE AVANZA · ${mmss(left)}`).setColor(hex(PALETTE.ko));
+      this.stormText.setText(`LA TEMPESTA AVANZA · ${mmss(left)}`).setColor(hex(PALETTE.ko));
     }
     this.seed.setText(`mappa #${st.map.seed}`);
 
@@ -331,13 +331,13 @@ export class HudScene extends Phaser.Scene {
     const got = bagTotal(loot);
     const msg = by === PLAYER
       ? `${who} ELIMINATI${got ? `\n+${got} risorse dal loro bottino` : ''}`
-      : by < 0 ? `${who} INGHIOTTITI DALLA CENERE` : `${who} SPAZZATI VIA DA ${FACTION_INFO[by].short}`;
+      : by < 0 ? `${who} INGHIOTTITI DALLA TEMPESTA` : `${who} SPAZZATI VIA DA ${FACTION_INFO[by].short}`;
     this.toast(msg, by === PLAYER ? PALETTE.radioattivo : PALETTE.ocra);
   }
 
   onStorm(phase: 'warn' | 'start') {
-    if (phase === 'warn') this.toast('BOLLETTINO: TEMPESTA DI CENERE IN ARRIVO\nresta dentro il confine bianco', PALETTE.carta);
-    else this.toast('LA CENERE AVANZA\nchi ha più territorio quando si chiude vince', PALETTE.ko);
+    if (phase === 'warn') this.toast('ALLERTA: TEMPESTA IN ARRIVO\nresta dentro il confine bianco', PALETTE.carta);
+    else this.toast('LA TEMPESTA AVANZA\nchi ha più territorio quando si chiude vince', PALETTE.ko);
   }
 
   private toast(msg: string, color: number) {
@@ -425,7 +425,7 @@ export class HudScene extends Phaser.Scene {
       victory: reason === 'anomalies' ? 'IL SEGNALE È TUO' : reason === 'storm' ? 'ULTIMI IN PIEDI' : reason === 'tutorial' ? 'PRIMA VITTORIA!' : 'IMPERO!',
       retreat: 'RITIRATA',
       eliminated: 'ELIMINATO',
-      storm: 'TRAVOLTO DALLA CENERE',
+      storm: 'TRAVOLTO DALLA TEMPESTA',
     }[outcome];
     const color = outcome === 'victory' ? PALETTE.radioattivo : outcome === 'retreat' ? PALETTE.ocra : PALETTE.ko;
     const t = this.add.text(width / 2, height / 2, title, textStyle(40, color)).setOrigin(0.5)

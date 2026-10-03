@@ -29,7 +29,7 @@ export const BALANCE = {
     steps: [0, 0.25, 0.5, 0.75],
     default: 0,
     lootPerWorker: 0.015, // risorse per ogni "truppa" mandata a lavorare
-    mix: { rottami: 0.6, carburante: 0.2, viveri: 0.2 },
+    mix: { metallo: 0.6, benzina: 0.2, cibo: 0.2 },
   },
   // Forza d'attacco: quota delle truppe che un'avanzata può spendere (il resto resta a difendere).
   attack: {
@@ -71,7 +71,7 @@ export const BALANCE = {
   // Pedine: costano truppe del pool, si muovono casella per casella e conquistano dove passano.
   units: {
     fanteria: { cost: 60, hp: 60, attack: 6, range: 1, moveMs: 600, captureCost: 0.4 },
-    raider: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 300, captureCost: 0.5 },
+    ricognitori: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 300, captureCost: 0.5 },
     artiglieria: { cost: 70, hp: 30, attack: 9, range: 3, moveMs: 900, captureCost: 0.8 },
     strong: 1.75, // moltiplicatore danno contro l'unità che batti
     weak: 0.5, // moltiplicatore danno contro l'unità che ti batte
@@ -81,7 +81,7 @@ export const BALANCE = {
     // captureCost: hp persi conquistando = difesa della casella * captureCost
   },
   aiUnits: {
-    dominant: ['', 'raider', 'artiglieria', 'fanteria'], // unità preferita per fazione (indice = fazione)
+    dominant: ['', 'ricognitori', 'artiglieria', 'fanteria'], // unità preferita per fazione (indice = fazione)
     dominantChance: 0.7,
     spawnEveryMs: 25_000,
     spawnJitterMs: 5_000,
@@ -92,10 +92,10 @@ export const BALANCE = {
   },
   // Bottino delle rovine: ogni rovina contiene una sola risorsa.
   loot: {
-    weights: { rottami: 0.5, carburante: 0.25, viveri: 0.25 },
-    rottami: [3, 8] as [number, number],
-    carburante: [2, 4] as [number, number],
-    viveri: [2, 5] as [number, number],
+    weights: { metallo: 0.5, benzina: 0.25, cibo: 0.25 },
+    metallo: [3, 8] as [number, number],
+    benzina: [2, 4] as [number, number],
+    cibo: [2, 5] as [number, number],
   },
   // Anomalie: caselle-segnale molto difese. Tenerne `victory.anomalies` = vittoria.
   anomalies: {
@@ -168,33 +168,33 @@ export const BALANCE = {
   // Accampamento: 1 cantiere alla volta, timer in tempo reale (secondi). I timer non bloccano mai le run.
   camp: {
     buildings: {
-      fucina: [
-        { cost: { rottami: 40, carburante: 10, viveri: 0 }, timeSec: 60 },
-        { cost: { rottami: 120, carburante: 40, viveri: 0 }, timeSec: 180 },
-        { cost: { rottami: 250, carburante: 90, viveri: 0 }, timeSec: 300 },
+      arsenale: [
+        { cost: { metallo: 40, benzina: 10, cibo: 0 }, timeSec: 60 },
+        { cost: { metallo: 120, benzina: 40, cibo: 0 }, timeSec: 180 },
+        { cost: { metallo: 250, benzina: 90, cibo: 0 }, timeSec: 300 },
       ],
-      radio: [
-        { cost: { rottami: 30, carburante: 0, viveri: 15 }, timeSec: 60 },
-        { cost: { rottami: 90, carburante: 20, viveri: 40 }, timeSec: 180 },
-        { cost: { rottami: 200, carburante: 60, viveri: 80 }, timeSec: 300 },
+      comando: [
+        { cost: { metallo: 30, benzina: 0, cibo: 15 }, timeSec: 60 },
+        { cost: { metallo: 90, benzina: 20, cibo: 40 }, timeSec: 180 },
+        { cost: { metallo: 200, benzina: 60, cibo: 80 }, timeSec: 300 },
       ],
-      magazzino: [
-        { cost: { rottami: 50, carburante: 0, viveri: 20 }, timeSec: 90 },
-        { cost: { rottami: 140, carburante: 0, viveri: 60 }, timeSec: 240 },
-        { cost: { rottami: 260, carburante: 60, viveri: 120 }, timeSec: 300 },
+      deposito: [
+        { cost: { metallo: 50, benzina: 0, cibo: 20 }, timeSec: 90 },
+        { cost: { metallo: 140, benzina: 0, cibo: 60 }, timeSec: 240 },
+        { cost: { metallo: 260, benzina: 60, cibo: 120 }, timeSec: 300 },
       ],
     },
     // effetti per livello (indice = livello, 0 = non costruito)
-    fucinaUnits: [['fanteria'], ['fanteria', 'raider'], ['fanteria', 'raider', 'artiglieria'], ['fanteria', 'raider', 'artiglieria']],
-    fucinaHpMult: [1, 1, 1, 1.25],
-    radioEvents: [0, 1, 2, 2], // 0 = niente eventi, 1 = comuni, 2 = anche rari
-    radioWarnBonusMs: [0, 0, 0, 30_000],
-    magazzinoLoss: [0.7, 0.4, 0.25, 0.25],
-    magazzinoRetreatBonus: [0, 0, 0, 0.1], // +10% zaino in ritirata al liv. 3
+    arsenaleUnits: [['fanteria'], ['fanteria', 'ricognitori'], ['fanteria', 'ricognitori', 'artiglieria'], ['fanteria', 'ricognitori', 'artiglieria']],
+    arsenaleHpMult: [1, 1, 1, 1.25],
+    comandoEvents: [0, 1, 2, 2], // 0 = niente eventi, 1 = comuni, 2 = anche rari
+    comandoWarnBonusMs: [0, 0, 0, 30_000],
+    depositoLoss: [0.7, 0.4, 0.25, 0.25],
+    depositoRetreatBonus: [0, 0, 0, 0.1], // +10% zaino in ritirata al liv. 3
     expeditions: {
-      breve: { timeSec: 30 * 60, cost: 0, rottami: [15, 30], carburante: [3, 8], viveri: [5, 10] },
-      media: { timeSec: 4 * 3600, cost: 15, rottami: [80, 140], carburante: [20, 40], viveri: [10, 25] },
-      lunga: { timeSec: 8 * 3600, cost: 30, rottami: [160, 260], carburante: [45, 80], viveri: [25, 50] },
+      breve: { timeSec: 30 * 60, cost: 0, metallo: [15, 30], benzina: [3, 8], cibo: [5, 10] },
+      media: { timeSec: 4 * 3600, cost: 15, metallo: [80, 140], benzina: [20, 40], cibo: [10, 25] },
+      lunga: { timeSec: 8 * 3600, cost: 30, metallo: [160, 260], benzina: [45, 80], cibo: [25, 50] },
     },
     tentsBase: 2, // tende all'inizio; +1 ogni 2 run, fino a tentsMax
     tentsMax: 7,
@@ -214,5 +214,5 @@ export const BALANCE = {
 } as const;
 
 export type TileType = 'terra' | 'deserto' | 'rovine' | 'tossica' | 'anomalia';
-export type Resource = 'rottami' | 'carburante' | 'viveri';
-export type UnitType = 'fanteria' | 'raider' | 'artiglieria';
+export type Resource = 'metallo' | 'benzina' | 'cibo';
+export type UnitType = 'fanteria' | 'ricognitori' | 'artiglieria';

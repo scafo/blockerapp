@@ -1,7 +1,7 @@
 // Salvataggio locale del profilo. localStorage può mancare o lanciare: mai far crashare il gioco.
 import { emptyBag, type Bag } from '../game/resources';
 
-export type BuildingId = 'fucina' | 'radio' | 'magazzino';
+export type BuildingId = 'arsenale' | 'comando' | 'deposito';
 export type ExpeditionKind = 'breve' | 'media' | 'lunga';
 
 export interface Profile {
@@ -20,19 +20,33 @@ const KEY = 'ashen-atlas:profile';
 
 export const freshProfile = (): Profile => ({
   v: 1, stash: emptyBag(), runs: 0, wins: 0, bestTiles: 0,
-  buildings: { fucina: 0, radio: 0, magazzino: 0 }, construction: null, expedition: null, expeditionsDone: 0,
+  buildings: { arsenale: 0, comando: 0, deposito: 0 }, construction: null, expedition: null, expeditionsDone: 0,
 });
 
 export function loadProfile(): Profile {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return freshProfile();
-    const p = JSON.parse(raw) as Partial<Profile>;
+    const p = migrate(JSON.parse(raw)) as Partial<Profile>;
     const f = freshProfile();
     return { ...f, ...p, stash: { ...f.stash, ...(p.stash ?? {}) }, buildings: { ...f.buildings, ...(p.buildings ?? {}) } };
   } catch {
     return freshProfile();
   }
+}
+
+/** Salvataggi di prima della lore della Caduta: rottami/carburante/viveri e fucina/radio/magazzino → nomi nuovi. */
+function migrate(p: Record<string, any>): Record<string, any> {
+  const ren = (o: Record<string, any> | undefined, map: Record<string, string>) => {
+    if (!o) return;
+    for (const [a, b] of Object.entries(map)) if (a in o) { o[b] = (o[b] ?? 0) + o[a]; delete o[a]; }
+  };
+  const res = { rottami: 'metallo', carburante: 'benzina', viveri: 'cibo' };
+  ren(p.stash, res);
+  ren(p.expedition?.reward, res);
+  ren(p.buildings, { fucina: 'arsenale', radio: 'comando', magazzino: 'deposito' });
+  if (p.construction) p.construction.id = ({ fucina: 'arsenale', radio: 'comando', magazzino: 'deposito' } as Record<string, string>)[p.construction.id] ?? p.construction.id;
+  return p;
 }
 
 export function saveProfile(p: Profile) {
