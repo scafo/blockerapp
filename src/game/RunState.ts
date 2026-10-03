@@ -1,8 +1,8 @@
 // Stato logico di una run: nessuna dipendenza da Phaser.
-import { BALANCE, type Resource, type UnitType } from '../config/balance';
+import { BALANCE, type CampaignId, type CivId, type Resource, type UnitType } from '../config/balance';
 import { addBag, emptyBag, scaleBag, type Bag } from './resources';
 import { NEIGHBORS, hexDistance } from '../map/hexGrid';
-import { findPath, rps, type Unit } from './units';
+import { UNIT_TYPES, findPath, rps, type Unit } from './units';
 import { isCoast, seaRoute, type Boat } from './boats';
 import { DEFAULT_OPTIONS, type RunOptions } from './camp';
 import { EVENTS, type EventChoice, type EventEffects, type GameEvent } from './events';
@@ -47,6 +47,8 @@ export interface RunSummary {
   backpack: Bag; // zaino a fine run
   kept: Bag; // portato a casa dopo perdite/bonus
   tutorial: boolean;
+  civ: CivId;
+  campaign: CampaignId;
 }
 
 export type ConquerResult =
@@ -108,7 +110,7 @@ export class RunState {
     this.evRng = createRng(map.seed + ':eventi');
     this.factions = map.starts.map((_, id) => ({
       id,
-      troops: id === PLAYER ? BALANCE.start.troops : BALANCE.ai.startTroops,
+      troops: id === PLAYER ? BALANCE.start.troops + opts.mods.startTroops : BALANCE.ai.startTroops,
       tiles: 0,
       maxTiles: 0,
       loot: emptyBag(),
@@ -137,7 +139,8 @@ export class RunState {
         }
       }
     }
-    this.cooldowns = this.factions.map(() => ({ fanteria: 0, ricognitori: 0, artiglieria: 0 }));
+    this.cooldowns = this.factions.map(() => Object.fromEntries(UNIT_TYPES.map((t) => [t, 0])) as Record<UnitType, number>);
+    this.anomalyDefMult = opts.mods.anomalyDefenseMult;
     this.aiSpawnAt = this.factions.map(() => BALANCE.ai.graceMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
     map.starts.forEach((s, f) => {
       this.claim(f, s);
@@ -220,8 +223,9 @@ export class RunState {
     this.moveBoats(dt);
     if (this.flowTarget !== null) {
       this.flowAcc += dt;
-      while (this.flowAcc >= BALANCE.flow.stepMs && this.flowTarget !== null && !this.over) {
-        this.flowAcc -= BALANCE.flow.stepMs;
+      const stepMs = BALANCE.flow.stepMs / this.opts.mods.flowSpeedMult;
+      while (this.flowAcc >= stepMs && this.flowTarget !== null && !this.over) {
+        this.flowAcc -= stepMs;
         this.flowStep();
       }
     }
@@ -231,8 +235,9 @@ export class RunState {
   /** Crescita lorda per tick (truppe + lavoratori): caselle × 0,1, gli insediamenti valgono qualche casella in più. */
   private growth(f: Faction): number {
     const boost = this.gameTimeMs < this.growthBoost.until ? this.growthBoost.mult : 1;
-    const mult = f.id === PLAYER ? boost : this.opts.tutorial ? BALANCE.tutorial.aiGrowthMult : BALANCE.ai.growthMult;
-    const tiles = f.tiles + f.settlements * BALANCE.settlements.growthTiles;
+    const mult = f.id === PLAYER ? boost * this.opts.mods.growthMult : this.opts.tutorial ? BALANCE.tutorial.aiGrowthMult : BALANCE.ai.growthMult;
+    const perSettlement = BALANCE.settlements.growthTiles + (f.id === PLAYER ? this.opts.mods.settlementGrowth : 0);
+    const tiles = f.tiles + f.settlements * perSettlement;
     return tiles * BALANCE.tick.troopsPerTile * mult;
   }
 
@@ -242,6 +247,9 @@ export class RunState {
     const g = this.growth(f);
     f.troops += g * (1 - f.workers);
     const made = g * f.workers * W.lootPerWorker;
+    // edificio unico della Cabal: gli insediamenti producono metallo e benzina
+    const market = f.id === PLAYER ? f.settlements * this.opts.mods.settlementLoot : 0;
+    if (market) { f.lootAcc.metallo += market / 2; f.lootAcc.benzina += market / 2; }
     for (const r of Object.keys(W.mix) as Resource[]) {
       f.lootAcc[r] += made * W.mix[r];
       const whole = Math.floor(f.lootAcc[r]);
@@ -256,7 +264,7 @@ export class RunState {
 
   get stormStartMs(): number {
     if (this.opts.tutorial) return Infinity; // niente tempesta nella prima run
-    return BALANCE.storm.startMs + this.stormDelayMs;
+    return this.opts.stormStartMs + this.stormDelayMs;
   }
 
   /** Raggio sicuro attuale attorno all'occhio (Infinity prima dell'arrivo). */
@@ -326,7 +334,12 @@ export class RunState {
       return;
     }
     if (this.mapShare >= BALANCE.victory.mapShare) this.end('victory', 'map');
-    else if (this.anomaliesOwned() >= BALANCE.victory.anomalies) this.end('victory', 'anomalies');
+    else if (this.anomaliesOwned() >= this.anomaliesToWin) this.end('victory', 'anomalies');
+  }
+
+  /** Anomalie da tenere per vincere (la ricerca sulla Caduta ne toglie una). */
+  get anomaliesToWin(): number {
+    return Math.max(1, BALANCE.victory.anomalies + this.opts.mods.anomaliesNeeded);
   }
 
   retreat() {
@@ -345,8 +358,8 @@ export class RunState {
       : outcome === 'retreat' ? 1 + this.opts.retreatBonus : 1 - this.opts.eliminatedLoss;
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
-      maxTiles: this.player.maxTiles, anomalies: this.anomaliesOwned(), backpack: { ...bag }, kept: scaleBag(bag, k),
-      tutorial: this.opts.tutorial,
+      maxTiles: this.player.maxTiles, anomalies: this.anomaliesOwned(), backpack: { ...bag }, kept: scaleBag(bag, k * this.opts.campaignLootMult),
+      tutorial: this.opts.tutorial, civ: this.opts.civ, campaign: this.opts.campaign,
     };
   }
 
@@ -429,7 +442,7 @@ export class RunState {
       dist[i] = r;
       queue.push(i);
     };
-    for (let i = 0; i < this.owner.length; i++) if (this.owner[i] === PLAYER) seed(i, F.territory);
+    for (let i = 0; i < this.owner.length; i++) if (this.owner[i] === PLAYER) seed(i, F.territory + this.opts.mods.fogBonus);
     for (const u of this.unitsOf(PLAYER)) seed(u.tile, F.unit);
     for (const b of this.boats) if (b.owner === PLAYER) seed(b.path[b.pos], F.boat);
     for (let h = 0; h < queue.length; h++) {
@@ -484,7 +497,7 @@ export class RunState {
     if (!this.passable(t)) return this.stopFlow('blocked');
     let best = -1, bestD = Infinity, bestDef = Infinity;
     for (const i of this.frontier(PLAYER)) {
-      const d = hexDistance(i, t), def = this.defenseOf(i);
+      const d = hexDistance(i, t), def = this.costFor(PLAYER, i);
       if (d < bestD || (d === bestD && def < bestDef)) {
         best = i;
         bestD = d;
@@ -565,12 +578,17 @@ export class RunState {
     return this.units.filter((u) => u.owner === f);
   }
 
+  /** Costo in truppe di un'unità (bonus del giocatore compresi). */
+  unitCost(f: number, type: UnitType): number {
+    return Math.round(BALANCE.units[type].cost * (f === PLAYER ? this.opts.mods.unitCostMult : 1));
+  }
+
   /** Perché non si può schierare (null = si può). */
   deployBlock(f: number, type: UnitType, i?: number): null | 'locked' | 'cooldown' | 'troops' | 'cap' | 'tile' {
     if (f === PLAYER && !this.opts.units.includes(type)) return 'locked';
     if (this.gameTimeMs < this.cooldowns[f][type]) return 'cooldown';
     if (this.unitsOf(f).length >= BALANCE.units.maxPerFaction) return 'cap';
-    if (this.factions[f].troops < BALANCE.units[type].cost) return 'troops';
+    if (this.factions[f].troops < this.unitCost(f, type)) return 'troops';
     if (i !== undefined && (this.owner[i] !== f || this.unitAt(i))) return 'tile';
     return null;
   }
@@ -578,7 +596,7 @@ export class RunState {
   deploy(f: number, type: UnitType, i: number, free = false): Unit | null {
     if (!free && this.deployBlock(f, type, i)) return null;
     if (!free) {
-      this.factions[f].troops -= BALANCE.units[type].cost;
+      this.factions[f].troops -= this.unitCost(f, type);
       this.cooldowns[f][type] = this.gameTimeMs + BALANCE.units.cooldownMs;
     }
     const maxHp = BALANCE.units[type].hp * (f === PLAYER ? this.opts.unitHpMult : 1);
@@ -717,6 +735,12 @@ export class RunState {
     return !!t && t.type !== 'tossica' && !this.stormed[i];
   }
 
+  /** Truppe che `by` spende per prendere la casella (l'Imperium paga meno le neutrali). */
+  costFor(by: number, i: number): number {
+    const d = this.defenseOf(i);
+    return by === PLAYER && this.owner[i] === NEUTRAL ? Math.ceil(d * this.opts.mods.neutralCostMult) : d;
+  }
+
   /** Difesa attuale: neutrale = base; posseduta = base * mult + presidio del proprietario. */
   defenseOf(i: number): number {
     const t = this.map.tiles[i]!;
@@ -725,8 +749,9 @@ export class RunState {
     if (o === NEUTRAL) return base;
     const f = this.factions[o];
     const garrison = Math.min((f.troops / Math.max(1, f.tiles)) * BALANCE.owned.garrison, BALANCE.owned.garrisonMax);
-    const settlement = t.type === 'rovine' ? BALANCE.owned.settlementDefense : 0;
-    return Math.ceil(base * BALANCE.owned.defenseMult + garrison + settlement);
+    const mine = o === PLAYER;
+    const settlement = t.type === 'rovine' ? BALANCE.owned.settlementDefense + (mine ? this.opts.mods.settlementDefense : 0) : 0;
+    return Math.ceil((base * BALANCE.owned.defenseMult + garrison + settlement) * (mine ? this.opts.mods.ownedDefenseMult : 1));
   }
 
   isFrontier(i: number, f = PLAYER): boolean {
@@ -757,7 +782,7 @@ export class RunState {
     if (!tile || !this.passable(i)) return { ok: false, reason: 'impassable' };
     if (this.owner[i] === by) return { ok: false, reason: 'owned' };
     if (!this.isFrontier(i, by)) return { ok: false, reason: 'not-adjacent' };
-    const cost = this.defenseOf(i);
+    const cost = this.costFor(by, i);
     const att = this.factions[by];
     if (att.troops <= cost) return { ok: false, reason: 'troops', need: cost };
 
@@ -776,7 +801,7 @@ export class RunState {
       def.troops = Math.max(0, def.troops - garrison); // perde il presidio
       def.tiles--;
     }
-    const loot = tile.loot;
+    const loot = this.lootFor(by, tile.loot);
     this.factions[by].loot[tile.lootType] += loot;
     tile.loot = 0;
     this.claim(by, i);
@@ -784,6 +809,10 @@ export class RunState {
     if (tile.city) this.surrender(by, tile);
     if (from !== NEUTRAL && this.factions[from].tiles <= 0) this.eliminate(from, by);
     return loot;
+  }
+
+  private lootFor(by: number, n: number): number {
+    return by === PLAYER ? Math.round(n * this.opts.mods.lootMult) : n;
   }
 
   /** Città presa: le caselle neutrali della sua provincia si arrendono; la capitale (la prima volta) dà truppe. */
@@ -796,8 +825,8 @@ export class RunState {
       const t = this.map.tiles[j]!;
       // le anomalie non si arrendono: vanno prese a mano
       if (j === city.i || this.owner[j] !== NEUTRAL || !this.passable(j) || t.type === 'anomalia') continue;
-      f.loot[t.lootType] += t.loot; // il bottino delle rovine della provincia va a chi la prende
-      const loot = t.loot;
+      const loot = this.lootFor(by, t.loot);
+      f.loot[t.lootType] += loot; // il bottino delle rovine della provincia va a chi la prende
       t.loot = 0;
       this.claim(by, j);
       this.events.push({ type: 'conquer', by, from: NEUTRAL, i: j, cost: 0, loot, lootType: t.lootType });
@@ -806,7 +835,7 @@ export class RunState {
     let bonus = 0;
     if (city.capital && !this.capitalsTaken.has(city.i)) {
       this.capitalsTaken.add(city.i);
-      bonus = BALANCE.provinces.capitalTroops;
+      bonus = Math.round(BALANCE.provinces.capitalTroops * (by === PLAYER ? this.opts.mods.capitalTroopsMult : 1));
       f.troops += bonus;
     }
     const nation = this.map.nations.find((n) => n.id === prov.country)?.name ?? '';

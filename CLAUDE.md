@@ -69,6 +69,17 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 ## Note del developer (stato e comandi)
 
+- **Sistemi dal Figma** (numeri in `balance.ts`: `campaigns`, `progression`, `civs`, `tech`, `camp.radarFogBonus`; testi in `src/data/civs.json`,
+  `tech.json`, `buildings.json`; logica in `src/game/civs.ts`, `tech.ts`, `mods.ts`, `camp.ts`):
+  **Campagne** breve 5 min ×0,8 risorse / standard 8 min / lunga 12 min ×1,4 (si sceglie dopo la run guidata).
+  **Civiltà** (scelta dopo 3 campagne; Republica e Imperium libere, Aristocrazia = 3 vittorie, Cabal = 3 spedizioni): bonus sempre attivo +
+  edificio unico che agisce sugli insediamenti + unità unica con Arsenale liv. 3 (Legionari, Guardia, Prototipo, Infiltrati: stessa classe
+  della base nel sasso-carta-forbice). Le IA sono le altre tre potenze, con colore e simbolo fissi per civiltà (`assignFactions`).
+  **Laboratorio** (postazione): 12 ricerche in 5 rami, una alla volta a tempo reale, in ordine dentro il ramo, il livello del laboratorio
+  limita il grado; il ramo "La Caduta" sblocca 4 frammenti dell'archivio (la lore si svela). **Sala Radar**: registro locale delle campagne
+  (record, vittorie per civiltà, ultime 20) + vista in più; la classifica online resta fuori dall'MVP.
+  Tutto confluisce in `RunOptions.mods` (moltiplicatori/addendi) letti da `RunState`. Run guidata: nessun bonus.
+
 - **Allineamento al Figma** (ultima modifica): lore della Caduta al posto del "Silenzio"; fazioni Republica (tu), Imperium, Aristocrazia,
   Cabal; risorse Cibo/Metallo/Benzina; Ricognitori al posto dei Raider; postazioni Arsenale (ex Fucina), Centro di Comando (ex Radio:
   eventi, frammenti sulla Caduta, allerta tempesta; le altre postazioni non lo superano di più di un livello), Deposito (ex Magazzino),

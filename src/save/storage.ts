@@ -1,7 +1,8 @@
 // Salvataggio locale del profilo. localStorage può mancare o lanciare: mai far crashare il gioco.
 import { emptyBag, type Bag } from '../game/resources';
+import type { CampaignId, CivId } from '../config/balance';
 
-export type BuildingId = 'arsenale' | 'comando' | 'deposito';
+export type BuildingId = 'arsenale' | 'comando' | 'deposito' | 'laboratorio' | 'radar';
 export type ExpeditionKind = 'breve' | 'media' | 'lunga';
 
 export interface Profile {
@@ -14,13 +15,28 @@ export interface Profile {
   construction: { id: BuildingId; until: number } | null; // epoch ms
   expedition: { kind: ExpeditionKind; until: number; reward: Bag } | null;
   expeditionsDone: number;
+  civ: CivId; // ultima civiltà scelta (la Rivincita la riusa)
+  campaign: CampaignId; // ultima durata scelta
+  techs: string[]; // ricerche completate
+  research: { id: string; until: number } | null;
+  history: CampaignRecord[]; // registro della Sala Radar (più recenti per prime)
+}
+
+export interface CampaignRecord {
+  at: number; // epoch ms
+  civ: CivId;
+  campaign: CampaignId;
+  outcome: string;
+  tiles: number;
+  timeMs: number;
 }
 
 const KEY = 'ashen-atlas:profile';
 
 export const freshProfile = (): Profile => ({
   v: 1, stash: emptyBag(), runs: 0, wins: 0, bestTiles: 0,
-  buildings: { arsenale: 0, comando: 0, deposito: 0 }, construction: null, expedition: null, expeditionsDone: 0,
+  buildings: { arsenale: 0, comando: 0, deposito: 0, laboratorio: 0, radar: 0 }, construction: null, expedition: null, expeditionsDone: 0,
+  civ: 'republica', campaign: 'standard', techs: [], research: null, history: [],
 });
 
 export function loadProfile(): Profile {

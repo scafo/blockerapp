@@ -30,6 +30,8 @@ export class ResultScene extends Phaser.Scene {
     const profile = loadProfile();
     profile.stash = addBag(profile.stash, sum.kept);
     profile.runs++;
+    // registro della Sala Radar
+    profile.history = [{ at: Date.now(), civ: sum.civ, campaign: sum.campaign, outcome: sum.outcome, tiles: sum.maxTiles, timeMs: sum.timeMs }, ...(profile.history ?? [])].slice(0, 20);
     if (sum.outcome === 'victory') profile.wins++;
     profile.bestTiles = Math.max(profile.bestTiles, sum.maxTiles);
     saveProfile(profile);
@@ -45,7 +47,7 @@ export class ResultScene extends Phaser.Scene {
     const cx = width / 2;
     const ink = PALETTE.carta; // testo chiaro sul pannello scuro
 
-    this.add.text(x0 + 16, y0 + 12, `RAPPORTO OPERATIVO N° ${profile.runs}`, textStyle(11, PALETTE.ruggine));
+    this.add.text(x0 + 16, y0 + 12, `RAPPORTO OPERATIVO N° ${profile.runs} · ${sum.civ.toUpperCase()} · ${sum.campaign.toUpperCase()}`, textStyle(11, PALETTE.ruggine));
     this.add.text(x0 + W - 16, y0 + 12, `mappa #${sum.seed}`, textStyle(11, PALETTE.ruggine, false)).setOrigin(1, 0);
     const color = sum.outcome === 'victory' ? PALETTE.ocra : sum.outcome === 'retreat' ? ink : PALETTE.ruggine;
     const title = this.add.text(cx, y0 + 50, TITLES[sum.outcome], textStyle(P ? 26 : 34, color)).setOrigin(0.5)

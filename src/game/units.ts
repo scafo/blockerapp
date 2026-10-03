@@ -7,6 +7,7 @@ export interface UnitInfo {
   id: UnitType;
   name: string;
   short: string;
+  cls: UnitType; // classe nel sasso-carta-forbice (le unità uniche usano quella della base)
   beats: UnitType;
   desc: string;
 }
@@ -30,8 +31,9 @@ export interface Unit {
 
 /** Moltiplicatore di danno di `a` contro `b`. */
 export function rps(a: UnitType, b: UnitType): number {
-  if (unitInfo(a).beats === b) return BALANCE.units.strong;
-  if (unitInfo(b).beats === a) return BALANCE.units.weak;
+  const A = unitInfo(a), B = unitInfo(b);
+  if (A.beats === B.cls) return BALANCE.units.strong;
+  if (B.beats === A.cls) return BALANCE.units.weak;
   return 1;
 }
 

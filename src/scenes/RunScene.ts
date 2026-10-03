@@ -11,7 +11,7 @@ import { mesh } from 'topojson-client';
 import type { Topology, GeometryObject } from 'topojson-specification';
 import countries110 from 'world-atlas/countries-110m.json';
 import { NEUTRAL, PLAYER, RunState } from '../game/RunState';
-import { FACTION_INFO } from '../game/factions';
+import { FACTION_INFO, assignFactions } from '../game/factions';
 import { textStyle } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
 import { DPR } from '../ui/screen';
@@ -86,6 +86,7 @@ export class RunScene extends Phaser.Scene {
     const opts = data.opts ?? runOptions(profile);
     this.map = generateMap(data.seed, this.registry.get('landMask'), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count,
       this.registry.get('countries'));
+    assignFactions(opts.civ); // fazione 0 = civiltà scelta, le IA sono le altre potenze
     this.state = new RunState(this.map, opts);
     this.state.initFog();
     analytics.runStart(opts.tutorial, data.seed);

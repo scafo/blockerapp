@@ -73,6 +73,11 @@ export const BALANCE = {
     fanteria: { cost: 60, hp: 60, attack: 6, range: 1, moveMs: 600, captureCost: 0.4 },
     ricognitori: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 300, captureCost: 0.5 },
     artiglieria: { cost: 70, hp: 30, attack: 9, range: 3, moveMs: 900, captureCost: 0.8 },
+    // unità uniche delle civiltà (arsenale liv. 3)
+    legionari: { cost: 80, hp: 90, attack: 7, range: 1, moveMs: 650, captureCost: 0.35 }, // Imperium
+    guardia: { cost: 55, hp: 75, attack: 6, range: 1, moveMs: 600, captureCost: 0.3 }, // Republica
+    prototipo: { cost: 75, hp: 28, attack: 11, range: 4, moveMs: 1000, captureCost: 0.8 }, // Aristocrazia
+    infiltrati: { cost: 40, hp: 32, attack: 7, range: 1, moveMs: 260, captureCost: 0.2 }, // Cabal
     strong: 1.75, // moltiplicatore danno contro l'unità che batti
     weak: 0.5, // moltiplicatore danno contro l'unità che ti batte
     cooldownMs: 6000, // ricarica della carta (tempo di gioco)
@@ -183,10 +188,22 @@ export const BALANCE = {
         { cost: { metallo: 140, benzina: 0, cibo: 60 }, timeSec: 240 },
         { cost: { metallo: 260, benzina: 60, cibo: 120 }, timeSec: 300 },
       ],
+      laboratorio: [
+        { cost: { metallo: 60, benzina: 30, cibo: 20 }, timeSec: 90 },
+        { cost: { metallo: 150, benzina: 70, cibo: 50 }, timeSec: 240 },
+        { cost: { metallo: 280, benzina: 120, cibo: 100 }, timeSec: 300 },
+      ],
+      radar: [
+        { cost: { metallo: 40, benzina: 20, cibo: 0 }, timeSec: 60 },
+        { cost: { metallo: 110, benzina: 50, cibo: 0 }, timeSec: 180 },
+        { cost: { metallo: 220, benzina: 90, cibo: 0 }, timeSec: 300 },
+      ],
     },
+    radarFogBonus: [0, 0, 1, 2], // vista in più nelle campagne (liv. 1 = registro delle campagne)
     // effetti per livello (indice = livello, 0 = non costruito)
     arsenaleUnits: [['fanteria'], ['fanteria', 'ricognitori'], ['fanteria', 'ricognitori', 'artiglieria'], ['fanteria', 'ricognitori', 'artiglieria']],
     arsenaleHpMult: [1, 1, 1, 1.25],
+    arsenaleUnique: 3, // dal liv. 3 anche l'unità unica della civiltà
     comandoEvents: [0, 1, 2, 2], // 0 = niente eventi, 1 = comuni, 2 = anche rari
     comandoWarnBonusMs: [0, 0, 0, 30_000],
     depositoLoss: [0.7, 0.4, 0.25, 0.25],
@@ -204,6 +221,38 @@ export const BALANCE = {
     resultDelayMs: 1200, // pausa prima della schermata finale
   },
   speeds: [1, 2, 4],
+  // Campagne a durata scelta (Figma: "campagne di durata più lunga portano più risorse")
+  campaigns: {
+    breve: { stormMs: 300_000, lootMult: 0.8 },
+    standard: { stormMs: 480_000, lootMult: 1 },
+    lunga: { stormMs: 720_000, lootMult: 1.4 },
+  },
+  progression: {
+    campaignChoiceAfterRuns: 1, // la durata si sceglie dopo la run guidata
+    civChoiceAfterRuns: 3, // le civiltà dopo qualche campagna (un sistema nuovo alla volta)
+  },
+  // Civiltà: bonus (sempre) + edificio unico (sugli insediamenti, cioè rovine possedute). Testi in src/data/civs.json.
+  civs: {
+    republica: { unit: 'guardia', unlock: null, bonus: { ownedDefenseMult: 1.2 }, building: { settlementDefense: 6 } },
+    imperium: { unit: 'legionari', unlock: null, bonus: { neutralCostMult: 0.85 }, building: { settlementGrowth: 2 } },
+    aristocrazia: { unit: 'prototipo', unlock: { wins: 3 }, bonus: { unitCostMult: 0.7, growthMult: 0.92 }, building: { fogBonus: 2, anomalyDefenseMult: 0.8 } },
+    cabal: { unit: 'infiltrati', unlock: { expeditions: 3 }, bonus: { lootMult: 1.3 }, building: { settlementLoot: 0.25 } },
+  },
+  // Laboratorio: ricerche (una alla volta, a tempo reale). tier = livello di laboratorio richiesto (max 3). Testi in src/data/tech.json.
+  tech: {
+    addestramento: { branch: 'esercito', tier: 1, cost: { metallo: 40, benzina: 20, cibo: 20 }, timeSec: 120, mods: { unitHpMult: 1.15 } },
+    elite: { branch: 'esercito', tier: 2, cost: { metallo: 110, benzina: 50, cibo: 40 }, timeSec: 240, mods: { unitCostMult: 0.85 } },
+    strade: { branch: 'logistica', tier: 1, cost: { metallo: 40, benzina: 30, cibo: 10 }, timeSec: 120, mods: { flowSpeedMult: 1.25 } },
+    rifornimenti: { branch: 'logistica', tier: 2, cost: { metallo: 80, benzina: 40, cibo: 70 }, timeSec: 240, mods: { startTroops: 40 } },
+    estrazione: { branch: 'economia', tier: 1, cost: { metallo: 30, benzina: 20, cibo: 30 }, timeSec: 120, mods: { expeditionTimeMult: 0.75 } },
+    industria: { branch: 'economia', tier: 2, cost: { metallo: 120, benzina: 40, cibo: 40 }, timeSec: 240, mods: { capitalTroopsMult: 1.5 } },
+    trincee: { branch: 'difesa', tier: 1, cost: { metallo: 50, benzina: 10, cibo: 20 }, timeSec: 120, mods: { ownedDefenseMult: 1.1 } },
+    radar: { branch: 'difesa', tier: 2, cost: { metallo: 100, benzina: 60, cibo: 20 }, timeSec: 240, mods: { fogBonus: 2 } },
+    segnale: { branch: 'caduta', tier: 1, cost: { metallo: 30, benzina: 30, cibo: 30 }, timeSec: 150, mods: { anomalyDefenseMult: 0.85 } },
+    frammenti: { branch: 'caduta', tier: 2, cost: { metallo: 90, benzina: 60, cibo: 50 }, timeSec: 240, mods: { lootMult: 1.1 } },
+    prototipo: { branch: 'caduta', tier: 3, cost: { metallo: 180, benzina: 100, cibo: 80 }, timeSec: 300, mods: { unitHpMult: 1.1 } },
+    caduta: { branch: 'caduta', tier: 4, cost: { metallo: 300, benzina: 160, cibo: 120 }, timeSec: 300, mods: { anomaliesNeeded: -1 } },
+  },
   camera: {
     minZoom: 0.5,
     maxZoom: 5,
@@ -215,4 +264,6 @@ export const BALANCE = {
 
 export type TileType = 'terra' | 'deserto' | 'rovine' | 'tossica' | 'anomalia';
 export type Resource = 'metallo' | 'benzina' | 'cibo';
-export type UnitType = 'fanteria' | 'ricognitori' | 'artiglieria';
+export type UnitType = 'fanteria' | 'ricognitori' | 'artiglieria' | 'legionari' | 'guardia' | 'prototipo' | 'infiltrati';
+export type CivId = 'republica' | 'imperium' | 'aristocrazia' | 'cabal';
+export type CampaignId = 'breve' | 'standard' | 'lunga';

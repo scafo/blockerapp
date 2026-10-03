@@ -62,7 +62,7 @@ export const analytics = {
   },
 
   /** Bottino portato a casa (Source) o speso nell'accampamento (Sink). */
-  resources(flow: 'source' | 'sink', bag: Bag, itemType: 'run' | 'edificio' | 'spedizione', itemId: string) {
+  resources(flow: 'source' | 'sink', bag: Bag, itemType: 'run' | 'edificio' | 'spedizione' | 'ricerca', itemId: string) {
     for (const [r, v] of Object.entries(bag)) {
       if (!v) continue;
       debug('risorsa', flow, r, v, itemType, itemId);

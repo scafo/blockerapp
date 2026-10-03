@@ -1,0 +1,15 @@
+{
+  "branches": { "esercito": "Esercito", "logistica": "Logistica", "economia": "Economia", "difesa": "Difesa", "caduta": "La Caduta" },
+  "addestramento": { "name": "Addestramento", "desc": "Unità +15% vita" },
+  "elite": { "name": "Unità d'élite", "desc": "Unità -15% costo" },
+  "strade": { "name": "Strade", "desc": "Avanzata +25% più veloce" },
+  "rifornimenti": { "name": "Rifornimenti", "desc": "+40 truppe a inizio campagna" },
+  "estrazione": { "name": "Estrazione+", "desc": "Spedizioni -25% di tempo" },
+  "industria": { "name": "Città industriali", "desc": "Capitali conquistate: +50% truppe" },
+  "trincee": { "name": "Trincee", "desc": "Tue caselle +10% difesa" },
+  "radar": { "name": "Rete radar", "desc": "Vista +2 nelle campagne" },
+  "segnale": { "name": "Segnale", "desc": "Anomalie -15% difesa", "lore": "Le anomalie non sono crateri: sono trasmettitori. Emettono lo stesso segnale registrato la notte della Caduta." },
+  "frammenti": { "name": "Frammenti", "desc": "Bottino +10%", "lore": "I frammenti raccolti vicino alle anomalie hanno una struttura che nessun laboratorio ha mai prodotto. Eppure portano numeri di serie." },
+  "prototipo": { "name": "Prototipo", "desc": "Unità +10% vita", "lore": "I numeri di serie appartengono a un consorzio di tutte e quattro le potenze. La nuova tecnologia era un progetto comune, prima di diventare una guerra." },
+  "caduta": { "name": "Tecnologia della Caduta", "desc": "Per vincere basta un'anomalia in meno", "lore": "La Caduta non fu un incidente: fu la prima accensione. Chi controlla le anomalie controlla l'interruttore. Per questo combattiamo." }
+}

@@ -15,13 +15,13 @@ export class UnitCard extends Phaser.GameObjects.Container {
   private selected = false;
   baseY = 0;
 
-  constructor(scene: Phaser.Scene, readonly type: UnitType, onClick: () => void) {
+  constructor(scene: Phaser.Scene, readonly type: UnitType, onClick: () => void, costValue: number = BALANCE.units[type].cost) {
     super(scene, 0, 0);
     this.bg = scene.add.rectangle(0, 0, CARD_W, CARD_H, PALETTE.inchiostro, 0.92).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
     const icon = scene.add.graphics();
     drawUnitIcon(icon, type, CARD_W / 2, 22, 12, PALETTE.carta);
     const name = scene.add.text(CARD_W / 2, 44, unitInfo(type).short, textStyle(10, PALETTE.carta)).setOrigin(0.5);
-    const cost = scene.add.text(CARD_W / 2, 61, `${BALANCE.units[type].cost}`, textStyle(13, PALETTE.ocra)).setOrigin(0.5);
+    const cost = scene.add.text(CARD_W / 2, 61, `${costValue}`, textStyle(13, PALETTE.ocra)).setOrigin(0.5);
     this.cool = scene.add.rectangle(0, 0, CARD_W, 0, PALETTE.inchiostro, 0.75).setOrigin(0);
     this.add([this.bg, icon, name, cost, this.cool]);
     this.setSize(CARD_W, CARD_H);

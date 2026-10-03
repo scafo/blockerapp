@@ -1,5 +1,9 @@
 [
-  { "id": "fanteria", "name": "Fanteria", "short": "FANTERIA", "beats": "ricognitori", "desc": "Lenta e dura. Tiene le conquiste lunghe, ferma i ricognitori." },
-  { "id": "ricognitori", "name": "Ricognitori", "short": "RICOGN.", "beats": "artiglieria", "desc": "Veloci e leggeri. Entrano nelle retrovie, travolgono l'artiglieria." },
-  { "id": "artiglieria", "name": "Artiglieria", "short": "ARTIGL.", "beats": "fanteria", "desc": "Colpisce a distanza. Lenta da spostare, micidiale sulla fanteria." }
+  { "id": "fanteria", "cls": "fanteria", "name": "Fanteria", "short": "FANTERIA", "beats": "ricognitori", "desc": "Lenta e dura. Tiene le conquiste lunghe, ferma i ricognitori." },
+  { "id": "ricognitori", "cls": "ricognitori", "name": "Ricognitori", "short": "RICOGN.", "beats": "artiglieria", "desc": "Veloci e leggeri. Entrano nelle retrovie, travolgono l'artiglieria." },
+  { "id": "artiglieria", "cls": "artiglieria", "name": "Artiglieria", "short": "ARTIGL.", "beats": "fanteria", "desc": "Colpisce a distanza. Lenta da spostare, micidiale sulla fanteria." },
+  { "id": "legionari", "cls": "fanteria", "name": "Legionari", "short": "LEGIONE", "beats": "ricognitori", "desc": "Fanteria d'élite dell'Imperium: più vita e più forza." },
+  { "id": "guardia", "cls": "fanteria", "name": "Guardia repubblicana", "short": "GUARDIA", "beats": "ricognitori", "desc": "Fanteria della Republica: costa poco, resiste a lungo." },
+  { "id": "prototipo", "cls": "artiglieria", "name": "Prototipo", "short": "PROTOT.", "beats": "fanteria", "desc": "Arma sperimentale dell'Aristocrazia: colpisce a 4 caselle, fragile." },
+  { "id": "infiltrati", "cls": "ricognitori", "name": "Infiltrati", "short": "INFILTR.", "beats": "artiglieria", "desc": "Agenti della Cabal: velocissimi, conquistano spendendo poco." }
 ]

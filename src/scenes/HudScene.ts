@@ -107,7 +107,7 @@ export class HudScene extends Phaser.Scene {
 
     // comandi: carte in basso a sinistra; ritirata e velocità in basso a destra
     // solo le unità sbloccate dalla Arsenale
-    this.cards = UNIT_TYPES.filter((t) => this.run.state.opts.units.includes(t)).map((t) => new UnitCard(this, t, () => this.onCard(t)));
+    this.cards = UNIT_TYPES.filter((t) => this.run.state.opts.units.includes(t)).map((t) => new UnitCard(this, t, () => this.onCard(t), this.run.state.unitCost(PLAYER, t)));
     this.speedBtn = new Button(this, 'x1', 56, 44, () => {
       const sp = BALANCE.speeds as readonly number[];
       this.setSpeed(sp[(sp.indexOf(this.run.state.speed) + 1) % sp.length]);
@@ -288,7 +288,7 @@ export class HudScene extends Phaser.Scene {
     }
     this.rate.setText(`+${st.troopsPerSecond.toFixed(1)}/s`);
     const share = Math.round(st.mapShare * 100);
-    const goal = `${share}%/${BALANCE.victory.mapShare * 100}%`, anom = `anomalie ${st.anomaliesOwned()}/${BALANCE.victory.anomalies}`;
+    const goal = `${share}%/${BALANCE.victory.mapShare * 100}%`, anom = `anomalie ${st.anomaliesOwned()}/${st.anomaliesToWin}`;
     this.stats.setText(this.portrait ? `${st.tilesOwned} caselle · ${goal}\n${anom}` : `${st.tilesOwned} caselle ${goal} · ${anom}`);
     RESOURCES.forEach((r, k) => this.resTexts[k].setText(String(st.backpack[r])));
     if (st.opts.tutorial) {
@@ -296,7 +296,7 @@ export class HudScene extends Phaser.Scene {
     } else if (st.stormIn > 0) {
       this.stormText.setText(`${this.portrait ? 'tempesta' : 'tempesta della Caduta'} tra ${mmss(st.stormIn)}`).setColor(st.stormIn <= BALANCE.storm.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
     } else {
-      const left = BALANCE.storm.startMs + BALANCE.storm.durationMs - st.gameTimeMs;
+      const left = st.stormStartMs + BALANCE.storm.durationMs - st.gameTimeMs;
       this.stormText.setText(`LA TEMPESTA AVANZA · ${mmss(left)}`).setColor(hex(PALETTE.ko));
     }
     this.seed.setText(`mappa #${st.map.seed}`);
@@ -374,8 +374,8 @@ export class HudScene extends Phaser.Scene {
   }
 
   onAnomaly(count: number, gained: boolean) {
-    if (gained) this.banner(`ANOMALIA ${count}/${BALANCE.victory.anomalies}`, PALETTE.radioattivo, 'il segnale è tuo');
-    else this.toast(`ANOMALIA PERSA · ${count}/${BALANCE.victory.anomalies}`, PALETTE.ko);
+    if (gained) this.banner(`ANOMALIA ${count}/${this.run.state.anomaliesToWin}`, PALETTE.radioattivo, 'il segnale è tuo');
+    else this.toast(`ANOMALIA PERSA · ${count}/${this.run.state.anomaliesToWin}`, PALETTE.ko);
   }
 
   onMilestone(tiles: number) {

@@ -1,0 +1,6 @@
+{
+  "republica": { "name": "Republica", "motto": "Senato e stabilità", "bonus": "Stabilità: le tue caselle si difendono il 20% meglio", "building": "Senato", "buildingText": "Insediamenti: +6 difesa", "unlock": "" },
+  "imperium": { "name": "Imperium", "motto": "Ordine e dominio", "bonus": "Espansione: conquistare caselle neutrali costa il 15% in meno", "building": "Caserma", "buildingText": "Insediamenti: +2 caselle di crescita truppe", "unlock": "" },
+  "aristocrazia": { "name": "Aristocrazia", "motto": "Cultura, tecnologia e degrado", "bonus": "Tecnologia: unità -30% costo, ma truppe -8% di crescita", "building": "Accademia", "buildingText": "Vista +2 e anomalie più deboli", "unlock": "Vinci 3 campagne" },
+  "cabal": { "name": "Cabal", "motto": "Lavori nell'ombra ed economia", "bonus": "Ombra: bottino +30%", "building": "Mercato nero", "buildingText": "Insediamenti: producono metallo e benzina", "unlock": "Completa 3 spedizioni" }
+}
