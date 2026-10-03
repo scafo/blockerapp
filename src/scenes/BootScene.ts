@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { PALETTE } from '../config/palette';
 import { buildLandMask } from '../map/landMask';
+import { buildCountryMap } from '../map/countries';
 import { randomSeed } from '../map/rng';
 import { loadProfile } from '../save/storage';
 import { textStyle } from '../ui/style';
@@ -21,7 +22,9 @@ export class BootScene extends Phaser.Scene {
 
     // Lascia disegnare il testo di caricamento prima del calcolo (sincrono).
     this.time.delayedCall(30, () => {
-      this.registry.set('landMask', buildLandMask());
+      const mask = buildLandMask();
+      this.registry.set('landMask', mask);
+      this.registry.set('countries', buildCountryMap(mask)); // nazioni reali per province e confini
       // ?seed=... salta l'accampamento e apre subito quella mappa (test e rivincite condivise)
       const seed = new URLSearchParams(location.search).get('seed');
       if (seed) this.scene.start('Run', { seed });

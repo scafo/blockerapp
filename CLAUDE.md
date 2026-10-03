@@ -101,6 +101,12 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   **Nebbia** (`fog`): vedi entro 4 caselle dal territorio, 3 dalle pedine, 2 dalle navi; mai visto = scuro, già visto = velato;
   pedine e nomi nemici nascosti nella nebbia; anomalie sempre visibili. Disegnata in una texture a mezza risoluzione solo quando
   la vista cambia. Niente nebbia né navi nella run guidata. Leve ricordate tra le run (`loadPrefs`/`savePrefs`).
+- **Nazioni e province alla Call of War** (richiesta di Nico; `provinces` in `balance.ts`, `src/map/countries.ts`): ogni casella
+  appartiene al suo paese reale (Natural Earth 110m, nomi italiani in `src/data/countries-it.json`); ogni nazione è divisa in
+  province di ~16 caselle attorno a città scelte a ogni run. Prendi la città → le caselle neutrali della provincia si arrendono
+  (anomalie escluse); la capitale (stella) dà +40 truppe la prima volta. Città più difese; le IA le cercano. Carta politica:
+  confini nazionali tratteggiati, linee sottili tra province, nomi delle nazioni visibili solo con lo zoom lontano.
+  Staterelli sotto 3 caselle senza città.
 - Controlli mappa (M5): tocco su casella adiacente = attacco; tocco lontano = **avanzata** (il confine "cola" verso il bersaglio,
   una casella ogni 160 ms finché bastano le truppe; tocco sul tuo territorio = alt); trascinamento che parte dal tuo territorio =
   **dipingi** la frontiera; trascinamento altrove = sposta; due dita = zoom + sposta. Numeri in `balance.ts` (`flow`).

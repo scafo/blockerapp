@@ -8,7 +8,7 @@ import land110 from 'world-atlas/land-110m.json';
 import { BALANCE } from '../config/balance';
 import { lonLat } from './hexGrid';
 
-interface Poly {
+export interface Poly {
   rings: Position[][];
   bb: [number, number, number, number];
 }
@@ -38,7 +38,11 @@ function inRing(r: Position[], x: number, y: number): boolean {
 function loadPolygons(): Poly[] {
   const topo = land110 as unknown as Topology<{ land: GeometryObject }>;
   const fc = feature(topo, topo.objects.land);
-  const geoms = ('features' in fc ? fc.features : [fc]).map((f) => f.geometry as Polygon | MultiPolygon);
+  return polygonsOf(('features' in fc ? fc.features : [fc]).map((f) => f.geometry as Polygon | MultiPolygon));
+}
+
+/** Poligoni (con antimeridiano sistemato e bbox) da geometrie GeoJSON. */
+export function polygonsOf(geoms: (Polygon | MultiPolygon)[]): Poly[] {
   return geoms
     .flatMap((g) => (g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates]))
     .map((rings) => {
@@ -48,7 +52,7 @@ function loadPolygons(): Poly[] {
     });
 }
 
-function contains(polys: Poly[], lon: number, lat: number): boolean {
+export function contains(polys: Poly[], lon: number, lat: number): boolean {
   for (const p of polys) {
     if (lat < p.bb[1] || lat > p.bb[3]) continue;
     for (const x of [lon, lon - 360, lon + 360]) {

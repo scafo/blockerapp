@@ -30,6 +30,7 @@ export type RunEvent =
   | { type: 'event'; event: GameEvent }
   | { type: 'flowEnd'; reason: 'reached' | 'blocked' | 'budget' }
   | { type: 'boat'; phase: 'landed' | 'lost'; boat: Boat }
+  | { type: 'province'; by: number; province: number; count: number; capital: boolean; nation: string; bonus: number }
   | { type: 'unitDied'; unit: Unit }
   | { type: 'eliminated'; faction: number; by: number; loot: Bag };
 
@@ -97,6 +98,7 @@ export class RunState {
   private tickAcc = 0;
   private frontierCache = new Map<number, number[]>();
   private aiRng: Rng;
+  private capitalsTaken = new Set<number>();
   private ruins: number[];
 
   constructor(readonly map: RunMap, readonly opts: RunOptions = DEFAULT_OPTIONS) {
@@ -694,7 +696,8 @@ export class RunState {
     const grace = this.opts.tutorial || this.gameTimeMs < BALANCE.ai.graceMs;
     for (const i of this.frontier(f.id)) {
       if (grace && this.owner[i] === PLAYER) continue;
-      const score = this.defenseOf(i) * (this.owner[i] === PLAYER ? BALANCE.ai.playerBias : 1);
+      const city = this.map.tiles[i]!.city ? BALANCE.provinces.aiCityAttraction : 1; // le città valgono una provincia
+      const score = this.defenseOf(i) * (this.owner[i] === PLAYER ? BALANCE.ai.playerBias : 1) * city;
       if (score < bestScore || (score === bestScore && this.aiRng() < 0.5)) {
         best = i;
         bestScore = score;
@@ -773,8 +776,36 @@ export class RunState {
     tile.loot = 0;
     this.claim(by, i);
     this.events.push({ type: 'conquer', by, from, i, cost, loot, lootType: tile.lootType, unit });
+    if (tile.city) this.surrender(by, tile);
     if (from !== NEUTRAL && this.factions[from].tiles <= 0) this.eliminate(from, by);
     return loot;
+  }
+
+  /** Città presa: le caselle neutrali della sua provincia si arrendono; la capitale (la prima volta) dà truppe. */
+  private surrender(by: number, city: Tile) {
+    const prov = this.map.provinces[city.province];
+    if (!prov) return;
+    const f = this.factions[by];
+    let count = 0;
+    for (const j of prov.tiles) {
+      const t = this.map.tiles[j]!;
+      // le anomalie non si arrendono: vanno prese a mano
+      if (j === city.i || this.owner[j] !== NEUTRAL || !this.passable(j) || t.type === 'anomalia') continue;
+      f.loot[t.lootType] += t.loot; // il bottino delle rovine della provincia va a chi la prende
+      const loot = t.loot;
+      t.loot = 0;
+      this.claim(by, j);
+      this.events.push({ type: 'conquer', by, from: NEUTRAL, i: j, cost: 0, loot, lootType: t.lootType });
+      count++;
+    }
+    let bonus = 0;
+    if (city.capital && !this.capitalsTaken.has(city.i)) {
+      this.capitalsTaken.add(city.i);
+      bonus = BALANCE.provinces.capitalTroops;
+      f.troops += bonus;
+    }
+    const nation = this.map.nations.find((n) => n.id === prov.country)?.name ?? '';
+    this.events.push({ type: 'province', by, province: city.province, count, capital: city.capital, nation, bonus });
   }
 
   private eliminate(f: number, by: number) {

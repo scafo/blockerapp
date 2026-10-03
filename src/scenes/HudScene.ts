@@ -363,6 +363,16 @@ export class HudScene extends Phaser.Scene {
     this.guide?.signal(kind);
   }
 
+  /** Città presa: provincia annessa (toast) o capitale caduta (cartello). Le IA si annunciano solo per le capitali. */
+  onProvince(by: number, count: number, capital: boolean, nation: string, bonus: number) {
+    if (by === PLAYER) {
+      if (capital) this.banner(`${nation.toUpperCase()} CADE`, PALETTE.ocra, `capitale presa${bonus ? ` · +${bonus} truppe` : ''}`);
+      else if (count) this.toast(`PROVINCIA ANNESSA${nation ? ` · ${nation}` : ''}\n+${count} caselle si arrendono`, PALETTE.radioattivo);
+    } else if (capital && by >= 0) {
+      this.toast(`${FACTION_INFO[by].short} PRENDONO LA CAPITALE: ${nation.toUpperCase()}`, PALETTE.ocra);
+    }
+  }
+
   onAnomaly(count: number, gained: boolean) {
     if (gained) this.banner(`ANOMALIA ${count}/${BALANCE.victory.anomalies}`, PALETTE.radioattivo, 'il segnale è tuo');
     else this.toast(`ANOMALIA PERSA · ${count}/${BALANCE.victory.anomalies}`, PALETTE.ko);

@@ -122,6 +122,19 @@ export const BALANCE = {
     reserve: 5, // truppe che l'avanzata lascia sempre in cassa
     giveUpSteps: 3, // si ferma se si allontana dal bersaglio di tanti passi (es. mare in mezzo)
   },
+  // Nazioni e province (alla Call of War): ogni nazione reale è divisa in province con una città.
+  // Prendi la città → le caselle neutrali della provincia si arrendono. La capitale dà truppe a chi la prende.
+  provinces: {
+    size: 16, // caselle per provincia (circa)
+    cityDefenseMult: 2, // difesa città = base × mult + bonus
+    cityDefenseBonus: 6,
+    capitalDefenseBonus: 8,
+    capitalTroops: 40, // a chi prende una capitale (la prima volta)
+    aiCityAttraction: 0.6, // le città sembrano più deboli all'IA: le cerca
+    nameMinTiles: 8, // nomi delle nazioni solo per le più grandi
+    minTilesForCity: 3, // staterelli più piccoli: niente città né capitale (meno simboli sulla mappa)
+    namesMaxZoom: 1.6, // sopra questo zoom (vista tattica) i nomi delle nazioni spariscono
+  },
   // Navi: tocchi una costa che non raggiungi via terra; la nave parte dalla tua costa più vicina con la forza d'attacco.
   boats: {
     stepMs: 220, // tempo per attraversare una casella di mare

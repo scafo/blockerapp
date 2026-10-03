@@ -2,6 +2,7 @@
 import { BALANCE, type Resource, type TileType } from '../config/balance';
 import { createRng, randInt, type Rng } from './rng';
 import { NEIGHBORS, center, hexDistance, lonLat } from './hexGrid';
+import type { CountryMap } from './countries';
 
 export interface Tile {
   i: number;
@@ -9,6 +10,24 @@ export interface Tile {
   defense: number;
   loot: number;
   lootType: Resource;
+  country: number; // nazione reale (−1 se sconosciuta)
+  province: number; // provincia (−1 se nessuna)
+  city: boolean;
+  capital: boolean;
+}
+
+export interface Province {
+  country: number;
+  city: number; // casella della città (−1 se la provincia non ne ha)
+  tiles: number[];
+}
+
+export interface Nation {
+  id: number; // indice nella CountryMap
+  name: string;
+  capital: number; // casella della capitale (−1 se nessuna)
+  size: number;
+  label: number; // casella dove scrivere il nome
 }
 
 export interface RunMap {
@@ -19,11 +38,13 @@ export interface RunMap {
   regionSize: number; // caselle attraversabili raggiungibili dalla partenza del giocatore
   anomalies: number[];
   stormCenter: number;
+  provinces: Province[];
+  nations: Nation[];
 }
 
 const M = BALANCE.map;
 
-export function generateMap(seed: string, landMask: Uint8Array, aiCount: number = BALANCE.ai.count): RunMap {
+export function generateMap(seed: string, landMask: Uint8Array, aiCount: number = BALANCE.ai.count, countries: CountryMap | null = null): RunMap {
   const rng = createRng(seed);
   const tiles: (Tile | null)[] = new Array(landMask.length).fill(null);
   const land: number[] = [];
@@ -33,7 +54,10 @@ export function generateMap(seed: string, landMask: Uint8Array, aiCount: number 
     const absLat = Math.abs(lonLat(i)[1]);
     const inBand = absLat >= M.desertLatBand[0] && absLat <= M.desertLatBand[1];
     const desert = rng() < (inBand ? M.desertChance : M.desertSprinkle);
-    tiles[i] = { i, type: desert ? 'deserto' : 'terra', defense: 0, loot: 0, lootType: 'rottami' };
+    tiles[i] = {
+      i, type: desert ? 'deserto' : 'terra', defense: 0, loot: 0, lootType: 'rottami',
+      country: countries ? countries.country[i] : -1, province: -1, city: false, capital: false,
+    };
     land.push(i);
   }
 
@@ -69,7 +93,127 @@ export function generateMap(seed: string, landMask: Uint8Array, aiCount: number 
   const dist = bfs(tiles, starts[0]);
   const region = land.filter((i) => dist[i] >= 0);
   const anomalies = placeAnomalies(rng, tiles, region, dist, starts);
-  return { seed, tiles, land, starts, regionSize: region.length, anomalies, stormCenter: pickStormCenter(rng, region) };
+  const { provinces, nations } = countries ? buildProvinces(rng, tiles, land, starts, countries) : { provinces: [], nations: [] };
+  return { seed, tiles, land, starts, regionSize: region.length, anomalies, stormCenter: pickStormCenter(rng, region), provinces, nations };
+}
+
+/**
+ * Province alla Call of War: ogni nazione è divisa in province di circa `size` caselle attorno a città scelte lontane
+ * tra loro (cambiano con il seed). La città più vicina al cuore della nazione è la capitale.
+ */
+function buildProvinces(rng: Rng, tiles: (Tile | null)[], land: number[], starts: number[], cm: CountryMap) {
+  const P = BALANCE.provinces;
+  const provinces: Province[] = [];
+  const nations: Nation[] = [];
+  const nearStart = (i: number) => starts.some((s) => hexDistance(s, i) <= 1);
+  const byCountry = new Map<number, number[]>();
+  for (const i of land) {
+    const c = tiles[i]!.country;
+    if (c >= 0) (byCountry.get(c) ?? byCountry.set(c, []).get(c)!).push(i);
+  }
+  for (const [c, all] of byCountry) {
+    // componenti connesse della nazione (isole, enclavi): ognuna ha le sue province
+    const comp = new Map<number, number>();
+    const comps: number[][] = [];
+    for (const i of all) {
+      if (comp.has(i)) continue;
+      const list = [i];
+      comp.set(i, comps.length);
+      for (let h = 0; h < list.length; h++) {
+        for (const n of NEIGHBORS[list[h]]) {
+          if (n >= 0 && tiles[n]?.country === c && !comp.has(n)) {
+            comp.set(n, comps.length);
+            list.push(n);
+          }
+        }
+      }
+      comps.push(list);
+    }
+    let capital = -1, bestCap = Infinity;
+    const main = comps.reduce((a, b) => (b.length > a.length ? b : a));
+    for (const part of comps) {
+      if (part.length < P.minTilesForCity) continue; // isolette e staterelli: niente città
+      const candidates = part.filter((i) => {
+        const t = tiles[i]!;
+        return (t.type === 'terra' || t.type === 'deserto') && !nearStart(i);
+      });
+      if (!candidates.length) continue;
+      // città lontane tra loro (campionamento del punto più lontano)
+      const k = Math.max(1, Math.round(part.length / P.size));
+      const cities = [candidates[Math.floor(rng() * candidates.length)]];
+      while (cities.length < k) {
+        let best = -1, bestD = -1;
+        for (const i of candidates) {
+          const d = Math.min(...cities.map((s) => hexDistance(s, i))) + rng() * 0.5;
+          if (d > bestD) {
+            bestD = d;
+            best = i;
+          }
+        }
+        if (bestD < 2) break;
+        cities.push(best);
+      }
+      // ogni casella va alla città più vicina (BFS dentro la nazione)
+      const first = provinces.length;
+      const queue: number[] = [];
+      cities.forEach((s, j) => {
+        provinces.push({ country: c, city: s, tiles: [] });
+        tiles[s]!.province = first + j;
+        tiles[s]!.city = true;
+        queue.push(s);
+      });
+      for (let h = 0; h < queue.length; h++) {
+        const cur = queue[h];
+        provinces[tiles[cur]!.province].tiles.push(cur);
+        for (const n of NEIGHBORS[cur]) {
+          const t = n >= 0 ? tiles[n] : null;
+          if (t && t.country === c && t.province < 0 && comp.get(n) === comp.get(cur)) {
+            t.province = tiles[cur]!.province;
+            queue.push(n);
+          }
+        }
+      }
+      if (part === main) {
+        // capitale: la città più vicina al baricentro della parte principale
+        let sx = 0, sy = 0;
+        for (const i of part) {
+          const p = center(i);
+          sx += p.x;
+          sy += p.y;
+        }
+        sx /= part.length;
+        sy /= part.length;
+        for (const s of cities) {
+          const p = center(s), d = Math.hypot(p.x - sx, p.y - sy);
+          if (d < bestCap) {
+            bestCap = d;
+            capital = s;
+          }
+        }
+      }
+    }
+    // dove scrivere il nome: la casella della parte principale più vicina al suo baricentro
+    let lx = 0, ly = 0;
+    for (const i of main) {
+      const p = center(i);
+      lx += p.x;
+      ly += p.y;
+    }
+    lx /= main.length;
+    ly /= main.length;
+    const label = main.reduce((a, b) => {
+      const pa = center(a), pb = center(b);
+      return Math.hypot(pb.x - lx, pb.y - ly) < Math.hypot(pa.x - lx, pa.y - ly) ? b : a;
+    });
+    if (capital >= 0) tiles[capital]!.capital = true;
+    nations.push({ id: c, name: cm.names[c], capital, size: all.length, label });
+  }
+  // città e capitali più difese
+  for (const p of provinces) {
+    const t = tiles[p.city]!;
+    t.defense = Math.round(t.defense * P.cityDefenseMult) + P.cityDefenseBonus + (t.capital ? P.capitalDefenseBonus : 0);
+  }
+  return { provinces, nations };
 }
 
 function pickWeighted<K extends string>(rng: Rng, weights: Record<K, number>): K {

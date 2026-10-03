@@ -54,6 +54,8 @@ export class RunScene extends Phaser.Scene {
   private fogBrush!: Phaser.GameObjects.Graphics;
   private fogVersion = -1;
   private boatSprites = new Map<number, Phaser.GameObjects.Container>();
+  private nationNames: Phaser.GameObjects.Text[] = [];
+  private namesShown = true;
   private flowMarker!: Phaser.GameObjects.Graphics;
   private nextMilestone = 0;
   private tapFxTile = -1;
@@ -84,7 +86,8 @@ export class RunScene extends Phaser.Scene {
     const profile = loadProfile();
     if (settle(profile, Date.now())) saveProfile(profile);
     const opts = data.opts ?? runOptions(profile);
-    this.map = generateMap(data.seed, this.registry.get('landMask'), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count);
+    this.map = generateMap(data.seed, this.registry.get('landMask'), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count,
+      this.registry.get('countries'));
     this.state = new RunState(this.map, opts);
     this.state.initFog();
     analytics.runStart(opts.tutorial, data.seed);
@@ -108,6 +111,7 @@ export class RunScene extends Phaser.Scene {
     this.ownedGfx = this.add.graphics();
     // nebbia sopra i colori delle fazioni ma sotto anomalie, tempesta e pedine
     this.fogVersion = -1;
+    this.namesShown = true;
     this.fogRT = this.add.renderTexture(0, 0, Math.ceil(WORLD_W * FOG_RES), Math.ceil(WORLD_H * FOG_RES)).setOrigin(0).setScale(1 / FOG_RES)
       .setVisible(opts.fog);
     this.fogBrush = this.make.graphics({}, false);
@@ -172,6 +176,8 @@ export class RunScene extends Phaser.Scene {
         }
       } else if (e.type === 'unitDied') {
         this.unitDeathFx(e.unit);
+      } else if (e.type === 'province') {
+        this.hud.onProvince(e.by, e.count, e.capital, e.nation, e.bonus);
       } else if (e.type === 'boat') {
         this.boatLandFx(e.boat, e.phase);
       } else if (e.type === 'flowEnd') {
@@ -191,6 +197,12 @@ export class RunScene extends Phaser.Scene {
     this.syncBoats();
     if (this.state.opts.fog && this.state.fogVersion !== this.fogVersion) this.redrawFog();
     this.tapFxTile = -1;
+    // nomi delle nazioni solo nella vista strategica: da vicino si combatte, non si legge l'atlante
+    const showNames = this.cameras.main.zoom < BALANCE.provinces.namesMaxZoom * DPR;
+    if (showNames !== this.namesShown) {
+      this.namesShown = showNames;
+      this.tweens.add({ targets: this.nationNames, alpha: showNames ? 0.5 : 0, duration: 200 });
+    }
     const ms = BALANCE.milestones;
     while (this.nextMilestone < ms.length && this.state.maxTiles >= ms[this.nextMilestone]) {
       this.hud.onMilestone(ms[this.nextMilestone++]);
@@ -300,6 +312,25 @@ export class RunScene extends Phaser.Scene {
     for (const i of this.map.land) {
       const { x, y } = center(i);
       g.strokePoints(corners(x, y, S), true);
+    }
+    // carta politica: linee sottili tra province, confini nazionali tratteggiati (alla Call of War)
+    const tiles = this.map.tiles;
+    for (const i of this.map.land) {
+      const t = tiles[i]!;
+      const { x, y } = center(i);
+      const c = corners(x, y, S);
+      NEIGHBORS[i].forEach((n, k) => {
+        const u = n >= 0 ? tiles[n] : null;
+        if (!u || n < i) return; // ogni lato una volta sola
+        const a = c[k], b = c[(k + 1) % 6];
+        if (u.country !== t.country) {
+          g.lineStyle(1.8, PALETTE.inchiostro, 0.8);
+          g.lineBetween(a.x, a.y, a.x + (b.x - a.x) / 3, a.y + (b.y - a.y) / 3);
+          g.lineBetween(a.x + ((b.x - a.x) * 2) / 3, a.y + ((b.y - a.y) * 2) / 3, b.x, b.y);
+        } else if (u.province !== t.province) {
+          g.lineStyle(0.9, PALETTE.inchiostro, 0.3).lineBetween(a.x, a.y, b.x, b.y);
+        }
+      });
     }
     // coste nette (leggibilità prima di tutto)
     g.lineStyle(1.6, PALETTE.inchiostro, 0.85);
@@ -565,7 +596,33 @@ export class RunScene extends Phaser.Scene {
   // ---------- anomalie e tempesta ----------
 
   /** Anomalie: anelli di segnale che pulsano, sopra il colore del proprietario. */
+  /** Nomi delle nazioni più grandi, sopra i colori delle fazioni: si legge sempre una carta politica. */
+  private drawNationNames() {
+    this.nationNames = [];
+    for (const n of this.map.nations) {
+      if (n.size < BALANCE.provinces.nameMinTiles) continue;
+      const { x, y } = center(n.label);
+      const size = Phaser.Math.Clamp(7 + Math.sqrt(n.size) * 1.2, 9, 30);
+      this.nationNames.push(this.add.text(x, y, n.name.toUpperCase(), textStyle(size, PALETTE.inchiostro)).setOrigin(0.5).setResolution(3)
+        .setLetterSpacing(size * 0.25).setStroke('#efe3c8', 2).setAlpha(0.5).setDepth(4));
+    }
+  }
+
+  /** Città (quadratino) e capitali (stella): luoghi noti dalle vecchie carte, sempre visibili. */
+  private drawCities() {
+    const g = this.add.graphics();
+    for (const p of this.map.provinces) {
+      if (p.city < 0) continue;
+      const t = this.map.tiles[p.city]!;
+      const { x, y } = center(p.city);
+      if (t.capital) drawSymbol(g, 'stella', x, y, 5, PALETTE.carta, PALETTE.inchiostro);
+      else g.fillStyle(PALETTE.carta, 1).fillRect(x - 2.6, y - 2.6, 5.2, 5.2).lineStyle(1.2, PALETTE.inchiostro, 1).strokeRect(x - 2.6, y - 2.6, 5.2, 5.2);
+    }
+  }
+
   private drawAnomalies() {
+    this.drawCities();
+    this.drawNationNames();
     const g = this.add.graphics();
     for (const i of this.map.anomalies) {
       const { x, y } = center(i);
