@@ -6,6 +6,7 @@ import { NEIGHBORS, WORLD_H, WORLD_W, center, corners, pixelToIndex } from '../m
 import { NEUTRAL, PLAYER, RunState } from '../game/RunState';
 import { FACTION_INFO } from '../game/factions';
 import { textStyle } from '../ui/style';
+import { drawSymbol } from '../ui/symbols';
 import type { HudScene } from './HudScene';
 
 const S = BALANCE.map.hexSize;
@@ -28,6 +29,8 @@ export class RunScene extends Phaser.Scene {
   private labelTimer = 0;
   private lastAffordable = '';
   private ownedDirty = false;
+  private nameTags: Phaser.GameObjects.Container[] = [];
+  private nameTimer = 0;
   private lastHitFx = 0;
   // input
   private down: { x: number; y: number } | null = null;
@@ -58,6 +61,14 @@ export class RunScene extends Phaser.Scene {
       emitting: false,
     }).setDepth(10);
 
+    this.nameTags = FACTION_INFO.map((f) => {
+      const g = this.add.graphics();
+      drawSymbol(g, f.symbol, 0, -9, 7, PALETTE.carta, PALETTE.inchiostro);
+      const t = this.add.text(0, 5, f.short, textStyle(11, PALETTE.carta)).setOrigin(0.5).setResolution(3).setStroke('#2b2118', 3);
+      return this.add.container(0, 0, [g, t]).setDepth(6).setAlpha(0.95);
+    });
+    this.nameTimer = 0;
+
     this.redrawOwned();
     this.redrawFrontier(true);
     this.setupCamera();
@@ -86,6 +97,11 @@ export class RunScene extends Phaser.Scene {
       this.redrawFrontier(true);
     } else if (ticks > 0) {
       this.redrawFrontier();
+    }
+    this.nameTimer -= delta;
+    if (this.nameTimer <= 0) {
+      this.nameTimer = 1000;
+      this.placeNameTags();
     }
     this.labelTimer -= delta;
     if (this.labelTimer <= 0) {
@@ -170,6 +186,42 @@ export class RunScene extends Phaser.Scene {
         if (n < 0 || own[n] !== o) g.lineBetween(c[k].x, c[k].y, c[(k + 1) % 6].x, c[(k + 1) % 6].y);
       });
     }
+  }
+
+  /** Simbolo + nome di ogni fazione nel punto più interno del suo territorio, più grande se l'impero cresce. */
+  private placeNameTags() {
+    const own = this.state.owner;
+    const dist = new Int16Array(own.length).fill(-1);
+    const queue: number[] = [];
+    for (let i = 0; i < own.length; i++) {
+      if (own[i] === NEUTRAL) continue;
+      if (NEIGHBORS[i].some((n) => n < 0 || own[n] !== own[i])) {
+        dist[i] = 0;
+        queue.push(i);
+      }
+    }
+    for (let h = 0; h < queue.length; h++) {
+      const c = queue[h];
+      for (const n of NEIGHBORS[c]) {
+        if (n >= 0 && dist[n] < 0 && own[n] === own[c]) {
+          dist[n] = dist[c] + 1;
+          queue.push(n);
+        }
+      }
+    }
+    const best = this.state.factions.map(() => -1);
+    for (let i = 0; i < own.length; i++) {
+      const o = own[i];
+      if (o !== NEUTRAL && (best[o] < 0 || dist[i] > dist[best[o]])) best[o] = i;
+    }
+    this.state.factions.forEach((f, k) => {
+      const tag = this.nameTags[k];
+      if (!f.alive || best[k] < 0) return void tag.setVisible(false);
+      const { x, y } = center(best[k]);
+      const scale = Phaser.Math.Clamp(0.6 + Math.sqrt(f.tiles) * 0.09, 0.7, 2.6);
+      if (!tag.visible || tag.x === 0) tag.setPosition(x, y).setScale(scale).setVisible(true);
+      else this.tweens.add({ targets: tag, x, y, scale, duration: 450, ease: 'Sine.easeInOut' });
+    });
   }
 
   /** Evidenzia le caselle attaccabili: piene se abbordabili, solo contorno se no. */

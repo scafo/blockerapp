@@ -4,14 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#2B2118" />
-    <title>Wasteland Conquest</title>
+    <title>Ashen Atlas</title>
     <style>
       html, body { margin: 0; padding: 0; height: 100%; background: #2B2118; overflow: hidden; touch-action: none; }
       #game { position: fixed; inset: 0; }
+      /* Solo orizzontale: su telefono in verticale chiediamo di ruotare (il gioco va in pausa). */
+      #rotate { display: none; position: fixed; inset: 0; z-index: 10; background: #2B2118; color: #EFE3C8;
+        font: bold 18px "Courier New", Courier, monospace; text-align: center; place-content: center; gap: 16px; padding: 24px; }
+      #rotate b { color: #C8963E; font-size: 44px; display: block; }
+      @media (orientation: portrait) and (pointer: coarse) { #rotate { display: grid; } }
     </style>
   </head>
   <body>
     <div id="game"></div>
+    <div id="rotate"><b>⟳</b>RUOTA IL TELEFONO<br />Ashen Atlas si gioca in orizzontale</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

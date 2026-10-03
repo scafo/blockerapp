@@ -1,193 +1,85 @@
-# [NOME GIOCO] — MVP
+# CLAUDE.md — Ashen Atlas (nome di lavoro)
 
-Gioco mobile di conquista su mappa del mondo. Stile retro post-apocalittico moderno.
-Loop: **run sulla mappa → bottino → villaggio cresce → run successiva diversa.**
+Sei il developer di questo gioco. Nico è designer/art director e decide estetica, feeling e bilanciamento. Lavora una milestone alla volta. Chiedi solo se una decisione non è scritta qui.
 
-Questo README è la specifica per costruire l'MVP con Claude Code.
-Mettilo nella root del progetto (copialo anche come `CLAUDE.md` così Claude Code lo legge sempre).
+## Cos'è
 
----
+Gioco mobile single player di conquista sulla mappa del mondo, con un accampamento personale. Loop: run sulla mappa → bottino → l'accampamento cresce → la run successiva è diversa. Formula: si impara come Territorial, si torna come in Clash, si ragiona come in HOI4, si paga come in Polytopia.
 
-## Avvio rapido
+## Feeling (verifica ogni scelta contro queste 3 parole)
 
-```bash
-npm install
-npm run dev        # http://localhost:5173 (aggiunge --host: apri dal telefono sulla stessa rete)
-npm run build      # build di produzione in dist/
-npm run typecheck
-npm run check:land # verifica la maschera terra contro d3 geoContains (se cambi la griglia)
-npx vite-node scripts/sim.ts 1 6   # simula 6 run (giocatore 1 tap/s) per tarare balance.ts
-```
+**Epico** (costruire un impero, chiarezza) · **Curioso** (mistero, esplorazione) · **Ironico** (umorismo nero, calore nella rovina). Tecnologia analogica anni '40–'70 + un solo elemento inventato: le anomalie. Evita: ottone/ingranaggi (steampunk), HUD tattici moderni (MW3), qualsiasi IP Fallout (vault, mascotte, nomi).
 
-- `?seed=abc123` nell'URL → mappa riproducibile.
-- Controlli: tap = conquista, trascina = sposta, pinch/rotella = zoom.
+## Lore
 
-**Stato:** milestone 1 ✅ (mappa a esagoni + conquista col tap, zaino rovine, velocità x1/x2/x4) ·
-milestone 2 ✅ (3 fazioni IA che si espandono, si combattono e ti attaccano dopo 60 s; eliminazione + rivincita).
-
----
-
-## Visione completa (stella polare, oltre l'MVP)
-
-Si parte dall'**accampamento**, la home del gioco, costruito come in Clash of Clans: piccolo all'inizio, poi sempre più tuo e da mostrare. Qui i **generali** (alla World Conqueror) hanno personalità e abilità da collezionare, le **spedizioni** rientrano a tempo e la **strada dei trofei** (alla Clash Royale) ti dà un motivo per tornare ogni giorno. Ogni edificio non dà solo numeri, ma sblocca **nuove strade per le run** come in Hades: una fucina per unità nuove, una radio per eventi rari, un archivio per tecnologie.
-
-Dall'accampamento parti per la **run** sulla mappa del mondo, con le modalità mappa di HOI4 che cambi con un tocco, la leggibilità di Polytopia e l'espansione fluida di Territorial che fa "colare" il tuo colore sul mondo. Le **unità** funzionano a sasso-carta-forbice come in Polytopia, ma ognuna ha la silhouette e il carattere di una carta di Clash Royale. L'**economia** ha due sole leve alla OpenFront (soldati contro lavoratori), mentre la **ricerca** fa scoperte che cambiano davvero il modo di giocare come in Civilization.
-
-Durante la run arrivano **carte evento** da scorrere alla Reigns, ironiche e misteriose, che danno indizi su cosa è successo al mondo. Le alleanze con l'IA seguono la logica di Europa Universalis, con rivalità che contano. Alla fine scegli se ritirarti con il bottino o rischiare, e torni all'accampamento più forte o a mani vuote, con il tasto **rivincita** sempre pronto.
-
-Sopra tutto questo: il **sandbox** di Age of History per chi vuole giocare libero, monetizzazione **equa** alla Polytopia, e una community da far crescere come quella di HOI4.
-
-### Cosa entra nell'MVP e cosa dopo
-
-| Elemento della visione | MVP | Dove |
-|---|---|---|
-| Accampamento (= Villaggio) che cresce visivamente | ✅ | M4 |
-| Edifici che sbloccano strade: Fucina, Radio | ✅ | M4 |
-| Archivio → tecnologie / ricerca | ❌ dopo | — |
-| Spedizioni a tempo reale | ✅ | M4 |
-| Generali collezionabili | ❌ dopo | — |
-| Strada dei trofei | ❌ dopo | — |
-| Leggibilità (colori forti, confini netti) | ✅ | sempre |
-| Espansione che "cola" sul mondo | ✅ | M5 (juice) |
-| Modalità mappa con un tocco | ❌ dopo | — |
-| Unità sasso-carta-forbice | ❌ dopo (MVP: solo raider dalla Fucina) | — |
-| Economia soldati vs lavoratori | ❌ dopo | — |
-| Carte evento da scorrere, indizi sul mondo | ✅ | M4 (swipe sx/dx = 2 opzioni) |
-| Alleanze e rivalità IA | ❌ dopo | — |
-| Ritirati o rischia + Rivincita | ✅ | M3 |
-| Sandbox, monetizzazione, community | ❌ fuori MVP | — |
-
----
-
-## Obiettivo dell'MVP
-
-Un prototipo **giocabile nel browser (anche da telefono)** da mandare via link a ~20 tester.
-Domanda da validare: **più del 20% gioca ancora dopo 7 giorni?**
-Non è il gioco finale. Brutto va bene, divertente no-negoziabile.
-
----
+1971: un segnale misterioso, "il Silenzio", spegne la tecnologia avanzata. 40 anni dopo le fazioni ricostruiscono imperi quasi feudali. Le zone di anomalia emettono ancora il segnale. Il mistero si svela poco alla volta negli eventi. Tono: bollettino radio anni '50, ironico.
 
 ## Stack
 
-- **Phaser 3 + TypeScript + Vite** (veloce da iterare, gira su mobile web)
-- **d3-geo** + **world-atlas (Natural Earth 110m)** per generare la griglia sulla mappa del mondo
-  (a runtime point-in-polygon planare: stesso risultato di `geoContains`, 50 ms invece di 5 s)
-- **localStorage** per salvare villaggio e progressi (con try/catch)
-- **GameAnalytics** (gratis) per retention D1/D7 e durata sessioni
-- Deploy: **Vercel** o **Netlify** (link da mandare ai tester)
+- Phaser 3 + TypeScript + Vite; app con Capacitor (iOS/Android). Niente server.
+- d3-geo + world-atlas 110m per la griglia sul mondo.
+- Salvataggio locale (try/catch); GameAnalytics per D1/D7.
+- Orizzontale, solo orizzontale.
+- Tutti i numeri in `src/config/balance.ts`. Contenuti (eventi, civiltà, unità, edifici) in JSON in `src/data/`.
 
-Più avanti: port in Godot 4 o wrap con Capacitor per App Store.
+## Run
 
----
+- Mappa del mondo a esagoni, riconoscibile ma alterata: coste, rovine, zone tossiche e partenza cambiano a ogni run (seed).
+- Truppe generiche (pool) crescono col territorio; tap su casella adiacente = attacco (`troops > defense`).
+- Unità speciali come carte: fanteria pesante, raider, artiglieria (sasso-carta-forbice). Mare e aria si sbloccano dopo; gli aerei sono abilità a ricarica, non unità.
+- Economia a 2 leve: soldati vs lavoratori.
+- Risorse: Rottami, Carburante, Viveri. Bottino nello zaino.
+- Eventi stile Reigns: carta con 2 scelte, ~ogni 90 s.
+- Fine: tempesta che restringe la mappa (~8 min base). Ritirati = tieni lo zaino; eliminato = perdi il 70%. Tasto Rivincita stessa mappa.
+- Vittoria: 60% della mappa / 3 anomalie / più territorio all'arrivo della tempesta.
+- Velocità x1/x2/x4. Difficoltà: Recluta, Comandante, Generale, Incubo.
+- IA: fazioni che attaccano la casella vicina più debole (poi migliorabile).
 
-## Scope MVP (solo questo)
+## Civiltà
 
-### 1. Mappa
-- Griglia esagonale (~120×60) sopra la mappa del mondo; tieni solo le caselle su terra (`geoContains`).
-- Tipi di casella: `terra`, `deserto` (difesa bassa), `rovine` (bottino), `acqua tossica` (non attraversabile).
-- **Ogni run altera la mappa**: rovine e zone tossiche in posizioni casuali (seed). Partenza casuale.
+Scelta a ogni run; ognuna ha 1 bonus, 1 unità unica, 1 edificio unico, una regione di partenza. Diverse, mai più forti. Lancio: Nuova Roma, Lega Baltica (gratis), Dominio delle Sabbie, Ordine del Segnale (da sbloccare).
 
-### 2. Conquista
-- Truppe del giocatore crescono ogni tick: `troops += tiles * 0.1` (tick = 500 ms).
-- Tap su casella adiacente: se `troops > defense` → conquistata, `troops -= defense`.
-- Bottino delle rovine va nello **zaino della run**.
-- Velocità: x1, x2, x4 (gratis).
+## Accampamento (home)
 
-### 3. IA
-- 3 fazioni nemiche, regola semplice: attaccano la casella vicina più debole.
-- Una fazione eliminata rilascia parte del suo bottino.
+Sezioni: Accampamento · Gioca · Civiltà e generali · Sfide · Negozio. Edifici: Comando, Mensa, Hangar spedizioni, Fucina, Magazzino, Radio, Archivio, Cartografo, Caserma generali, Molo, Pista, Sala trofei. Ogni edificio sblocca opzioni nelle run, non solo numeri. Timer: liv. 1–3 fino a 5 min, 4–6 fino a 2 h, 7+ 4–8 h. Spedizioni 30 min / 4 h / 8 h. I timer non bloccano mai le run.
 
-### 4. Fine run
-- **Tempesta**: dopo ~8 min (tempo di gioco) la mappa si restringe dai bordi.
-- **Ritirati**: il giocatore torna al villaggio con lo zaino.
-- **Eliminato**: perde il 70% dello zaino.
-- Schermata finale: territorio max, bottino, tempo + tasto **"Rivincita stessa mappa"**.
+## Progressione
 
-### 5. Eventi
-- 10 eventi a scelta (carta con 2 opzioni), ogni ~90 s di gioco. Umorismo nero leggero.
-- Esempio: *"Un mercante offre acqua pulita in cambio di 30 truppe."* → Accetta / Rifiuta.
-- Salvati in `src/data/events.json`.
+4 livelli di complessità, un sistema nuovo alla volta, insegnato giocando:
 
-### 6. Villaggio
-- 3 edifici, costruiti con il bottino. Ogni edificio **sblocca qualcosa nelle run**, non solo numeri:
-  - **Fucina** → nuova unità (es. raider: attacco a distanza 2)
-  - **Radio** → eventi rari
-  - **Magazzino** → perdi solo il 40% dello zaino se eliminato
-- **Spedizione**: manda abitanti, rientrano dopo X ore reali con risorse (motivo per tornare domani).
+1. prime 3 run: truppe + 1 unità, prima vittoria entro 2 min
+2. run 4–10: accampamento, 3 risorse, eventi, ritirata
+3. dopo ~1 settimana: civiltà, tecnologie (max 20–25), mare/aria
+4. veterani: generali, sfide, (futuro) multiplayer
 
-### 7. Onboarding
-- Prima run guidata: una meccanica alla volta, prima vittoria entro 2 minuti.
-- Nessun muro di testo: frecce e highlight.
+## Regole di design
 
----
+- Max 5–6 scelte a schermo. Mappa sempre libera al centro, comandi negli angoli in basso.
+- Leggibilità > atmosfera: colori fazione forti + simboli (daltonismo).
+- Ogni conquista dà soddisfazione visiva.
+- Mai pay-to-win, mai loot box a pagamento.
 
-## Fuori dall'MVP (non costruire)
+## MVP (costruisci SOLO questo)
 
-Multiplayer, account/login, acquisti, sandbox premium, fazioni multiple giocabili, stagioni, classifiche online, suono elaborato.
+1 civiltà, 3 unità, 3 risorse, 10 eventi, 3 edifici (Fucina, Radio, Magazzino), spedizioni, tempesta, ritirata, rivincita, onboarding, analytics. Fuori dall'MVP: multiplayer, account, acquisti, sandbox, stagioni, classifiche online.
 
----
+## Milestone
 
-## Regole di design (sempre valide)
+1. Mappa + conquista a tap
+2. IA + combattimento + unità
+3. Zaino, ritirata, tempesta, schermata finale
+4. Accampamento + eventi
+5. Juice, onboarding, estetica placeholder
+6. Analytics + build Capacitor + test su Android economico
 
-1. Mai più di 5–6 scelte a schermo.
-2. Ogni conquista deve dare soddisfazione visiva (flash, scala, particelle).
-3. Leggibilità > dettaglio: colori forti per fazione, confini netti.
-4. Tutti i numeri di bilanciamento in `src/config/balance.ts`, mai hardcoded.
-5. Niente IP di terzi (niente riferimenti Fallout: vault, mascotte, nomi).
-
-### Estetica (placeholder per l'MVP)
-Palette: ocra `#C8963E`, ruggine `#8B3A1E`, carta `#EFE3C8`, inchiostro `#2B2118`, radioattivo `#3FD9B0`.
-Stile: mappa militare d'epoca + manifesti anni '50, forme piatte e pulite.
+Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del test: D7 > 20% su ~20 tester.
 
 ---
 
-## Struttura cartelle
+## Note del developer (stato e comandi)
 
-```
-src/
-  main.ts
-  config/balance.ts
-  data/events.json
-  map/        generazione griglia, seed, tempesta
-  game/       tick, conquista, IA, zaino
-  scenes/     Boot, Village, Run, Result
-  ui/         HUD, carte evento, bottoni velocità
-  save/       localStorage
-  analytics/  GameAnalytics wrapper
-```
-
----
-
-## Milestone (con criterio di "fatto")
-
-| # | Settimana | Fatto quando… |
-|---|---|---|
-| 1 | Mappa + conquista | Vedo il mondo a esagoni e conquisto caselle col tap |
-| 2 | IA + combattimento | 3 fazioni si espandono e mi attaccano |
-| 3 | Bottino + ritirata + tempesta | Una run finisce in ~8 min e porto a casa lo zaino |
-| 4 | Villaggio + eventi | Costruisco 3 edifici e cambiano la run successiva |
-| 5 | Juice + estetica + onboarding | Un nuovo giocatore vince la prima run senza spiegazioni |
-| 6 | Analytics + deploy + test | Link online, eventi D1/D7 tracciati, 20 tester invitati |
-
----
-
-## Prompt da dare a Claude Code (uno per milestone)
-
-1. *"Leggi CLAUDE.md. Crea il progetto Phaser 3 + TS + Vite e fai la milestone 1. Mostrami come avviarlo."*
-2. *"Milestone 2: aggiungi 3 fazioni IA secondo il README. Numeri in balance.ts."*
-3. *"Milestone 3: zaino, ritirata, tempesta, schermata finale con Rivincita."*
-4. *"Milestone 4: scena Villaggio con 3 edifici e spedizioni a tempo reale. 10 eventi in events.json."*
-5. *"Milestone 5: juice sulle conquiste, palette del README, onboarding della prima run."*
-6. *"Milestone 6: integra GameAnalytics (sessioni, run iniziate/finite, D1/D7) e prepara deploy su Vercel."*
-
-Dopo ogni milestone: **gioca 10 minuti tu stesso** prima di passare alla successiva.
-
----
-
-## Metriche del test
-
-- Retention D1 / D7 (obiettivo D7 > 20%)
-- Run per sessione (obiettivo ≥ 2 = "ancora una partita" funziona)
-- % che usa Rivincita dopo una sconfitta
-- % che torna per ritirare una spedizione
-- 3 domande ai tester: cosa ti ha annoiato? cosa vorresti sbloccare? lo consiglieresti?
+- `npm run dev` · `npm run build` · `npm run typecheck`
+- `npm run check:land` — verifica la maschera terra contro `geoContains` (a runtime si usa un point-in-polygon planare: 50 ms invece di 5 s).
+- `npx vite-node scripts/sim.ts 1 6` — simula 6 run senza grafica (giocatore 1 tap/s) per tarare `balance.ts`.
+- `?seed=abc123` nell'URL → mappa riproducibile.
+- Stato: M1 ✅ · M2 parziale (IA + combattimento ✅, unità ⏳).

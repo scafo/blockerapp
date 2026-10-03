@@ -6,27 +6,31 @@ import { PALETTE } from '../config/palette';
 import { randomSeed } from '../map/rng';
 import { Button } from '../ui/Button';
 import { textStyle } from '../ui/style';
+import { drawSymbol } from '../ui/symbols';
 import type { RunScene } from './RunScene';
 
 const PAD = 12;
-const BAR_H = 64;
-const STRIP_H = 24;
-const TOP_H = BAR_H + STRIP_H;
+const LEFT_W = 240;
+const LEFT_H = 78;
+const RIGHT_W = 128;
+const ROW_H = 18;
 
+// Orizzontale: mappa libera al centro, info negli angoli in alto, comandi negli angoli in basso.
 export class HudScene extends Phaser.Scene {
   private troops!: Phaser.GameObjects.Text;
   private rate!: Phaser.GameObjects.Text;
   private stats!: Phaser.GameObjects.Text;
   private seed!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
-  private panel!: Phaser.GameObjects.Rectangle;
+  private leftPanel!: Phaser.GameObjects.Rectangle;
+  private rightPanel!: Phaser.GameObjects.Rectangle;
+  private symbols!: Phaser.GameObjects.Graphics;
+  private rows: Phaser.GameObjects.Text[] = [];
+  private aliveKey = '';
   private speedBtns: Button[] = [];
   private newRunBtn!: Button;
   private shownTroops = -1;
-  private strip!: Phaser.GameObjects.Rectangle;
-  private chips: { sq: Phaser.GameObjects.Rectangle; txt: Phaser.GameObjects.Text }[] = [];
   private overlay: Phaser.GameObjects.GameObject[] = [];
-  private overlayBtns: Button[] = [];
 
   constructor() {
     super('Hud');
@@ -38,21 +42,22 @@ export class HudScene extends Phaser.Scene {
 
   create() {
     this.shownTroops = -1;
+    this.aliveKey = '';
     this.overlay = [];
-    this.overlayBtns = [];
-    this.strip = this.add.rectangle(0, BAR_H, 10, STRIP_H, PALETTE.inchiostro, 0.7).setOrigin(0);
-    this.chips = FACTION_INFO.map((f) => ({
-      sq: this.add.rectangle(0, BAR_H + STRIP_H / 2, 10, 10, f.fill).setStrokeStyle(1, f.border),
-      txt: this.add.text(0, BAR_H + STRIP_H / 2, '', textStyle(11, PALETTE.carta)).setOrigin(0, 0.5),
-    }));
-    this.panel = this.add.rectangle(0, 0, 10, BAR_H, PALETTE.inchiostro, 0.88).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
-    this.add.text(PAD, 8, 'TRUPPE', textStyle(11, PALETTE.ocra));
-    this.troops = this.add.text(PAD, 20, '0', textStyle(30, PALETTE.carta));
-    this.rate = this.add.text(PAD, 0, '', textStyle(12, PALETTE.radioattivo));
-    this.stats = this.add.text(0, 10, '', textStyle(13, PALETTE.carta)).setOrigin(1, 0).setAlign('right').setLineSpacing(2);
+    this.leftPanel = this.add.rectangle(PAD, PAD, LEFT_W, LEFT_H, PALETTE.inchiostro, 0.88).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
+    this.add.text(PAD + 10, PAD + 6, 'TRUPPE', textStyle(11, PALETTE.ocra));
+    this.troops = this.add.text(PAD + 10, PAD + 18, '0', textStyle(28, PALETTE.carta));
+    this.rate = this.add.text(PAD + 10, PAD + 30, '', textStyle(12, PALETTE.radioattivo));
+    this.stats = this.add.text(PAD + 10, PAD + LEFT_H - 8, '', textStyle(12, PALETTE.carta)).setOrigin(0, 1);
+
+    this.rightPanel = this.add.rectangle(0, PAD, RIGHT_W, FACTION_INFO.length * ROW_H + 10, PALETTE.inchiostro, 0.88)
+      .setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
+    this.symbols = this.add.graphics();
+    this.rows = FACTION_INFO.map(() => this.add.text(0, 0, '', textStyle(12, PALETTE.carta)).setOrigin(0, 0.5));
+
     this.seed = this.add.text(0, 0, '', textStyle(11, PALETTE.ocra, false)).setOrigin(0, 1);
     this.hint = this.add.text(0, 0, 'Tocca una casella evidenziata per conquistarla', textStyle(14, PALETTE.carta))
-      .setOrigin(0.5).setBackgroundColor('#2b2118').setPadding(10, 6, 10, 6);
+      .setOrigin(0.5, 0).setAlign('center').setBackgroundColor('#2b2118').setPadding(10, 6, 10, 6);
 
     this.speedBtns = BALANCE.speeds.map((s) => new Button(this, `x${s}`, 48, 40, () => this.setSpeed(s)));
     this.newRunBtn = new Button(this, 'NUOVA RUN', 120, 40, () => {
@@ -72,19 +77,15 @@ export class HudScene extends Phaser.Scene {
 
   private layout() {
     const { width, height } = this.scale;
-    this.panel.setSize(width, BAR_H);
-    this.strip.setSize(width, STRIP_H);
-    const slot = (width - 2 * PAD) / this.chips.length;
-    this.chips.forEach((c, k) => {
-      c.sq.setX(PAD + k * slot + 5);
-      c.txt.setX(PAD + k * slot + 14);
-    });
-    this.rate.setPosition(PAD + this.troops.width + 10, 34);
-    this.stats.setPosition(width - PAD, 10);
+    const rx = width - PAD - RIGHT_W;
+    this.rightPanel.setX(rx);
+    this.rows.forEach((r, k) => r.setPosition(rx + 26, PAD + 5 + ROW_H * (k + 0.5)));
+    this.aliveKey = ''; // forza il ridisegno dei simboli
     this.speedBtns.forEach((b, k) => b.setPosition(width - PAD - (BALANCE.speeds.length - k) * 54 + 6, height - PAD - 40));
     this.newRunBtn.setPosition(PAD, height - PAD - 40);
     this.seed.setPosition(PAD, height - PAD - 46);
-    this.hint.setPosition(width / 2, TOP_H + 30).setWordWrapWidth(width - 2 * PAD);
+    const free = width - 2 * PAD - LEFT_W - RIGHT_W - 2 * PAD;
+    this.hint.setPosition(width / 2, PAD).setWordWrapWidth(Math.max(180, free));
   }
 
   update() {
@@ -94,19 +95,28 @@ export class HudScene extends Phaser.Scene {
     if (t !== this.shownTroops) {
       this.shownTroops = t;
       this.troops.setText(String(t));
-      this.rate.setX(PAD + this.troops.width + 10);
+      this.rate.setX(PAD + 10 + this.troops.width + 10);
     }
     this.rate.setText(`+${st.troopsPerSecond.toFixed(1)}/s`);
     const sec = Math.floor(st.gameTimeMs / 1000);
     const time = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
-    this.stats.setText(`TERRITORIO ${st.tilesOwned}\nZAINO ${st.backpack}\n${time}`);
+    this.stats.setText(`${st.tilesOwned} caselle · zaino ${st.backpack} · ${time}`);
     this.seed.setText(`mappa #${st.map.seed}`);
+
+    const key = st.factions.map((f) => +f.alive).join('');
+    if (key !== this.aliveKey) {
+      this.aliveKey = key;
+      const g = this.symbols.clear();
+      const rx = this.rightPanel.x;
+      st.factions.forEach((f, k) => {
+        const info = FACTION_INFO[k];
+        g.setAlpha(1);
+        drawSymbol(g, info.symbol, rx + 14, this.rows[k].y, 6, f.alive ? info.fill : 0x555555, PALETTE.carta);
+      });
+    }
     st.factions.forEach((f, k) => {
-      const c = this.chips[k];
-      if (!c) return;
-      c.txt.setText(f.alive ? `${FACTION_INFO[k].short} ${f.tiles}` : `${FACTION_INFO[k].short} ✝`);
-      c.txt.setAlpha(f.alive ? 1 : 0.4);
-      c.sq.setAlpha(f.alive ? 1 : 0.3);
+      const r = this.rows[k];
+      r.setText(f.alive ? `${FACTION_INFO[k].short} ${f.tiles}` : `${FACTION_INFO[k].short} ✝`).setAlpha(f.alive ? 1 : 0.4);
     });
   }
 
@@ -121,7 +131,7 @@ export class HudScene extends Phaser.Scene {
 
   private toast(msg: string, color: number) {
     const { width } = this.scale;
-    const t = this.add.text(width / 2, TOP_H + 70, msg, textStyle(16, color)).setOrigin(0.5).setAlign('center')
+    const t = this.add.text(width / 2, PAD + 64, msg, textStyle(16, color)).setOrigin(0.5).setAlign('center')
       .setBackgroundColor('#2b2118').setPadding(12, 8, 12, 8).setScale(0.6).setAlpha(0);
     this.tweens.add({ targets: t, scale: 1, alpha: 1, duration: 220, ease: 'Back.easeOut' });
     this.tweens.add({ targets: t, alpha: 0, delay: 2400, duration: 400, onComplete: () => t.destroy() });
@@ -140,7 +150,6 @@ export class HudScene extends Phaser.Scene {
     again.setPosition(width / 2 - 158, height / 2 + 20);
     fresh.setPosition(width / 2 + 8, height / 2 + 20);
     this.overlay = [shade, title, sub, again, fresh];
-    this.overlayBtns = [again, fresh];
     this.tweens.add({ targets: title, scale: { from: 1.6, to: 1 }, duration: 300, ease: 'Back.easeOut' });
   }
 
@@ -153,7 +162,9 @@ export class HudScene extends Phaser.Scene {
 
   /** true se il punto (schermo) cade su un elemento dell'HUD. */
   hitUi(x: number, y: number): boolean {
-    if (y <= TOP_H || this.overlay.length) return true;
-    return [...this.speedBtns, this.newRunBtn, ...this.overlayBtns].some((b) => b.contains(x, y));
+    if (this.overlay.length) return true;
+    const inRect = (r: Phaser.GameObjects.Rectangle) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
+    if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
+    return [...this.speedBtns, this.newRunBtn].some((b) => b.contains(x, y));
   }
 }
