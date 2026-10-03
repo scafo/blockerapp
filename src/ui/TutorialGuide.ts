@@ -1,7 +1,7 @@
 // Prima run guidata: una meccanica alla volta, frecce e anelli, testi di poche parole.
 import Phaser from 'phaser';
 import { BALANCE } from '../config/balance';
-import { PALETTE } from '../config/palette';
+import { PALETTE, hex } from '../config/palette';
 import { PLAYER, type RunState } from '../game/RunState';
 import { hexDistance } from '../map/hexGrid';
 import { textStyle } from './style';
@@ -40,7 +40,7 @@ export class TutorialGuide {
     this.ring.lineStyle(3, PALETTE.ocra, 1).strokeCircle(0, 0, 18);
     scene.tweens.add({ targets: this.ring, scale: { from: 0.8, to: 1.3 }, alpha: { from: 1, to: 0.3 }, duration: 600, yoyo: true, repeat: -1 });
     this.label = scene.add.text(0, 0, '', textStyle(15, PALETTE.carta)).setOrigin(0.5, 0).setDepth(45)
-      .setBackgroundColor('#2b2118').setPadding(10, 6, 10, 6).setAlign('center');
+      .setBackgroundColor(hex(PALETTE.inchiostro)).setPadding(10, 6, 10, 6).setAlign('center');
   }
 
   signal(kind: GuideSignal) {

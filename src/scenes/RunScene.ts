@@ -4,9 +4,12 @@ import { RESOURCE_INFO } from '../game/resources';
 import { runOptions, settle, type RunOptions } from '../game/camp';
 import { loadPrefs, loadProfile, saveProfile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
-import { PALETTE } from '../config/palette';
+import { PALETTE, hex } from '../config/palette';
 import { generateMap, type RunMap } from '../map/generate';
-import { NEIGHBORS, WORLD_H, WORLD_W, center, corners, hexDistance, pixelToIndex } from '../map/hexGrid';
+import { HEX_W, NEIGHBORS, WORLD_H, WORLD_W, center, corners, hexDistance, pixelToIndex } from '../map/hexGrid';
+import { mesh } from 'topojson-client';
+import type { Topology, GeometryObject } from 'topojson-specification';
+import countries110 from 'world-atlas/countries-110m.json';
 import { NEUTRAL, PLAYER, RunState } from '../game/RunState';
 import { FACTION_INFO } from '../game/factions';
 import { textStyle } from '../ui/style';
@@ -22,19 +25,14 @@ const S = BALANCE.map.hexSize;
 const FOG_RES = 0.5; // la nebbia non ha bisogno di dettaglio: mezza risoluzione, bordi morbidi
 const CAM = BALANCE.camera;
 
-/** Schiarisce (>1) o scurisce (<1) un colore 0xRRGGBB. */
-function shade(c: number, f: number): number {
-  const ch = (v: number) => Math.max(0, Math.min(255, Math.round(v * f)));
-  return (ch((c >> 16) & 255) << 16) | (ch((c >> 8) & 255) << 8) | ch(c & 255);
-}
-
 const TERRAIN_COLOR = {
   terra: PALETTE.terra,
-  deserto: PALETTE.ocra,
+  deserto: PALETTE.deserto,
   rovine: PALETTE.rovine,
-  tossica: PALETTE.radioattivo,
-  anomalia: 0x14302b,
+  tossica: PALETTE.tossica,
+  anomalia: 0x0a2a2e,
 } as const;
+const OWNED_ALPHA = 0.55; // il territorio lascia vedere reticolo e confini sotto (stile schermo)
 
 export class RunScene extends Phaser.Scene {
   state!: RunState;
@@ -134,7 +132,7 @@ export class RunScene extends Phaser.Scene {
     this.nameTags = FACTION_INFO.map((f) => {
       const g = this.add.graphics();
       drawSymbol(g, f.symbol, 0, -9, 7, PALETTE.carta, PALETTE.inchiostro);
-      const t = this.add.text(0, 5, f.short, textStyle(11, PALETTE.carta)).setOrigin(0.5).setResolution(3).setStroke('#2b2118', 3);
+      const t = this.add.text(0, 5, f.short, textStyle(11, PALETTE.carta)).setOrigin(0.5).setResolution(3);
       return this.add.container(0, 0, [g, t]).setDepth(6).setAlpha(0.95);
     });
     this.nameTimer = 0;
@@ -263,109 +261,125 @@ export class RunScene extends Phaser.Scene {
     this.children.sendToBack(rt);
   }
 
-  private drawGraticule() {
-    const g = this.add.graphics().lineStyle(1, PALETTE.graticola, 1);
+  /** y-mondo di una latitudine (stessa formula delle righe della griglia). */
+  private latY(lat: number) {
     const { latMax, latMin, rows } = BALANCE.map;
-    for (let lon = -180; lon <= 180; lon += 30) {
-      const x = ((lon + 180) / 360) * WORLD_W;
-      g.lineBetween(x, 0, x, WORLD_H);
-    }
-    for (let lat = -60; lat <= 90; lat += 30) {
-      if (lat > latMax || lat < latMin) continue;
-      const r = ((latMax - lat) / (latMax - latMin)) * rows - 0.5;
-      const y = 1.5 * S * r + S;
-      g.lineBetween(0, y, WORLD_W, y);
-    }
-    g.lineStyle(3, PALETTE.ocra, 0.6).strokeRect(-6, -6, WORLD_W + 12, WORLD_H + 12);
-    // tratteggio del mare, da carta militare
-    g.lineStyle(1, PALETTE.graticola, 0.35);
-    for (let d = -WORLD_H; d < WORLD_W; d += 16) g.lineBetween(Math.max(0, d), Math.max(0, -d), Math.min(WORLD_W, d + WORLD_H), Math.min(WORLD_H, WORLD_W - d));
-    this.drawCompass(140, WORLD_H - 150, 70);
+    return 1.5 * S * (((latMax - lat) / (latMax - latMin)) * rows - 0.5) + S;
   }
 
-  /** Rosa dei venti a 8 punte con la N. */
-  private drawCompass(x: number, y: number, r: number) {
+  private lonX(lon: number) {
+    return ((lon + 180) / 360) * WORLD_W;
+  }
+
+  /** Reticolo geografico da schermo radar: righe ogni 10°, più marcate ogni 30°, coordinate ai bordi, scala. */
+  private drawGraticule() {
     const g = this.add.graphics();
-    g.lineStyle(1.5, PALETTE.ocra, 0.7).strokeCircle(x, y, r * 0.78).strokeCircle(x, y, r * 0.7);
-    for (let k = 0; k < 8; k++) {
-      const a = (k * Math.PI) / 4 - Math.PI / 2, long = k % 2 === 0, len = long ? r : r * 0.55, w = long ? r * 0.13 : r * 0.09;
-      const tip = { x: x + Math.cos(a) * len, y: y + Math.sin(a) * len };
-      const l = { x: x + Math.cos(a - Math.PI / 2) * w, y: y + Math.sin(a - Math.PI / 2) * w };
-      const rr = { x: x + Math.cos(a + Math.PI / 2) * w, y: y + Math.sin(a + Math.PI / 2) * w };
-      g.fillStyle(PALETTE.ocra, 0.85).fillTriangle(x, y, tip.x, tip.y, l.x, l.y);
-      g.fillStyle(PALETTE.carta, 0.85).fillTriangle(x, y, tip.x, tip.y, rr.x, rr.y);
+    const { latMax, latMin } = BALANCE.map;
+    for (let lon = -180; lon <= 180; lon += 10) {
+      g.lineStyle(lon % 30 === 0 ? 1 : 0.6, PALETTE.graticola, lon % 30 === 0 ? 1 : 0.6).lineBetween(this.lonX(lon), 0, this.lonX(lon), WORLD_H);
     }
-    this.add.text(x, y - r - 14, 'N', textStyle(18, PALETTE.ocra)).setOrigin(0.5).setResolution(2);
+    for (let lat = -50; lat <= 80; lat += 10) {
+      if (lat > latMax || lat < latMin) continue;
+      g.lineStyle(lat % 30 === 0 ? 1 : 0.6, PALETTE.graticola, lat % 30 === 0 ? 1 : 0.6).lineBetween(0, this.latY(lat), WORLD_W, this.latY(lat));
+    }
+    g.lineStyle(1, PALETTE.fosforoDebole, 1).strokeRect(-4, -4, WORLD_W + 8, WORLD_H + 8);
+    const dim = textStyle(7, PALETTE.fosforoDebole, false);
+    for (let lon = -150; lon <= 150; lon += 30) {
+      const t = lon === 0 ? '0°' : `${Math.abs(lon)}°${lon < 0 ? 'W' : 'E'}`;
+      this.add.text(this.lonX(lon) + 2, 2, t, dim).setResolution(3);
+    }
+    for (let lat = -30; lat <= 60; lat += 30) {
+      const t = lat === 0 ? '0°' : `${Math.abs(lat)}°${lat < 0 ? 'S' : 'N'}`;
+      this.add.text(3, this.latY(lat) + 2, t, dim).setResolution(3);
+    }
+    // scala: un esagono ≈ 200 km all'equatore
+    const km = (HEX_W / WORLD_W) * 360 * 111;
+    const bar = (2000 / km) * HEX_W, bx = 24, by = WORLD_H - 22;
+    g.lineStyle(1, PALETTE.fosforo, 0.8).lineBetween(bx, by, bx + bar, by);
+    for (let k = 0; k <= 4; k++) g.lineBetween(bx + (bar * k) / 4, by - (k % 2 ? 2 : 4), bx + (bar * k) / 4, by);
+    this.add.text(bx, by - 15, 'KILOMETRI', textStyle(7, PALETTE.fosforo, false)).setResolution(3).setAlpha(0.8);
+    this.add.text(bx, by + 3, '0      1000      2000', textStyle(7, PALETTE.fosforo, false)).setResolution(3).setAlpha(0.8);
+    this.add.text(WORLD_W - 6, WORLD_H - 8, `REF ${this.map.seed.toUpperCase()} · GRIGLIA ${BALANCE.map.cols}×${BALANCE.map.rows}`, textStyle(7, PALETTE.fosforoDebole, false))
+      .setOrigin(1, 1).setResolution(3);
+  }
+
+  /** Coste e confini veri (Natural Earth 110m), con un alone leggero da fosforo. */
+  private drawRealBorders(g: Phaser.GameObjects.Graphics) {
+    const topo = countries110 as unknown as Topology<{ countries: GeometryObject }>;
+    const lines = (filter: (a: GeometryObject, b: GeometryObject) => boolean) => mesh(topo, topo.objects.countries, filter).coordinates;
+    const { latMin } = BALANCE.map;
+    const stroke = (coords: number[][][], width: number, alpha: number) => {
+      g.lineStyle(width, PALETTE.fosforo, alpha);
+      for (const line of coords) {
+        let run: { x: number; y: number }[] = [];
+        const flush = () => { if (run.length > 1) g.strokePoints(run, false); run = []; };
+        for (let k = 0; k < line.length; k++) {
+          const [lon, lat] = line[k];
+          if (lat < latMin - 1) { flush(); continue; } // niente Antartide
+          if (k > 0 && Math.abs(lon - line[k - 1][0]) > 180) flush(); // antimeridiano
+          run.push({ x: this.lonX(lon), y: this.latY(lat) });
+        }
+        flush();
+      }
+    };
+    const coast = lines((a, b) => a === b), borders = lines((a, b) => a !== b);
+    stroke(coast, 3.2, 0.1); // alone
+    stroke(borders, 2.4, 0.07);
+    stroke(borders, 0.8, 0.55);
+    stroke(coast, 1.2, 0.95);
   }
 
   private drawTerrain() {
     const g = this.add.graphics();
+    const tiles = this.map.tiles;
+    // fondo piatto (niente ombre né sfumature): il terreno si legge da tinta e segni
     for (const i of this.map.land) {
-      const t = this.map.tiles[i]!;
       const { x, y } = center(i);
-      // leggera variazione di tinta: carta stampata, non piastrelle
-      const jitter = t.type === 'terra' || t.type === 'deserto' ? (((i * 2654435761) >>> 0) % 7 - 3) * 0.018 : 0;
-      g.fillStyle(shade(TERRAIN_COLOR[t.type], 1 + jitter), 1);
+      g.fillStyle(TERRAIN_COLOR[tiles[i]!.type], 1);
       this.hexPath(g, x, y, S + 0.4);
     }
-    g.lineStyle(0.6, PALETTE.inchiostro, 0.25);
+    // reticolo esagonale sottile
+    g.lineStyle(0.5, PALETTE.esagono, 1);
     for (const i of this.map.land) {
       const { x, y } = center(i);
       g.strokePoints(corners(x, y, S), true);
     }
-    // carta politica: linee sottili tra province, confini nazionali tratteggiati (alla Call of War)
-    const tiles = this.map.tiles;
+    // province: lati tra province della stessa nazione; costa della griglia appena accennata
     for (const i of this.map.land) {
       const t = tiles[i]!;
       const { x, y } = center(i);
       const c = corners(x, y, S);
       NEIGHBORS[i].forEach((n, k) => {
         const u = n >= 0 ? tiles[n] : null;
-        if (!u || n < i) return; // ogni lato una volta sola
         const a = c[k], b = c[(k + 1) % 6];
-        if (u.country !== t.country) {
-          g.lineStyle(1.8, PALETTE.inchiostro, 0.8);
-          g.lineBetween(a.x, a.y, a.x + (b.x - a.x) / 3, a.y + (b.y - a.y) / 3);
-          g.lineBetween(a.x + ((b.x - a.x) * 2) / 3, a.y + ((b.y - a.y) * 2) / 3, b.x, b.y);
-        } else if (u.province !== t.province) {
-          g.lineStyle(0.9, PALETTE.inchiostro, 0.3).lineBetween(a.x, a.y, b.x, b.y);
-        }
+        if (!u) g.lineStyle(0.7, PALETTE.fosforoDebole, 0.7).lineBetween(a.x, a.y, b.x, b.y);
+        else if (n > i && u.country === t.country && u.province !== t.province) g.lineStyle(0.7, PALETTE.fosforoDebole, 0.9).lineBetween(a.x, a.y, b.x, b.y);
       });
     }
-    // coste nette (leggibilità prima di tutto)
-    g.lineStyle(1.6, PALETTE.inchiostro, 0.85);
+    // segni: deserto (puntino), rovine (quadratino), zone tossiche (crocetta)
     for (const i of this.map.land) {
+      const t = tiles[i]!;
       const { x, y } = center(i);
-      const c = corners(x, y, S);
-      NEIGHBORS[i].forEach((n, k) => {
-        if (n < 0 || !this.map.tiles[n]) g.lineBetween(c[k].x, c[k].y, c[(k + 1) % 6].x, c[(k + 1) % 6].y);
-      });
+      if (t.type === 'deserto') g.fillStyle(PALETTE.fosforoDebole, 0.8).fillRect(x - 0.5, y - 0.5, 1, 1);
+      else if (t.type === 'rovine') g.lineStyle(0.7, PALETTE.fosforoDebole, 1).strokeRect(x - 1.3, y - 1.3, 2.6, 2.6);
+      else if (t.type === 'tossica') g.lineStyle(0.8, 0xc9c25a, 0.55).lineBetween(x - 1.6, y - 1.6, x + 1.6, y + 1.6).lineBetween(x - 1.6, y + 1.6, x + 1.6, y - 1.6);
     }
-    // segni: rovine (quadrato scuro), zone tossiche (pallino)
-    for (const i of this.map.land) {
-      const t = this.map.tiles[i]!;
-      const { x, y } = center(i);
-      if (t.type === 'rovine') {
-        g.fillStyle(PALETTE.inchiostro, 0.85).fillRect(x - 3, y - 3, 6, 6);
-        g.fillStyle(PALETTE.ocra, 1).fillRect(x - 1.2, y - 1.2, 2.4, 2.4);
-      } else if (t.type === 'tossica') {
-        g.fillStyle(PALETTE.inchiostro, 0.55).fillCircle(x, y, 2.6);
-      }
-    }
+    this.drawRealBorders(g);
   }
 
   private redrawOwned() {
     const g = this.ownedGfx.clear();
     const own = this.state.owner;
+    const hidden = (i: number) => own[i] !== PLAYER && !this.state.sees(i); // nemici nella nebbia: non si vedono
     for (let i = 0; i < own.length; i++) {
-      if (own[i] === NEUTRAL) continue;
+      if (own[i] === NEUTRAL || hidden(i)) continue;
       const { x, y } = center(i);
-      g.fillStyle(FACTION_INFO[own[i]].fill, 0.92);
+      g.fillStyle(FACTION_INFO[own[i]].fill, OWNED_ALPHA);
       this.hexPath(g, x, y, S + 0.4);
     }
     // insediamenti (rovine possedute): casetta in carta, alzano il tetto di popolazione
     for (let i = 0; i < own.length; i++) {
-      if (own[i] === NEUTRAL || this.map.tiles[i]!.type !== 'rovine') continue;
+      if (own[i] === NEUTRAL || hidden(i) || this.map.tiles[i]!.type !== 'rovine') continue;
       const { x, y } = center(i);
       const w = S * 0.32;
       g.fillStyle(PALETTE.carta, 1).fillRect(x - w, y - w * 0.3, w * 2, w * 1.3);
@@ -375,8 +389,8 @@ export class RunScene extends Phaser.Scene {
     // confini netti: solo i lati verso caselle di altri
     for (let i = 0; i < own.length; i++) {
       const o = own[i];
-      if (o === NEUTRAL) continue;
-      g.lineStyle(o === PLAYER ? 2.4 : 1.8, FACTION_INFO[o].border, 1);
+      if (o === NEUTRAL || hidden(i)) continue;
+      g.lineStyle(o === PLAYER ? 1.6 : 1.2, FACTION_INFO[o].border, 1);
       const { x, y } = center(i);
       const c = corners(x, y, S);
       NEIGHBORS[i].forEach((n, k) => {
@@ -433,14 +447,15 @@ export class RunScene extends Phaser.Scene {
     for (const i of front) {
       const { x, y } = center(i);
       const ok = troops > this.state.defenseOf(i);
+      // attaccabile: contorno chiaro e velo leggero; troppo forte: contorno appena visibile
       if (ok) {
-        g.fillStyle(PALETTE.ok, 0.35);
-        this.hexPath(g, x, y, S * 0.82);
-        g.lineStyle(1.6, PALETTE.ok, 0.95);
+        g.fillStyle(PALETTE.ok, 0.1);
+        this.hexPath(g, x, y, S * 0.8);
+        g.lineStyle(1, PALETTE.ok, 0.9);
       } else {
-        g.lineStyle(1, PALETTE.inchiostro, 0.55);
+        g.lineStyle(0.7, PALETTE.fosforoDebole, 0.9);
       }
-      g.strokePoints(corners(x, y, S * 0.82), true);
+      g.strokePoints(corners(x, y, S * 0.8), true);
     }
     this.updateLabels();
   }
@@ -457,14 +472,14 @@ export class RunScene extends Phaser.Scene {
         const t = this.map.tiles[i]!;
         let label = this.labels[used];
         if (!label) {
-          label = this.add.text(0, 0, '', textStyle(9, PALETTE.inchiostro)).setOrigin(0.5).setResolution(3).setDepth(5);
+          label = this.add.text(0, 0, '', textStyle(5.5, PALETTE.carta)).setOrigin(0.5).setResolution(6).setDepth(5);
           this.labels.push(label);
         }
         const def = this.state.defenseOf(i);
         const enemy = this.state.owner[i] !== NEUTRAL;
         const txt = String(def);
         if (label.text !== txt) label.setText(txt);
-        label.setColor(enemy ? '#efe3c8' : this.state.troops > def ? '#2b2118' : '#8b3a1e');
+        label.setColor(hex(enemy ? PALETTE.carta : this.state.troops > def ? PALETTE.ok : PALETTE.ruggine));
         label.setPosition(x, y + (t.type === 'rovine' ? 5 : 0)).setVisible(true);
         used++;
       }
@@ -602,9 +617,9 @@ export class RunScene extends Phaser.Scene {
     for (const n of this.map.nations) {
       if (n.size < BALANCE.provinces.nameMinTiles) continue;
       const { x, y } = center(n.label);
-      const size = Phaser.Math.Clamp(7 + Math.sqrt(n.size) * 1.2, 9, 30);
-      this.nationNames.push(this.add.text(x, y, n.name.toUpperCase(), textStyle(size, PALETTE.inchiostro)).setOrigin(0.5).setResolution(3)
-        .setLetterSpacing(size * 0.25).setStroke('#efe3c8', 2).setAlpha(0.5).setDepth(4));
+      const size = Phaser.Math.Clamp(5 + Math.sqrt(n.size) * 0.7, 6, 22);
+      this.nationNames.push(this.add.text(x, y, n.name.toUpperCase(), textStyle(size, PALETTE.fosforo, false)).setOrigin(0.5).setResolution(3)
+        .setLetterSpacing(size * 0.3).setAlpha(0.6).setDepth(4));
     }
   }
 
@@ -615,8 +630,8 @@ export class RunScene extends Phaser.Scene {
       if (p.city < 0) continue;
       const t = this.map.tiles[p.city]!;
       const { x, y } = center(p.city);
-      if (t.capital) drawSymbol(g, 'stella', x, y, 5, PALETTE.carta, PALETTE.inchiostro);
-      else g.fillStyle(PALETTE.carta, 1).fillRect(x - 2.6, y - 2.6, 5.2, 5.2).lineStyle(1.2, PALETTE.inchiostro, 1).strokeRect(x - 2.6, y - 2.6, 5.2, 5.2);
+      if (t.capital) drawSymbol(g, 'stella', x, y, 3.6, PALETTE.fosforo, PALETTE.inchiostro);
+      else g.fillStyle(PALETTE.fosforo, 1).fillRect(x - 1.7, y - 1.7, 3.4, 3.4).fillStyle(PALETTE.inchiostro, 1).fillRect(x - 0.7, y - 0.7, 1.4, 1.4);
     }
   }
 
@@ -638,7 +653,7 @@ export class RunScene extends Phaser.Scene {
   private redrawStorm() {
     const st = this.state;
     const g = this.stormGfx.clear();
-    g.fillStyle(0x3a3530, 0.88);
+    g.fillStyle(0x23282a, 0.88); // cenere
     for (let i = 0; i < st.stormed.length; i++) {
       if (!st.stormed[i]) continue;
       const { x, y } = center(i);
@@ -742,11 +757,13 @@ export class RunScene extends Phaser.Scene {
   private redrawFog() {
     const st = this.state, F = BALANCE.fog;
     this.fogVersion = st.fogVersion;
+    this.ownedDirty = true; // i nemici compaiono/spariscono con la vista
+    if (!F.shade) return; // niente velo scuro: l'ignoto si vede, ma senza nemici
     const g = this.fogBrush.clear().setScale(FOG_RES);
     for (const i of this.map.land) {
       if (st.visible[i]) continue;
       const { x, y } = center(i);
-      g.fillStyle(0x15110c, st.seen[i] ? F.seenAlpha : F.unseenAlpha);
+      g.fillStyle(PALETTE.oceano, st.seen[i] ? F.seenAlpha : F.unseenAlpha);
       g.fillPoints(corners(x, y, S + 0.6), true);
     }
     this.fogRT.clear();
@@ -759,9 +776,9 @@ export class RunScene extends Phaser.Scene {
     g.fillStyle(f.fill, 1).fillPoints([{ x: -9, y: -2 }, { x: 9, y: -2 }, { x: 6, y: 4 }, { x: -6, y: 4 }], true);
     g.lineStyle(1.4, PALETTE.carta, 1).strokePoints([{ x: -9, y: -2 }, { x: 9, y: -2 }, { x: 6, y: 4 }, { x: -6, y: 4 }], true);
     g.fillStyle(PALETTE.carta, 1).fillRect(-3, -7, 6, 5); // cabina
-    const lbl = this.add.text(0, -14, String(b.troops), textStyle(9, PALETTE.carta)).setOrigin(0.5).setResolution(3).setStroke('#2b2118', 3);
+    const lbl = this.add.text(0, -14, String(b.troops), textStyle(9, PALETTE.carta)).setOrigin(0.5).setResolution(3);
     const { x, y } = center(b.from);
-    const c = this.add.container(x, y, [g, lbl]).setDepth(8);
+    const c = this.add.container(x, y, [g, lbl]).setDepth(8).setScale(0.6); // esagoni piccoli: nave in scala
     this.tweens.add({ targets: g, y: 1.2, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }); // rollio
     return c;
   }
@@ -853,8 +870,7 @@ export class RunScene extends Phaser.Scene {
   }
 
   private floatText(x: number, y: number, msg: string, color: number, delay = 0) {
-    const t = this.add.text(x, y, msg, textStyle(10, color)).setOrigin(0.5).setResolution(3).setDepth(11)
-      .setStroke('#2b2118', 3).setAlpha(0);
+    const t = this.add.text(x, y, msg, textStyle(8, color)).setOrigin(0.5).setResolution(3).setDepth(11).setAlpha(0);
     this.tweens.add({
       targets: t, y: y - 18, alpha: { from: 1, to: 0 }, delay, duration: 900, ease: 'Quad.easeOut',
       onComplete: () => t.destroy(),

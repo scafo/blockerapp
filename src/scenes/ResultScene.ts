@@ -41,13 +41,13 @@ export class ResultScene extends Phaser.Scene {
     // verticale: scheda alta con tutto in colonna; orizzontale: scheda larga
     const W = Math.min(600, width - 32), H = P ? Math.min(520, height - 24) : Math.min(340, height - 24);
     const x0 = (width - W) / 2, y0 = (height - H) / 2;
-    this.add.rectangle(x0, y0, W, H, PALETTE.carta).setOrigin(0).setStrokeStyle(4, PALETTE.ocra);
+    this.add.rectangle(x0, y0, W, H, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
     const cx = width / 2;
-    const ink = PALETTE.inchiostro;
+    const ink = PALETTE.carta; // testo chiaro sul pannello scuro
 
     this.add.text(x0 + 16, y0 + 12, `BOLLETTINO N° ${profile.runs}`, textStyle(11, PALETTE.ruggine));
     this.add.text(x0 + W - 16, y0 + 12, `mappa #${sum.seed}`, textStyle(11, PALETTE.ruggine, false)).setOrigin(1, 0);
-    const color = sum.outcome === 'victory' ? 0x1e7a62 : sum.outcome === 'retreat' ? ink : PALETTE.ruggine;
+    const color = sum.outcome === 'victory' ? PALETTE.ocra : sum.outcome === 'retreat' ? ink : PALETTE.ruggine;
     const title = this.add.text(cx, y0 + 50, TITLES[sum.outcome], textStyle(P ? 26 : 34, color)).setOrigin(0.5)
       .setAlign('center').setWordWrapWidth(W - 24);
     this.tweens.add({ targets: title, scale: { from: 1.4, to: 1 }, duration: 300, ease: 'Back.easeOut' });

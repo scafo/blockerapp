@@ -29,11 +29,11 @@ for (let r = 0; r < runs; r++) {
       if (f.length) st.tryConquer(f.reduce((a, b) => (st.defenseOf(a) <= st.defenseOf(b) ? a : b)));
     }
     // giocatore "da OpenFront": se le truppe superano il punto ottimale lancia un'avanzata verso il nemico/neutro più vicino
-    if (useFlow && ms % 1000 === 0 && st.flowTarget === null && st.troops > 40 + st.tilesOwned) {
+    if (useFlow && ms % 1000 === 0 && st.flowTarget === null && st.troops > 40 + st.tilesOwned * 0.4) { // caselle piccole: soglia in superficie
       const front = st.frontier(PLAYER);
       if (front.length) {
         const f0 = front[Math.floor((ms / 1000) % front.length)];
-        const far = st.map.land.filter((i) => st.passable(i) && st.owner[i] !== PLAYER && hexDistance(i, f0) === 6);
+        const far = st.map.land.filter((i) => st.passable(i) && st.owner[i] !== PLAYER && hexDistance(i, f0) === 10);
         if (far.length) st.startFlow(far[0]);
       }
     }

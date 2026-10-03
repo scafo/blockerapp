@@ -141,9 +141,14 @@ export class RunState {
     this.aiSpawnAt = this.factions.map(() => BALANCE.ai.graceMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
     map.starts.forEach((s, f) => {
       this.claim(f, s);
-      if (BALANCE.start.radius < 1) return;
-      for (const n of NEIGHBORS[s]) {
-        if (n >= 0 && this.passable(n) && this.owner[n] === NEUTRAL) this.claim(f, n);
+      // anelli attorno alla partenza (start.radius)
+      let ring = [s];
+      for (let r = 0; r < BALANCE.start.radius; r++) {
+        const next: number[] = [];
+        for (const c of ring) for (const n of NEIGHBORS[c]) {
+          if (n >= 0 && this.passable(n) && this.owner[n] === NEUTRAL) { this.claim(f, n); next.push(n); }
+        }
+        ring = next;
       }
     });
   }

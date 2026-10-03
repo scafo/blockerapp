@@ -29,9 +29,9 @@ export class EventCard extends Phaser.GameObjects.Container {
     const shade = scene.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.55).setOrigin(0).setInteractive();
     const cx = width / 2, cy = height / 2;
 
-    const bg = scene.add.rectangle(0, 0, W, H, PALETTE.carta).setStrokeStyle(4, ev.rare ? PALETTE.radioattivo : PALETTE.ocra);
-    const head = scene.add.text(-W / 2 + 16, -H / 2 + 12, ev.rare ? '◉ SEGNALE DAL SILENZIO' : 'BOLLETTINO RADIO', textStyle(11, ev.rare ? 0x1e7a62 : PALETTE.ruggine));
-    const body = scene.add.text(0, -H / 2 + 40, ev.text, textStyle(15, PALETTE.inchiostro, false))
+    const bg = scene.add.rectangle(0, 0, W, H, PALETTE.inchiostro).setStrokeStyle(2, ev.rare ? PALETTE.radioattivo : PALETTE.ocra);
+    const head = scene.add.text(-W / 2 + 16, -H / 2 + 12, ev.rare ? '◉ SEGNALE DAL SILENZIO' : 'BOLLETTINO RADIO', textStyle(11, ev.rare ? PALETTE.radioattivo : PALETTE.ruggine));
+    const body = scene.add.text(0, -H / 2 + 40, ev.text, textStyle(15, PALETTE.carta, false))
       .setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(W - 40).setLineSpacing(3);
     const hintTxt = scene.add.text(0, H / 2 - 64, '← trascina la carta →', textStyle(10, PALETTE.ruggine, false)).setOrigin(0.5);
     this.card = scene.add.container(cx, cy, [bg, head, body, hintTxt]);
@@ -41,8 +41,8 @@ export class EventCard extends Phaser.GameObjects.Container {
       const c = ev[side];
       const ok = canChoose(c);
       const t = scene.add.text(cx + (side === 'left' ? -W / 2 + 8 : W / 2 - 8), cy + H / 2 - 26,
-        side === 'left' ? `← ${c.label}` : `${c.label} →`, textStyle(15, ok ? PALETTE.carta : 0x8a7f70))
-        .setOrigin(side === 'left' ? 0 : 1, 0.5).setBackgroundColor(hex(ok ? PALETTE.inchiostro : 0x4a4038)).setPadding(10, 7, 10, 7);
+        side === 'left' ? `← ${c.label}` : `${c.label} →`, textStyle(15, ok ? PALETTE.carta : 0x4c6b62))
+        .setOrigin(side === 'left' ? 0 : 1, 0.5).setBackgroundColor(hex(ok ? PALETTE.inchiostro : 0x14221e)).setPadding(10, 7, 10, 7);
       if (ok) t.setInteractive({ useHandCursor: true }).on('pointerup', () => this.pick(side));
       return t;
     };

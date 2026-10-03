@@ -98,9 +98,8 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   **Insediamenti**: rovine possedute = +3 caselle di crescita e difesa più alta (casetta sulla mappa).
   **Navi** (`boats`, `src/game/boats.ts`): tocco su una costa irraggiungibile via terra → nave dalla tua costa più vicina
   (max 30 caselle di mare, 3 in viaggio); sbarca se supera la difesa, i superstiti tornano nel pool. Le IA non usano navi.
-  **Nebbia** (`fog`): vedi entro 4 caselle dal territorio, 3 dalle pedine, 2 dalle navi; mai visto = scuro, già visto = velato;
-  pedine e nomi nemici nascosti nella nebbia; anomalie sempre visibili. Disegnata in una texture a mezza risoluzione solo quando
-  la vista cambia. Niente nebbia né navi nella run guidata. Leve ricordate tra le run (`loadPrefs`/`savePrefs`).
+  **Nebbia** (`fog`): vedi entro 6 caselle dal territorio, 5 dalle pedine, 3 dalle navi; niente velo scuro (Nico: "togli ombra"):
+  fuori vista la mappa si vede ma territorio, pedine e nomi nemici no; anomalie sempre visibili (`fog.shade` riaccende il velo). Niente nebbia né navi nella run guidata. Leve ricordate tra le run (`loadPrefs`/`savePrefs`).
 - **Nazioni e province alla Call of War** (richiesta di Nico; `provinces` in `balance.ts`, `src/map/countries.ts`): ogni casella
   appartiene al suo paese reale (Natural Earth 110m, nomi italiani in `src/data/countries-it.json`); ogni nazione è divisa in
   province di ~16 caselle attorno a città scelte a ogni run. Prendi la città → le caselle neutrali della provincia si arrendono
@@ -113,7 +112,7 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 - Onboarding (M5): alla primissima apertura si entra subito in una run guidata (1 IA che non attacca, niente tempesta/eventi,
   si vince con 40 caselle): frecce + anello + etichette di 2–5 parole, un passo alla volta (tocca → truppe → avanzata → trascina →
   pedina → ordine → obiettivo). Poi si scopre l'accampamento. Effetti: lampo sulle caselle prese, cartelli a 25/50/100/200/400
-  caselle, onda radioattiva sulle anomalie, coriandoli in vittoria. Estetica: coste nette, mare tratteggiato, rosa dei venti.
+  caselle, onda radioattiva sulle anomalie, coriandoli in vittoria. Estetica: vedi "Stile schermo di comando".
 - M4 (decisioni del dev): l'app si apre sull'**accampamento** (`CampScene`; `?seed=` salta direttamente in una run).
   3 edifici a 3 livelli, 1 cantiere alla volta, timer reali 1–5 min. Fucina: liv.0 solo Fanteria → +Raider → +Artiglieria → +25% vita.
   Radio: eventi → eventi rari (lore del Silenzio) → avviso tempesta +30 s. Magazzino: perdita 70% → 40% → 25% → +10% in ritirata.
@@ -130,3 +129,10 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   tocca la pedina → tocca una casella → ci va casella per casella conquistando (perde hp = difesa × captureCost).
   Fanteria > Raider > Artiglieria (gittata 2) > Fanteria. Si curano sul proprio territorio. Ogni IA ha un'unità preferita
   (icona nel pannello fazioni). Testi in `src/data/units.json`, numeri in `balance.ts` (`units`, `aiUnits`).
+- **Stile schermo di comando** (richiesta di Nico, riferimento: mappa al fosforo su monitor): fondo scuro, reticolo geografico ogni 10°
+  con coordinate e scala in km, esagoni con reticolo sottile, **coste e confini nazionali veri** (Natural Earth 110m, linee al fosforo con alone)
+  sopra la griglia, province come linee sottili, nomi delle nazioni spaziati, niente ombre/contorni sui testi. Territorio = colore fazione
+  semitrasparente + bordo chiaro. Colori in `src/config/palette.ts` (chiavi vecchie, valori nuovi); accampamento in versione notturna.
+- **Griglia fine** (Nico: "mooolti più territori"): 200×100 esagoni (~6100 di terra, ~420 province da ~12 caselle; prima 120×60, ~170).
+  Numeri riscalati in `balance.ts` per tenere lo stesso ritmo in superficie (partenza a 2 anelli, avanzata 65 ms, IA, distanze, bottino per casella);
+  `sim.ts` 2 tocchi/s: 4 vittorie su 6 come prima.

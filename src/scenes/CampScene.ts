@@ -20,9 +20,9 @@ import { drawSymbol } from '../ui/symbols';
 
 const PAD = 12;
 const MAX_LVL = 3;
-const SKY = PALETTE.carta;
-const GROUND = 0xb98535;
-const INK = PALETTE.inchiostro;
+const SKY = 0x0a1714; // notte: l'accampamento è uno schermo acceso al buio
+const GROUND = 0x0b1613;
+const INK = 0x9fe8c8; // tratto luminoso (sagome, testi) sul fondo scuro
 
 type Spot = BuildingId | 'spedizione';
 
@@ -156,7 +156,7 @@ export class CampScene extends Phaser.Scene {
     this.tweens.add({ targets: ring, scale: { from: 0.5, to: 3 }, alpha: { from: 0.9, to: 0 }, duration: 2200, repeat: -1 });
     // terreno e strada
     g.fillStyle(GROUND, 1).fillRect(0, this.groundY, width, height - this.groundY);
-    g.fillStyle(0x9e6f2a, 1).fillRect(0, this.roadY, width, 18 * k);
+    g.fillStyle(0x10201b, 1).fillRect(0, this.roadY, width, 18 * k);
     g.lineStyle(2, INK, 0.5).lineBetween(0, this.groundY, width, this.groundY);
   }
 
@@ -170,7 +170,7 @@ export class CampScene extends Phaser.Scene {
       const side = i % 2 ? 1 : -1, row = Math.floor(i / 2);
       const tx = cx + side * (44 + row * 34) * k, ty = y + (i === n - 1 && n % 2 ? 0 : 0);
       const w = (30 - row * 2) * k, h = (26 - row * 2) * k;
-      g.fillStyle(row % 2 ? 0xd9cba8 : PALETTE.carta, 1).fillTriangle(tx - w, ty, tx + w, ty, tx, ty - h);
+      g.fillStyle(row % 2 ? 0x1d3a31 : PALETTE.carta, 1).fillTriangle(tx - w, ty, tx + w, ty, tx, ty - h);
       g.lineStyle(2, INK, 1).strokeTriangle(tx - w, ty, tx + w, ty, tx, ty - h);
       g.fillStyle(INK, 1).fillTriangle(tx - w * 0.25, ty, tx + w * 0.25, ty, tx, ty - h * 0.55);
     }
@@ -217,7 +217,7 @@ export class CampScene extends Phaser.Scene {
       g.lineStyle(3 * k, INK, 1);
       for (const dx of [-40, 40]) g.lineBetween(x + dx * k, y, x + dx * k, y - 18 * k);
       g.lineStyle(1.5, INK, 0.7).lineBetween(x - 40 * k, y - 14 * k, x + 40 * k, y - 14 * k);
-      g.fillStyle(0xd9cba8, 1).fillRect(x - 26 * k, y - 46 * k, 52 * k, 20 * k).lineStyle(2, INK, 1).strokeRect(x - 26 * k, y - 46 * k, 52 * k, 20 * k);
+      g.fillStyle(0x1d3a31, 1).fillRect(x - 26 * k, y - 46 * k, 52 * k, 20 * k).lineStyle(2, INK, 1).strokeRect(x - 26 * k, y - 46 * k, 52 * k, 20 * k);
       g.lineStyle(3 * k, INK, 1).lineBetween(x, y - 26 * k, x, y);
       spot.deco.push(this.add.text(x, y - 36 * k, 'LOTTO', textStyle(10, INK)).setOrigin(0.5));
     } else {
@@ -231,7 +231,7 @@ export class CampScene extends Phaser.Scene {
     }
     // pallini di livello
     for (let i = 0; i < MAX_LVL; i++) {
-      g.fillStyle(i < lvl ? PALETTE.ruggine : 0xd9cba8, 1).fillCircle(x + (i - 1) * 10 * k, y + 30 * k, 3.5 * k);
+      g.fillStyle(i < lvl ? PALETTE.ruggine : 0x1d3a31, 1).fillCircle(x + (i - 1) * 10 * k, y + 30 * k, 3.5 * k);
       g.lineStyle(1, INK, 1).strokeCircle(x + (i - 1) * 10 * k, y + 30 * k, 3.5 * k);
     }
   }
@@ -245,13 +245,13 @@ export class CampScene extends Phaser.Scene {
       for (let c = 0; c < Math.min(lvl, 2); c++) {
         const chx = x + (18 + c * 14) * k;
         g.fillStyle(INK, 1).fillRect(chx, y - 82 * k, 8 * k, 30 * k);
-        const smoke = this.add.circle(chx + 4 * k, y - 86 * k, 6 * k, 0x8a7f70, 0.7);
+        const smoke = this.add.circle(chx + 4 * k, y - 86 * k, 6 * k, 0x4c6b62, 0.7);
         this.tweens.add({ targets: smoke, y: y - 130 * k, alpha: 0, scale: 2, duration: 1800, repeat: -1, delay: c * 600 });
         spot.deco.push(smoke);
       }
       if (lvl >= 3) g.fillStyle(PALETTE.carta, 1).fillRect(x - 34 * k, y - 38 * k, 14 * k, 8 * k); // insegna
     } else if (id === 'radio') {
-      g.fillStyle(0xd9cba8, 1).fillRect(x - 30 * k, y - 36 * k, 60 * k, 36 * k).lineStyle(2, INK, 1).strokeRect(x - 30 * k, y - 36 * k, 60 * k, 36 * k);
+      g.fillStyle(0x1d3a31, 1).fillRect(x - 30 * k, y - 36 * k, 60 * k, 36 * k).lineStyle(2, INK, 1).strokeRect(x - 30 * k, y - 36 * k, 60 * k, 36 * k);
       g.fillStyle(INK, 1).fillRect(x - 34 * k, y - 42 * k, 68 * k, 7 * k);
       const mastH = (50 + lvl * 22) * k;
       g.lineStyle(3, INK, 1).lineBetween(x + 14 * k, y - 42 * k, x + 14 * k, y - 42 * k - mastH);
@@ -272,7 +272,7 @@ export class CampScene extends Phaser.Scene {
           g.lineBetween(cx - 14 * k, cy, cx + 14 * k, cy + 22 * k);
         }
       } else {
-        g.fillStyle(0x7a6a58, 1).fillRect(x - 46 * k, y - 46 * k, 92 * k, 46 * k);
+        g.fillStyle(0x2a3a35, 1).fillRect(x - 46 * k, y - 46 * k, 92 * k, 46 * k);
         g.fillStyle(INK, 1).fillRect(x - 50 * k, y - 54 * k, 100 * k, 9 * k);
         g.lineStyle(1.5, INK, 0.6);
         for (let i = -40; i <= 40; i += 10) g.lineBetween(x + i * k, y - 46 * k, x + i * k, y);
@@ -295,8 +295,8 @@ export class CampScene extends Phaser.Scene {
       for (let i = 0; i < 4; i++) g.lineBetween(x - 50 * k + i * 26 * k, y + 34 * k, x - 36 * k + i * 26 * k, y + 34 * k);
       return;
     }
-    g.fillStyle(0x5b6b4a, 1).fillRect(x - 40 * k, y - 34 * k, 50 * k, 26 * k); // cassone
-    g.fillStyle(0x4a5a3a, 1).fillRect(x + 10 * k, y - 28 * k, 26 * k, 20 * k); // cabina
+    g.fillStyle(0x2c5a4a, 1).fillRect(x - 40 * k, y - 34 * k, 50 * k, 26 * k); // cassone
+    g.fillStyle(0x234a3d, 1).fillRect(x + 10 * k, y - 28 * k, 26 * k, 20 * k); // cabina
     g.fillStyle(PALETTE.carta, 1).fillRect(x + 18 * k, y - 25 * k, 12 * k, 8 * k);
     g.fillStyle(INK, 1).fillCircle(x - 26 * k, y - 6 * k, 8 * k).fillCircle(x + 22 * k, y - 6 * k, 8 * k);
     if (e) {
@@ -315,7 +315,7 @@ export class CampScene extends Phaser.Scene {
     // scorta in alto a sinistra
     const P = this.portrait;
     const panelW = P ? width - 2 * PAD : 240, panelY = P ? PAD + 52 : PAD, step = P ? (panelW - 20) / 3 : 76;
-    this.add.rectangle(PAD, panelY, panelW, 56, INK, 0.9).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
+    this.add.rectangle(PAD, panelY, panelW, 56, PALETTE.inchiostro, 0.9).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
     this.add.text(PAD + 10, panelY + 6, 'SCORTA DELL\'ACCAMPAMENTO', textStyle(10, PALETTE.ocra));
     const ig = this.add.graphics();
     this.stashTexts = RESOURCES.map((r, i) => {
@@ -364,9 +364,9 @@ export class CampScene extends Phaser.Scene {
     const W = Math.min(330, width - 24), H = Math.min(290, height - 2 * PAD);
     const x0 = width / 2 - W / 2, y0 = (height - H) / 2;
     const items: Phaser.GameObjects.GameObject[] = [];
-    const shade = this.add.rectangle(0, 0, width, height, INK, 0.35).setOrigin(0).setInteractive();
+    const shade = this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.6).setOrigin(0).setInteractive();
     shade.on('pointerup', () => this.closePanel());
-    items.push(shade, this.add.rectangle(x0, y0, W, H, PALETTE.carta).setOrigin(0).setStrokeStyle(3, PALETTE.ocra).setInteractive());
+    items.push(shade, this.add.rectangle(x0, y0, W, H, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(2, PALETTE.ocra).setInteractive());
     const close = this.add.text(x0 + W - 12, y0 + 8, '✕', textStyle(18, INK)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
     close.on('pointerup', () => this.closePanel());
     items.push(close);
@@ -380,7 +380,7 @@ export class CampScene extends Phaser.Scene {
       if (e && e.until > now) {
         items.push(this.add.text(x0 + 16, y0 + 100, `${T.kinds[e.kind]}\nIn viaggio: torna tra ${fmtTime(e.until - now)}`, textStyle(14, PALETTE.ruggine)));
       } else if (e) {
-        items.push(this.add.text(x0 + 16, y0 + 96, 'Il camion è tornato carico!', textStyle(14, 0x1e7a62)));
+        items.push(this.add.text(x0 + 16, y0 + 96, 'Il camion è tornato carico!', textStyle(14, PALETTE.ocra)));
         items.push(this.bagRow(e.reward, x0 + 16, y0 + 128));
         items.push(this.btn('RITIRA IL BOTTINO', x0 + 16, y0 + H - 60, W - 32, true, () => {
           const kind = this.profile.expedition?.kind ?? 'breve';
@@ -423,7 +423,7 @@ export class CampScene extends Phaser.Scene {
       items.push(this.add.text(x0 + 16, y0 + 40, T.desc, textStyle(12, INK, false)).setWordWrapWidth(W - 32));
       T.levels.forEach((txt, i) => {
         const mark = i < lvl ? '✓' : i === lvl ? '→' : '·';
-        const col = i < lvl ? 0x1e7a62 : i === lvl ? INK : 0x8a7f70;
+        const col = i < lvl ? PALETTE.ocra : i === lvl ? INK : 0x4c6b62;
         items.push(this.add.text(x0 + 16, y0 + 92 + i * 20, `${mark} liv. ${i + 1}: ${txt}`, textStyle(11, col, i === lvl)).setWordWrapWidth(W - 32));
       });
       const c = this.profile.construction;
@@ -431,7 +431,7 @@ export class CampScene extends Phaser.Scene {
       if (c && c.id === spot) {
         const total = BALANCE.camp.buildings[spot][lvl].timeSec * 1000;
         const pct = 1 - (c.until - now) / total;
-        items.push(this.add.rectangle(x0 + 16, y0 + H - 70, W - 32, 10, 0xd9cba8).setOrigin(0));
+        items.push(this.add.rectangle(x0 + 16, y0 + H - 70, W - 32, 10, 0x1d3a31).setOrigin(0));
         items.push(this.add.rectangle(x0 + 16, y0 + H - 70, (W - 32) * Phaser.Math.Clamp(pct, 0, 1), 10, PALETTE.ruggine).setOrigin(0));
         items.push(this.btn(`IN COSTRUZIONE · ${fmtTime(c.until - now)}`, x0 + 16, y0 + H - 54, W - 32, false, () => {}));
       } else if (next) {
@@ -450,7 +450,7 @@ export class CampScene extends Phaser.Scene {
           this.toast(`Cantiere aperto: ${T.name}`, PALETTE.carta);
         }));
       } else {
-        items.push(this.add.text(x0 + 16, y0 + H - 44, 'Livello massimo. Il resto lo fa la fantasia.', textStyle(12, 0x1e7a62)));
+        items.push(this.add.text(x0 + 16, y0 + H - 44, 'Livello massimo. Il resto lo fa la fantasia.', textStyle(12, PALETTE.ocra)));
       }
     }
     this.panel = this.add.container(0, 0, items).setDepth(40);
@@ -486,7 +486,7 @@ export class CampScene extends Phaser.Scene {
     const ty = this.portrait ? 160 : 90;
     const t = (this.lastToast = this.add.text(width / 2, ty, msg, textStyle(15, color)).setOrigin(0.5).setAlign('center')
       .setWordWrapWidth(width - 40)
-      .setBackgroundColor(hex(INK)).setPadding(12, 8, 12, 8).setDepth(60).setAlpha(0));
+      .setBackgroundColor(hex(PALETTE.inchiostro)).setPadding(12, 8, 12, 8).setDepth(60).setAlpha(0));
     this.tweens.add({ targets: t, alpha: 1, y: ty - 10, duration: 220 });
     this.tweens.add({ targets: t, alpha: 0, delay: 2800, duration: 400, onComplete: () => t.destroy() });
   }

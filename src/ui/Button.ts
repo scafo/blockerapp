@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { PALETTE } from '../config/palette';
+import { PALETTE, hex } from '../config/palette';
 import { textStyle } from './style';
 
 /** Bottone piatto stile manifesto: rettangolo + etichetta. */
@@ -24,7 +24,7 @@ export class Button extends Phaser.GameObjects.Container {
   setOn(on: boolean): this {
     this.active_ = on;
     this.bg.setFillStyle(on ? PALETTE.ocra : PALETTE.inchiostro);
-    this.label.setColor(on ? '#2b2118' : '#efe3c8');
+    this.label.setColor(hex(on ? PALETTE.inchiostro : PALETTE.carta));
     return this;
   }
 

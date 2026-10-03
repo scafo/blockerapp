@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { BALANCE, type UnitType } from '../config/balance';
-import { PALETTE } from '../config/palette';
+import { PALETTE, hex } from '../config/palette';
 import { PLAYER, type Outcome, type VictoryReason } from '../game/RunState';
 import { FACTION_INFO } from '../game/factions';
 import { RESOURCES, bagTotal, type Bag } from '../game/resources';
@@ -103,7 +103,7 @@ export class HudScene extends Phaser.Scene {
 
     this.seed = this.add.text(0, 0, '', textStyle(11, PALETTE.ocra, false)).setOrigin(1, 1);
     this.hint = this.add.text(0, 0, 'Tocca una casella evidenziata per conquistarla', textStyle(14, PALETTE.carta))
-      .setOrigin(0.5, 0).setAlign('center').setBackgroundColor('#2b2118').setPadding(10, 6, 10, 6);
+      .setOrigin(0.5, 0).setAlign('center').setBackgroundColor(hex(PALETTE.inchiostro)).setPadding(10, 6, 10, 6);
 
     // comandi: carte in basso a sinistra; ritirata e velocità in basso a destra
     // solo le unità sbloccate dalla Fucina
@@ -140,7 +140,7 @@ export class HudScene extends Phaser.Scene {
 
     // ?fps=1 → contatore per il test sui telefoni economici
     this.fps = fpsEnabled()
-      ? this.add.text(PAD, 0, '', textStyle(12, PALETTE.radioattivo)).setBackgroundColor('#2b2118').setDepth(60) : null;
+      ? this.add.text(PAD, 0, '', textStyle(12, PALETTE.radioattivo)).setBackgroundColor(hex(PALETTE.inchiostro)).setDepth(60) : null;
 
     this.layout();
     this.scale.on('resize', this.layout, this);
@@ -292,12 +292,12 @@ export class HudScene extends Phaser.Scene {
     this.stats.setText(this.portrait ? `${st.tilesOwned} caselle · ${goal}\n${anom}` : `${st.tilesOwned} caselle ${goal} · ${anom}`);
     RESOURCES.forEach((r, k) => this.resTexts[k].setText(String(st.backpack[r])));
     if (st.opts.tutorial) {
-      this.stormText.setText(`prima missione: ${BALANCE.tutorial.goalTiles} caselle`).setColor('#3fd9b0');
+      this.stormText.setText(`prima missione: ${BALANCE.tutorial.goalTiles} caselle`).setColor(hex(PALETTE.radioattivo));
     } else if (st.stormIn > 0) {
-      this.stormText.setText(`${this.portrait ? 'cenere' : 'tempesta di cenere'} tra ${mmss(st.stormIn)}`).setColor(st.stormIn <= BALANCE.storm.warnMs ? '#d8432b' : '#c8963e');
+      this.stormText.setText(`${this.portrait ? 'cenere' : 'tempesta di cenere'} tra ${mmss(st.stormIn)}`).setColor(st.stormIn <= BALANCE.storm.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
     } else {
       const left = BALANCE.storm.startMs + BALANCE.storm.durationMs - st.gameTimeMs;
-      this.stormText.setText(`LA CENERE AVANZA · ${mmss(left)}`).setColor('#d8432b');
+      this.stormText.setText(`LA CENERE AVANZA · ${mmss(left)}`).setColor(hex(PALETTE.ko));
     }
     this.seed.setText(`mappa #${st.map.seed}`);
 
@@ -343,7 +343,7 @@ export class HudScene extends Phaser.Scene {
   private toast(msg: string, color: number) {
     const { width } = view(this);
     const t = this.add.text(width / 2, this.topBottom + 70, msg, textStyle(this.portrait ? 14 : 16, color)).setOrigin(0.5).setAlign('center')
-      .setWordWrapWidth(width - 2 * PAD - 24).setBackgroundColor('#2b2118').setPadding(12, 8, 12, 8).setScale(0.6).setAlpha(0);
+      .setWordWrapWidth(width - 2 * PAD - 24).setBackgroundColor(hex(PALETTE.inchiostro)).setPadding(12, 8, 12, 8).setScale(0.6).setAlpha(0);
     this.tweens.add({ targets: t, scale: 1, alpha: 1, duration: 220, ease: 'Back.easeOut' });
     this.tweens.add({ targets: t, alpha: 0, delay: 2600, duration: 400, onComplete: () => t.destroy() });
   }
@@ -396,9 +396,9 @@ export class HudScene extends Phaser.Scene {
   private showBanner(title: string, color: number, sub: string) {
     if (this.ended) return;
     const { width, height } = view(this);
-    const t = this.add.text(width / 2, height * 0.36, title, textStyle(34, color)).setOrigin(0.5).setStroke('#2b2118', 7).setDepth(40);
+    const t = this.add.text(width / 2, height * 0.36, title, textStyle(34, color)).setOrigin(0.5).setDepth(40);
     const s2 = this.add.text(width / 2, height * 0.36 + 32, sub.toUpperCase(), textStyle(14, PALETTE.carta)).setOrigin(0.5)
-      .setStroke('#2b2118', 5).setDepth(40);
+      .setDepth(40);
     for (const o of [t, s2]) {
       o.setScale(1.8).setAlpha(0);
       this.tweens.add({ targets: o, scale: 1, alpha: 1, duration: 260, ease: 'Back.easeOut' });
@@ -429,7 +429,7 @@ export class HudScene extends Phaser.Scene {
     }[outcome];
     const color = outcome === 'victory' ? PALETTE.radioattivo : outcome === 'retreat' ? PALETTE.ocra : PALETTE.ko;
     const t = this.add.text(width / 2, height / 2, title, textStyle(40, color)).setOrigin(0.5)
-      .setStroke('#2b2118', 8).setScale(1.8).setAlpha(0);
+      .setScale(1.8).setAlpha(0);
     this.tweens.add({ targets: t, scale: 1, alpha: 1, duration: 320, ease: 'Back.easeOut' });
   }
 
