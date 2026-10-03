@@ -1,30 +1,38 @@
 import Phaser from 'phaser';
-import { PALETTE } from '../config/palette';
-import { textStyle } from './style';
+import { THEME, hex } from '../config/theme';
+import { panel, textStyle } from './style';
 
-/** Bottone piatto stile manifesto: rettangolo + etichetta. */
+/** Bottone piatto: pannello scuro, bordo 1px, angoli tagliati; acceso = colore UI attiva. */
 export class Button extends Phaser.GameObjects.Container {
-  private bg: Phaser.GameObjects.Rectangle;
+  private bg: Phaser.GameObjects.Graphics;
   private label: Phaser.GameObjects.Text;
-  private active_ = false;
+  private on_ = false;
 
-  constructor(scene: Phaser.Scene, text: string, w: number, h: number, onClick: () => void, size = 16) {
+  constructor(scene: Phaser.Scene, text: string, private bw: number, private bh: number, onClick: () => void, size = 13) {
     super(scene, 0, 0);
-    this.bg = scene.add.rectangle(0, 0, w, h, PALETTE.inchiostro).setStrokeStyle(2, PALETTE.ocra).setOrigin(0);
-    this.label = scene.add.text(w / 2, h / 2, text, textStyle(size, PALETTE.carta)).setOrigin(0.5);
+    this.bg = scene.add.graphics();
+    this.label = scene.add.text(bw / 2, bh / 2, text, textStyle(size, THEME.testo)).setOrigin(0.5);
     this.add([this.bg, this.label]);
-    this.setSize(w, h);
-    this.bg.setInteractive({ useHandCursor: true }).on('pointerup', () => {
-      scene.tweens.add({ targets: this, scale: { from: 0.92, to: 1 }, duration: 120 });
+    this.setSize(bw, bh);
+    this.draw();
+    const hit = scene.add.zone(0, 0, bw, bh).setOrigin(0).setInteractive({ useHandCursor: true });
+    this.add(hit);
+    hit.on('pointerup', () => {
+      scene.tweens.add({ targets: this.label, scale: { from: 0.9, to: 1 }, duration: 120 });
       onClick();
     });
     scene.add.existing(this);
   }
 
+  private draw() {
+    this.bg.clear();
+    panel(this.bg, 0, 0, this.bw, this.bh, 6, this.on_ ? THEME.attivo : THEME.griglia, this.on_ ? 0x0f2a26 : THEME.pannello);
+    this.label.setColor(hex(this.on_ ? THEME.attivo : THEME.testo));
+  }
+
   setOn(on: boolean): this {
-    this.active_ = on;
-    this.bg.setFillStyle(on ? PALETTE.ocra : PALETTE.inchiostro);
-    this.label.setColor(on ? '#2b2118' : '#efe3c8');
+    this.on_ = on;
+    this.draw();
     return this;
   }
 
@@ -34,10 +42,6 @@ export class Button extends Phaser.GameObjects.Container {
   }
 
   get isOn() {
-    return this.active_;
-  }
-
-  contains(x: number, y: number): boolean {
-    return x >= this.x && x <= this.x + this.width && y >= this.y && y <= this.y + this.height;
+    return this.on_;
   }
 }

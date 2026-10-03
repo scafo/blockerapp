@@ -8,15 +8,13 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
-    "check:land": "vite-node scripts/check-land-mask.ts",
-    "build:single": "node scripts/build-single.mjs"
+    "build:single": "node scripts/build-single.mjs",
+    "gen:land": "vite-node scripts/gen-landmask.ts"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.2",
-    "gameanalytics": "^5.0.0",
     "phaser": "^3.90.0",
-    "topojson-client": "^3.1.0",
-    "world-atlas": "^2.0.2"
+    "simplex-noise": "^4.0.3"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.2",
@@ -25,8 +23,10 @@
     "@types/geojson": "^7946.0.16",
     "@types/topojson-client": "^3.1.5",
     "d3-geo": "^3.1.1",
+    "topojson-client": "^3.1.0",
     "typescript": "^5.9.3",
     "vite": "^6.4.3",
-    "vite-node": "^3.2.4"
+    "vite-node": "^3.2.4",
+    "world-atlas": "^2.0.2"
   }
 }
