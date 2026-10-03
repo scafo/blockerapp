@@ -68,7 +68,7 @@ export class HudScene extends Phaser.Scene {
     this.box.clear();
     panel(this.box, 12, 12, 196, 82, 8);
     this.info.setPosition(width - 12, 12);
-    this.hint.setPosition(width / 2, height - 16);
+    this.hint.setPosition(width / 2, width < 640 ? height - 66 : height - 16);
     const by = height - 12 - 34;
     this.attackLabel.setPosition(12, by - 15);
     this.ratioBtns.forEach((b, k) => b.setPosition(12 + k * 56, by));

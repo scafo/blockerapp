@@ -37,7 +37,7 @@ export class MapScene extends Phaser.Scene {
     this.renderer_ = new MapRenderer(this, this.world);
 
     const cam = this.cameras.main;
-    cam.setBounds(-WORLD_W * 0.25, -WORLD_H * 0.25, WORLD_W * 1.5, WORLD_H * 1.5);
+    cam.setBounds(-WORLD_W * 0.04, -WORLD_H * 0.04, WORLD_W * 1.08, WORLD_H * 1.08);
     cam.setZoom(BALANCE.camera.startZoom * DPR);
     this.centerOnTerritory(false);
 

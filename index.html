@@ -14,11 +14,12 @@
       #rotate { display: none; position: fixed; inset: 0; z-index: 10; background: #07090C; color: #C9D6DF; place-content: center;
         text-align: center; gap: 10px; font: bold 15px "Courier New", Courier, monospace; }
       #rotate b { color: #4FE3C1; font-size: 34px; }
-      @media (orientation: portrait) and (max-width: 900px) { #rotate { display: grid; } }
+      #rotate button { margin-top: 14px; background: none; color: #4FE3C1; border: 1px solid #4FE3C1; padding: 10px 18px; font: bold 13px "Courier New", Courier, monospace; }
+      @media (orientation: portrait) and (pointer: coarse) { #rotate:not(.off) { display: grid; } }
     </style>
   </head>
   <body>
-    <div id="rotate"><b>⟳</b>RUOTA IL TELEFONO<br>gioco solo in orizzontale</div>
+    <div id="rotate"><b>⟳</b>RUOTA IL TELEFONO<br>gioco pensato in orizzontale<button onclick="this.parentNode.classList.add('off')">GIOCA COMUNQUE</button></div>
     <div id="game"><div id="msg"><b>ASHEN ATLAS</b>caricamento…</div></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
