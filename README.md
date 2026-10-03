@@ -25,6 +25,38 @@ npm run check:land # verifica la maschera terra contro d3 geoContains (se cambi 
 
 ---
 
+## Visione completa (stella polare, oltre l'MVP)
+
+Si parte dall'**accampamento**, la home del gioco, costruito come in Clash of Clans: piccolo all'inizio, poi sempre più tuo e da mostrare. Qui i **generali** (alla World Conqueror) hanno personalità e abilità da collezionare, le **spedizioni** rientrano a tempo e la **strada dei trofei** (alla Clash Royale) ti dà un motivo per tornare ogni giorno. Ogni edificio non dà solo numeri, ma sblocca **nuove strade per le run** come in Hades: una fucina per unità nuove, una radio per eventi rari, un archivio per tecnologie.
+
+Dall'accampamento parti per la **run** sulla mappa del mondo, con le modalità mappa di HOI4 che cambi con un tocco, la leggibilità di Polytopia e l'espansione fluida di Territorial che fa "colare" il tuo colore sul mondo. Le **unità** funzionano a sasso-carta-forbice come in Polytopia, ma ognuna ha la silhouette e il carattere di una carta di Clash Royale. L'**economia** ha due sole leve alla OpenFront (soldati contro lavoratori), mentre la **ricerca** fa scoperte che cambiano davvero il modo di giocare come in Civilization.
+
+Durante la run arrivano **carte evento** da scorrere alla Reigns, ironiche e misteriose, che danno indizi su cosa è successo al mondo. Le alleanze con l'IA seguono la logica di Europa Universalis, con rivalità che contano. Alla fine scegli se ritirarti con il bottino o rischiare, e torni all'accampamento più forte o a mani vuote, con il tasto **rivincita** sempre pronto.
+
+Sopra tutto questo: il **sandbox** di Age of History per chi vuole giocare libero, monetizzazione **equa** alla Polytopia, e una community da far crescere come quella di HOI4.
+
+### Cosa entra nell'MVP e cosa dopo
+
+| Elemento della visione | MVP | Dove |
+|---|---|---|
+| Accampamento (= Villaggio) che cresce visivamente | ✅ | M4 |
+| Edifici che sbloccano strade: Fucina, Radio | ✅ | M4 |
+| Archivio → tecnologie / ricerca | ❌ dopo | — |
+| Spedizioni a tempo reale | ✅ | M4 |
+| Generali collezionabili | ❌ dopo | — |
+| Strada dei trofei | ❌ dopo | — |
+| Leggibilità (colori forti, confini netti) | ✅ | sempre |
+| Espansione che "cola" sul mondo | ✅ | M5 (juice) |
+| Modalità mappa con un tocco | ❌ dopo | — |
+| Unità sasso-carta-forbice | ❌ dopo (MVP: solo raider dalla Fucina) | — |
+| Economia soldati vs lavoratori | ❌ dopo | — |
+| Carte evento da scorrere, indizi sul mondo | ✅ | M4 (swipe sx/dx = 2 opzioni) |
+| Alleanze e rivalità IA | ❌ dopo | — |
+| Ritirati o rischia + Rivincita | ✅ | M3 |
+| Sandbox, monetizzazione, community | ❌ fuori MVP | — |
+
+---
+
 ## Obiettivo dell'MVP
 
 Un prototipo **giocabile nel browser (anche da telefono)** da mandare via link a ~20 tester.
