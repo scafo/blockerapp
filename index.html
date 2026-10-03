@@ -7,7 +7,10 @@
     <title>Ashen Atlas</title>
     <style>
       html, body { margin: 0; padding: 0; height: 100%; background: #2B2118; overflow: hidden; touch-action: none; }
-      #game { position: fixed; inset: 0; }
+      #game { position: relative; width: 100%; height: 100%; }
+      #msg { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 8px;
+        color: #EFE3C8; font: bold 16px "Courier New", Courier, monospace; }
+      #msg b { color: #C8963E; font-size: 28px; }
       /* Solo orizzontale: su telefono in verticale chiediamo di ruotare (il gioco va in pausa). */
       #rotate { display: none; position: fixed; inset: 0; z-index: 10; background: #2B2118; color: #EFE3C8;
         font: bold 18px "Courier New", Courier, monospace; text-align: center; place-content: center; gap: 16px; padding: 24px; }
@@ -16,7 +19,7 @@
     </style>
   </head>
   <body>
-    <div id="game"></div>
+    <div id="game"><div id="msg"><b>ASHEN ATLAS</b>caricamento…</div></div>
     <div id="rotate"><b>⟳</b>RUOTA IL TELEFONO<br />Ashen Atlas si gioca in orizzontale</div>
     <script type="module" src="/src/main.ts"></script>
   </body>

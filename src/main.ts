@@ -23,4 +23,7 @@ const game = new Phaser.Game({
 const portrait = window.matchMedia('(orientation: portrait) and (pointer: coarse)');
 const syncOrientation = () => (portrait.matches ? game.loop.sleep() : game.loop.wake());
 portrait.addEventListener('change', syncOrientation);
-game.events.once('ready', syncOrientation);
+game.events.once('ready', () => {
+  syncOrientation();
+  document.getElementById('msg')?.remove(); // via la scritta di caricamento
+});

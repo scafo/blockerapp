@@ -79,6 +79,7 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 ## Note del developer (stato e comandi)
 
 - `npm run dev` · `npm run build` · `npm run typecheck`
+- `npm run build:single` — pagina unica con JS inline (`dist-single/`): gli artifact bloccano gli script esterni, usare questa.
 - `npm run check:land` — verifica la maschera terra contro `geoContains` (a runtime si usa un point-in-polygon planare: 50 ms invece di 5 s).
 - `npx vite-node scripts/sim.ts 1 6 1` — simula 6 run senza grafica (giocatore 1 tap/s, usa le pedine) per tarare `balance.ts`.
 - `?seed=abc123` nell'URL → mappa riproducibile.
