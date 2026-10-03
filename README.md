@@ -16,12 +16,14 @@ npm run dev        # http://localhost:5173 (aggiunge --host: apri dal telefono s
 npm run build      # build di produzione in dist/
 npm run typecheck
 npm run check:land # verifica la maschera terra contro d3 geoContains (se cambi la griglia)
+npx vite-node scripts/sim.ts 1 6   # simula 6 run (giocatore 1 tap/s) per tarare balance.ts
 ```
 
 - `?seed=abc123` nell'URL → mappa riproducibile.
 - Controlli: tap = conquista, trascina = sposta, pinch/rotella = zoom.
 
-**Stato:** milestone 1 ✅ (mappa a esagoni + conquista col tap, zaino rovine, velocità x1/x2/x4).
+**Stato:** milestone 1 ✅ (mappa a esagoni + conquista col tap, zaino rovine, velocità x1/x2/x4) ·
+milestone 2 ✅ (3 fazioni IA che si espandono, si combattono e ti attaccano dopo 60 s; eliminazione + rivincita).
 
 ---
 

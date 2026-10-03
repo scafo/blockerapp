@@ -14,7 +14,7 @@ export interface RunMap {
   seed: string;
   tiles: (Tile | null)[]; // null = mare
   land: number[]; // indici delle caselle di terra
-  start: number;
+  starts: number[]; // [giocatore, ...IA]
 }
 
 const M = BALANCE.map;
@@ -58,7 +58,7 @@ export function generateMap(seed: string, landMask: Uint8Array): RunMap {
     if (t.type === 'rovine') t.loot = randInt(rng, BALANCE.loot.rovine[0], BALANCE.loot.rovine[1]);
   }
 
-  return { seed, tiles, land, start: pickStart(rng, tiles, land) };
+  return { seed, tiles, land, starts: pickStarts(rng, tiles, land) };
 }
 
 function rollDefense(rng: Rng, type: Exclude<TileType, 'tossica'>): number {
@@ -69,32 +69,55 @@ function rollDefense(rng: Rng, type: Exclude<TileType, 'tossica'>): number {
 
 const passable = (t: Tile | null): t is Tile => !!t && t.type !== 'tossica';
 
-/** Partenza casuale su terra, dentro una regione abbastanza grande (niente isolette). */
-function pickStart(rng: Rng, tiles: (Tile | null)[], land: number[]): number {
-  const region = new Int32Array(tiles.length).fill(-1);
-  const sizes: number[] = [];
-  for (const i of land) {
-    if (region[i] >= 0 || !passable(tiles[i])) continue;
-    const id = sizes.length;
-    let count = 0;
-    const stack = [i];
-    region[i] = id;
-    while (stack.length) {
-      const c = stack.pop()!;
-      count++;
-      for (const n of NEIGHBORS[c]) {
-        if (n >= 0 && region[n] < 0 && passable(tiles[n])) {
-          region[n] = id;
-          stack.push(n);
-        }
+/** Distanze in passi esagonali da `from` sulle caselle attraversabili (−1 = irraggiungibile). */
+function bfs(tiles: (Tile | null)[], from: number): Int32Array {
+  const dist = new Int32Array(tiles.length).fill(-1);
+  dist[from] = 0;
+  const queue = [from];
+  for (let h = 0; h < queue.length; h++) {
+    const c = queue[h];
+    for (const n of NEIGHBORS[c]) {
+      if (n >= 0 && dist[n] < 0 && passable(tiles[n])) {
+        dist[n] = dist[c] + 1;
+        queue.push(n);
       }
     }
-    sizes.push(count);
   }
-  const ok = land.filter(
-    (i) => tiles[i]!.type === 'terra' && sizes[region[i]] >= BALANCE.map.minStartRegion &&
-      NEIGHBORS[i].every((n) => passable(tiles[n] ?? null)),
-  );
-  const pool = ok.length ? ok : land.filter((i) => passable(tiles[i]));
-  return pool[Math.floor(rng() * pool.length)];
+  return dist;
+}
+
+const goodStart = (tiles: (Tile | null)[], i: number) =>
+  tiles[i]!.type === 'terra' && NEIGHBORS[i].every((n) => passable(tiles[n] ?? null));
+
+/**
+ * Partenza del giocatore casuale in una regione grande (niente isolette);
+ * le IA partono nella stessa regione, a distanza giusta per incontrarsi presto.
+ */
+function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[]): number[] {
+  const pick = <T>(a: T[]) => a[Math.floor(rng() * a.length)];
+  const ok = land.filter((i) => goodStart(tiles, i));
+  let player = -1;
+  let dist: Int32Array = new Int32Array(0);
+  for (let tries = 0; tries < 40; tries++) {
+    player = pick(ok);
+    dist = bfs(tiles, player);
+    let size = 0;
+    for (const d of dist) if (d >= 0) size++;
+    if (size >= BALANCE.map.minStartRegion) break;
+  }
+
+  const { startDistance: [dMin, dMax], minDistanceBetween, count } = BALANCE.ai;
+  const reachable = ok.filter((i) => dist[i] > 2 * BALANCE.start.radius + 1);
+  const starts = [player];
+  const aiDist: Int32Array[] = [];
+  for (let k = 0; k < count; k++) {
+    const apart = (i: number) => aiDist.every((d) => d[i] >= minDistanceBetween);
+    const band = reachable.filter((i) => dist[i] >= dMin && dist[i] <= dMax && !starts.includes(i));
+    const tries = [band.filter(apart), band, reachable.filter((i) => !starts.includes(i))];
+    const pool = tries.find((t) => t.length);
+    if (!pool) break;
+    starts.push(pick(pool));
+    aiDist.push(bfs(tiles, starts[starts.length - 1]));
+  }
+  return starts;
 }

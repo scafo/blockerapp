@@ -3,7 +3,8 @@ import { BALANCE } from '../config/balance';
 import { PALETTE } from '../config/palette';
 import { generateMap, type RunMap } from '../map/generate';
 import { NEIGHBORS, WORLD_H, WORLD_W, center, corners, pixelToIndex } from '../map/hexGrid';
-import { PLAYER, RunState } from '../game/RunState';
+import { NEUTRAL, PLAYER, RunState } from '../game/RunState';
+import { FACTION_INFO } from '../game/factions';
 import { textStyle } from '../ui/style';
 import type { HudScene } from './HudScene';
 
@@ -26,6 +27,8 @@ export class RunScene extends Phaser.Scene {
   private burst!: Phaser.GameObjects.Particles.ParticleEmitter;
   private labelTimer = 0;
   private lastAffordable = '';
+  private ownedDirty = false;
+  private lastHitFx = 0;
   // input
   private down: { x: number; y: number } | null = null;
   private last = { x: 0, y: 0 };
@@ -64,13 +67,35 @@ export class RunScene extends Phaser.Scene {
     this.scene.bringToTop('Hud');
   }
 
-  update(_t: number, delta: number) {
-    if (this.state.update(delta) > 0) this.redrawFrontier();
+  update(time: number, delta: number) {
+    const ticks = this.state.update(delta);
+    for (const e of this.state.drainEvents()) {
+      if (e.type === 'conquer') {
+        this.ownedDirty = true;
+        if (e.from === PLAYER && time - this.lastHitFx > 250) {
+          this.lastHitFx = time;
+          this.lostFx(e.i, e.by);
+        }
+      } else {
+        this.hud.onEliminated(e.faction, e.by, e.loot);
+      }
+    }
+    if (this.ownedDirty) {
+      this.ownedDirty = false;
+      this.redrawOwned();
+      this.redrawFrontier(true);
+    } else if (ticks > 0) {
+      this.redrawFrontier();
+    }
     this.labelTimer -= delta;
     if (this.labelTimer <= 0) {
       this.labelTimer = 200;
       this.updateLabels();
     }
+  }
+
+  private get hud() {
+    return this.scene.get('Hud') as HudScene;
   }
 
   setSpeed(s: number) {
@@ -128,20 +153,21 @@ export class RunScene extends Phaser.Scene {
   private redrawOwned() {
     const g = this.ownedGfx.clear();
     const own = this.state.owner;
-    g.fillStyle(PALETTE.player, 0.92);
     for (let i = 0; i < own.length; i++) {
-      if (own[i] !== PLAYER) continue;
+      if (own[i] === NEUTRAL) continue;
       const { x, y } = center(i);
+      g.fillStyle(FACTION_INFO[own[i]].fill, 0.92);
       this.hexPath(g, x, y, S + 0.4);
     }
-    // confini netti: solo i lati verso caselle non nostre
-    g.lineStyle(2.2, PALETTE.playerBorder, 1);
+    // confini netti: solo i lati verso caselle di altri
     for (let i = 0; i < own.length; i++) {
-      if (own[i] !== PLAYER) continue;
+      const o = own[i];
+      if (o === NEUTRAL) continue;
+      g.lineStyle(o === PLAYER ? 2.4 : 1.8, FACTION_INFO[o].border, 1);
       const { x, y } = center(i);
       const c = corners(x, y, S);
       NEIGHBORS[i].forEach((n, k) => {
-        if (n < 0 || own[n] !== PLAYER) g.lineBetween(c[k].x, c[k].y, c[(k + 1) % 6].x, c[(k + 1) % 6].y);
+        if (n < 0 || own[n] !== o) g.lineBetween(c[k].x, c[k].y, c[(k + 1) % 6].x, c[(k + 1) % 6].y);
       });
     }
   }
@@ -150,14 +176,14 @@ export class RunScene extends Phaser.Scene {
   private redrawFrontier(force = false) {
     const front = this.state.frontier();
     const troops = this.state.troops;
-    const key = front.map((i) => (troops > this.map.tiles[i]!.defense ? 1 : 0)).join('') + front.length;
+    const key = front.map((i) => (troops > this.state.defenseOf(i) ? 1 : 0)).join('') + front.length;
     if (!force && key === this.lastAffordable) return;
     this.lastAffordable = key;
 
     const g = this.frontierGfx.clear();
     for (const i of front) {
       const { x, y } = center(i);
-      const ok = troops > this.map.tiles[i]!.defense;
+      const ok = troops > this.state.defenseOf(i);
       if (ok) {
         g.fillStyle(PALETTE.ok, 0.35);
         this.hexPath(g, x, y, S * 0.82);
@@ -185,9 +211,11 @@ export class RunScene extends Phaser.Scene {
           label = this.add.text(0, 0, '', textStyle(9, PALETTE.inchiostro)).setOrigin(0.5).setResolution(3).setDepth(5);
           this.labels.push(label);
         }
-        const txt = String(t.defense);
+        const def = this.state.defenseOf(i);
+        const enemy = this.state.owner[i] !== NEUTRAL;
+        const txt = String(def);
         if (label.text !== txt) label.setText(txt);
-        label.setColor(this.state.troops > t.defense ? '#2b2118' : '#8b3a1e');
+        label.setColor(enemy ? '#efe3c8' : this.state.troops > def ? '#2b2118' : '#8b3a1e');
         label.setPosition(x, y + (t.type === 'rovine' ? 5 : 0)).setVisible(true);
         used++;
       }
@@ -205,7 +233,7 @@ export class RunScene extends Phaser.Scene {
       this.redrawOwned();
       this.redrawFrontier(true);
       this.conquestFx(x, y, res.cost, res.loot);
-      (this.scene.get('Hud') as HudScene).onConquest(res.loot);
+      this.hud.onConquest(res.loot);
     } else if (res.reason === 'troops') {
       this.failFx(x, y, `servono ${res.need! + 1}`);
     } else if (res.reason === 'not-adjacent') {
@@ -226,6 +254,17 @@ export class RunScene extends Phaser.Scene {
       this.floatText(x, y + 8, `+${loot} rottami`, PALETTE.ocra, 160);
       this.cameras.main.shake(120, 0.003);
     }
+  }
+
+  /** Una nostra casella è caduta: lampo nel colore del nemico. */
+  private lostFx(i: number, by: number) {
+    const { x, y } = center(i);
+    const flash = this.add.graphics({ x, y }).setDepth(9);
+    flash.lineStyle(3, PALETTE.ko, 1).strokePoints(corners(0, 0, S), true);
+    flash.fillStyle(FACTION_INFO[by].fill, 0.6).fillPoints(corners(0, 0, S), true);
+    this.tweens.add({ targets: flash, scale: 1.6, alpha: 0, duration: 500, onComplete: () => flash.destroy() });
+    const v = this.cameras.main.worldView;
+    if (v.contains(x, y)) this.cameras.main.shake(90, 0.002);
   }
 
   private failFx(x: number, y: number, msg: string) {
@@ -252,7 +291,7 @@ export class RunScene extends Phaser.Scene {
     const m = 400;
     cam.setBounds(-m, -m, WORLD_W + 2 * m, WORLD_H + 2 * m);
     cam.setZoom(CAM.startZoom);
-    const { x, y } = center(this.map.start);
+    const { x, y } = center(this.map.starts[0]);
     cam.centerOn(x, y);
   }
 
@@ -269,10 +308,8 @@ export class RunScene extends Phaser.Scene {
   }
 
   private setupInput() {
-    const hud = () => this.scene.get('Hud') as HudScene;
-
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (hud().hitUi(p.x, p.y)) return;
+      if (this.hud.hitUi(p.x, p.y)) return;
       if (this.activePointers().length === 1) {
         this.down = { x: p.x, y: p.y };
         this.last = { x: p.x, y: p.y };

@@ -10,6 +10,12 @@ export const PALETTE = {
   graticola: 0x34444a,
   player: 0x2f6fd6,
   playerBorder: 0x0f2e66,
+  factions: [
+    { fill: 0x2f6fd6, border: 0x0f2e66 }, // giocatore
+    { fill: 0xd24b2a, border: 0x6e1d0c },
+    { fill: 0xa8429a, border: 0x4d1546 },
+    { fill: 0x4e9a3a, border: 0x1e4515 },
+  ],
   ok: 0xffffff,
   ko: 0xd8432b,
 } as const;

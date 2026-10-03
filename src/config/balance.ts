@@ -13,7 +13,7 @@ export const BALANCE = {
     desertLatBand: [12, 35] as [number, number], // |lat| in gradi
     desertChance: 0.7, // probabilità deserto dentro la fascia
     desertSprinkle: 0.04, // probabilità deserto fuori fascia
-    minStartRegion: 150, // caselle minime della regione di partenza
+    minStartRegion: 300, // caselle minime della regione di partenza (ci stanno 4 fazioni)
   },
   tick: {
     ms: 500,
@@ -28,6 +28,25 @@ export const BALANCE = {
     deserto: 3,
     rovine: 12,
     variance: 0.3, // ± percentuale casuale per casella
+  },
+  // Caselle possedute: difesa = base * mult + min(truppe/caselle * garrison, garrisonMax)
+  owned: {
+    defenseMult: 1,
+    garrison: 0.5,
+    garrisonMax: 12, // niente fortezze imbattibili accumulando truppe
+  },
+  ai: {
+    count: 3,
+    startTroops: 20,
+    growthMult: 0.85, // rispetto alla crescita del giocatore
+    actChance: 0.6, // probabilità di agire a ogni tick
+    attacksPerAct: 1,
+    reserve: 1.25, // attacca solo se truppe > difesa * reserve
+    playerBias: 0.7, // le caselle del giocatore "sembrano" più deboli: ce l'hanno con te
+    graceMs: 60_000, // tempo di gioco prima che le IA attacchino il giocatore
+    startDistance: [9, 20] as [number, number], // passi esagonali dal giocatore
+    minDistanceBetween: 7, // passi esagonali tra fazioni IA
+    releaseLootShare: 0.5, // quota di bottino rilasciata quando eliminata
   },
   loot: {
     rovine: [8, 20] as [number, number],
