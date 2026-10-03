@@ -28,6 +28,11 @@ export class Button extends Phaser.GameObjects.Container {
     return this;
   }
 
+  setLabel(text: string): this {
+    this.label.setText(text);
+    return this;
+  }
+
   get isOn() {
     return this.active_;
   }

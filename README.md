@@ -11,18 +11,19 @@ npm run dev        # http://localhost:5173 (--host: apribile dal telefono sulla 
 npm run build      # build di produzione in dist/
 npm run typecheck
 npm run check:land # verifica la maschera terra contro d3 geoContains (se cambi la griglia)
-npx vite-node scripts/sim.ts 1 6   # simula run senza grafica per tarare balance.ts
+npx vite-node scripts/sim.ts 1 6 1 # simula run senza grafica per tarare balance.ts
 ```
 
 - `?seed=abc123` nell'URL → mappa riproducibile.
 - Controlli: tap = attacca, trascina = sposta, pinch/rotella = zoom.
+- Pedine: tocca una carta → un tuo territorio; tocca una pedina → una destinazione.
 
 ## Stato
 
 | Milestone | Stato |
 |---|---|
 | 1. Mappa + conquista a tap | ✅ |
-| 2. IA + combattimento + unità | IA e combattimento ✅ · unità ⏳ |
+| 2. IA + combattimento + unità | ✅ (pedine sulla mappa) |
 | 3. Zaino, ritirata, tempesta, schermata finale | — |
 | 4. Accampamento + eventi | — |
 | 5. Juice, onboarding, estetica placeholder | — |

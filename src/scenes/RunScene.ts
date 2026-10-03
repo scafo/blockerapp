@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BALANCE } from '../config/balance';
+import { BALANCE, type UnitType } from '../config/balance';
 import { PALETTE } from '../config/palette';
 import { generateMap, type RunMap } from '../map/generate';
 import { NEIGHBORS, WORLD_H, WORLD_W, center, corners, pixelToIndex } from '../map/hexGrid';
@@ -7,6 +7,8 @@ import { NEUTRAL, PLAYER, RunState } from '../game/RunState';
 import { FACTION_INFO } from '../game/factions';
 import { textStyle } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
+import { drawUnitIcon } from '../ui/unitIcons';
+import { unitInfo, type Unit } from '../game/units';
 import type { HudScene } from './HudScene';
 
 const S = BALANCE.map.hexSize;
@@ -32,6 +34,12 @@ export class RunScene extends Phaser.Scene {
   private nameTags: Phaser.GameObjects.Container[] = [];
   private nameTimer = 0;
   private lastHitFx = 0;
+  // pedine
+  selectedCard: UnitType | null = null;
+  private selectedUnit: number | null = null;
+  private unitSprites = new Map<number, { c: Phaser.GameObjects.Container; hp: Phaser.GameObjects.Graphics; tile: number; hpShown: number }>();
+  private pathGfx!: Phaser.GameObjects.Graphics;
+  private selRing!: Phaser.GameObjects.Graphics;
   // input
   private down: { x: number; y: number } | null = null;
   private last = { x: 0, y: 0 };
@@ -69,6 +77,14 @@ export class RunScene extends Phaser.Scene {
     });
     this.nameTimer = 0;
 
+    this.selectedCard = null;
+    this.selectedUnit = null;
+    this.unitSprites = new Map();
+    this.pathGfx = this.add.graphics().setDepth(7);
+    this.selRing = this.add.graphics().setDepth(8).setVisible(false);
+    this.selRing.lineStyle(2.5, PALETTE.radioattivo, 1).strokeCircle(0, 0, S * 0.95);
+    this.tweens.add({ targets: this.selRing, scale: 1.15, duration: 450, yoyo: true, repeat: -1 });
+
     this.redrawOwned();
     this.redrawFrontier(true);
     this.setupCamera();
@@ -87,10 +103,13 @@ export class RunScene extends Phaser.Scene {
           this.lastHitFx = time;
           this.lostFx(e.i, e.by);
         }
+      } else if (e.type === 'unitDied') {
+        this.unitDeathFx(e.unit);
       } else {
         this.hud.onEliminated(e.faction, e.by, e.loot);
       }
     }
+    this.syncUnits();
     if (this.ownedDirty) {
       this.ownedDirty = false;
       this.redrawOwned();
@@ -277,10 +296,55 @@ export class RunScene extends Phaser.Scene {
 
   // ---------- conquista ----------
 
+  /** Seleziona/deseleziona una carta; ritorna il motivo se non si può usare. */
+  toggleCard(t: UnitType): ReturnType<RunState['deployBlock']> {
+    if (this.selectedCard === t) {
+      this.selectedCard = null;
+      this.hud.setHint(null);
+      return null;
+    }
+    const block = this.state.deployBlock(PLAYER, t);
+    if (block) return block;
+    this.selectUnit(null);
+    this.selectedCard = t;
+    this.hud.setHint(`${unitInfo(t).name.toUpperCase()}: ${unitInfo(t).desc}\nTocca un tuo territorio per schierarla.`);
+    return null;
+  }
+
+  private selectUnit(id: number | null) {
+    this.selectedUnit = id;
+    this.selRing.setVisible(id !== null);
+    if (id !== null) this.hud.setHint('Tocca una casella: la pedina ci va conquistando la strada.');
+    else if (!this.selectedCard) this.hud.setHint(null);
+  }
+
   private tapTile(i: number) {
     if (i < 0 || !this.map.tiles[i]) return;
-    const res = this.state.tryConquer(i);
     const { x, y } = center(i);
+
+    if (this.selectedCard) {
+      const t = this.selectedCard;
+      const u = this.state.deploy(PLAYER, t, i);
+      if (!u) return this.failFx(x, y, this.state.owner[i] === PLAYER ? 'casella occupata' : 'solo nel tuo territorio');
+      this.selectedCard = null;
+      this.syncUnits();
+      this.conquestFx(x, y, BALANCE.units[t].cost, 0);
+      this.selectUnit(u.id);
+      return;
+    }
+    const mine = this.state.unitAt(i);
+    if (mine && mine.owner === PLAYER) return this.selectUnit(this.selectedUnit === mine.id ? null : mine.id);
+    if (this.selectedUnit !== null) {
+      const u = this.state.units.find((v) => v.id === this.selectedUnit);
+      if (u && this.state.order(u, i)) {
+        this.floatText(x, y - 4, 'avanti!', PALETTE.radioattivo);
+        this.selectUnit(null);
+        return;
+      }
+      if (u) return this.failFx(x, y, 'irraggiungibile');
+    }
+
+    const res = this.state.tryConquer(i);
     if (res.ok) {
       this.redrawOwned();
       this.redrawFrontier(true);
@@ -306,6 +370,75 @@ export class RunScene extends Phaser.Scene {
       this.floatText(x, y + 8, `+${loot} rottami`, PALETTE.ocra, 160);
       this.cameras.main.shake(120, 0.003);
     }
+  }
+
+  // ---------- pedine: disegno ----------
+
+  private makeUnitSprite(u: Unit) {
+    const f = FACTION_INFO[u.owner];
+    const g = this.add.graphics();
+    g.fillStyle(f.fill, 1).fillCircle(0, 0, S * 0.72);
+    g.lineStyle(1.8, u.owner === PLAYER ? PALETTE.carta : f.border, 1).strokeCircle(0, 0, S * 0.72);
+    drawUnitIcon(g, u.type, 0, 0, S * 0.42, PALETTE.carta);
+    drawSymbol(g, f.symbol, S * 0.62, -S * 0.62, S * 0.26, f.fill, PALETTE.carta);
+    const hp = this.add.graphics();
+    const { x, y } = center(u.tile);
+    const c = this.add.container(x, y, [g, hp]).setDepth(8);
+    c.setScale(0.2);
+    this.tweens.add({ targets: c, scale: 1, duration: 260, ease: 'Back.easeOut' });
+    return { c, hp, tile: u.tile, hpShown: -1 };
+  }
+
+  /** Allinea gli sprite delle pedine allo stato (creazione, movimento, vita). */
+  private syncUnits() {
+    const alive = new Set<number>();
+    for (const u of this.state.units) {
+      alive.add(u.id);
+      let sp = this.unitSprites.get(u.id);
+      if (!sp) this.unitSprites.set(u.id, (sp = this.makeUnitSprite(u)));
+      if (sp.tile !== u.tile) {
+        sp.tile = u.tile;
+        const { x, y } = center(u.tile);
+        const dur = Math.min(400, BALANCE.units[u.type].moveMs / this.state.speed);
+        this.tweens.add({ targets: sp.c, x, y, duration: dur, ease: 'Sine.easeInOut' });
+      }
+      const hpPct = Math.round((u.hp / BALANCE.units[u.type].hp) * 10);
+      if (hpPct !== sp.hpShown) {
+        sp.hpShown = hpPct;
+        sp.hp.clear().fillStyle(PALETTE.inchiostro, 0.9).fillRect(-S * 0.7, S * 0.82, S * 1.4, 2.6);
+        sp.hp.fillStyle(hpPct > 4 ? PALETTE.radioattivo : PALETTE.ko, 1).fillRect(-S * 0.7, S * 0.82, S * 1.4 * (hpPct / 10), 2.6);
+      }
+    }
+    for (const [id, sp] of this.unitSprites) {
+      if (alive.has(id)) continue;
+      sp.c.destroy();
+      this.unitSprites.delete(id);
+    }
+    if (this.selectedUnit !== null && !alive.has(this.selectedUnit)) this.selectUnit(null);
+
+    // percorsi delle nostre pedine + anello di selezione
+    const g = this.pathGfx.clear();
+    for (const u of this.state.unitsOf(PLAYER)) {
+      if (!u.path.length) continue;
+      const sel = u.id === this.selectedUnit;
+      g.lineStyle(sel ? 2 : 1.4, PALETTE.radioattivo, sel ? 0.9 : 0.45);
+      const pts = [u.tile, ...u.path].map(center);
+      g.strokePoints(pts, false);
+      const end = pts[pts.length - 1];
+      g.fillStyle(PALETTE.radioattivo, sel ? 0.9 : 0.5).fillCircle(end.x, end.y, 2.5);
+    }
+    if (this.selectedUnit !== null) {
+      const sp = this.unitSprites.get(this.selectedUnit);
+      if (sp) this.selRing.setPosition(sp.c.x, sp.c.y);
+    }
+  }
+
+  private unitDeathFx(u: Unit) {
+    const sp = this.unitSprites.get(u.id);
+    const { x, y } = sp ? { x: sp.c.x, y: sp.c.y } : center(u.tile);
+    this.burst.setParticleTint(FACTION_INFO[u.owner].fill);
+    this.burst.explode(14, x, y);
+    if (u.owner === PLAYER) this.floatText(x, y - 6, `${unitInfo(u.type).short} caduta`, PALETTE.ko);
   }
 
   /** Una nostra casella è caduta: lampo nel colore del nemico. */

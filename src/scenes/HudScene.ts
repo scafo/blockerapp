@@ -7,6 +7,10 @@ import { randomSeed } from '../map/rng';
 import { Button } from '../ui/Button';
 import { textStyle } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
+import { drawUnitIcon } from '../ui/unitIcons';
+import { CARD_H, CARD_W, UnitCard } from '../ui/UnitCard';
+import { UNIT_TYPES } from '../game/units';
+import type { UnitType } from '../config/balance';
 import type { RunScene } from './RunScene';
 
 const PAD = 12;
@@ -27,8 +31,9 @@ export class HudScene extends Phaser.Scene {
   private symbols!: Phaser.GameObjects.Graphics;
   private rows: Phaser.GameObjects.Text[] = [];
   private aliveKey = '';
-  private speedBtns: Button[] = [];
+  private speedBtn!: Button;
   private newRunBtn!: Button;
+  private cards: UnitCard[] = [];
   private shownTroops = -1;
   private overlay: Phaser.GameObjects.GameObject[] = [];
 
@@ -59,8 +64,13 @@ export class HudScene extends Phaser.Scene {
     this.hint = this.add.text(0, 0, 'Tocca una casella evidenziata per conquistarla', textStyle(14, PALETTE.carta))
       .setOrigin(0.5, 0).setAlign('center').setBackgroundColor('#2b2118').setPadding(10, 6, 10, 6);
 
-    this.speedBtns = BALANCE.speeds.map((s) => new Button(this, `x${s}`, 48, 40, () => this.setSpeed(s)));
-    this.newRunBtn = new Button(this, 'NUOVA RUN', 120, 40, () => {
+    // comandi: carte unità in basso a sinistra, velocità in basso a destra
+    this.cards = UNIT_TYPES.map((t) => new UnitCard(this, t, () => this.onCard(t)));
+    this.speedBtn = new Button(this, 'x1', 56, 44, () => {
+      const sp = BALANCE.speeds as readonly number[];
+      this.setSpeed(sp[(sp.indexOf(this.run.state.speed) + 1) % sp.length]);
+    });
+    this.newRunBtn = new Button(this, 'NUOVA', RIGHT_W, 30, () => {
       this.run.scene.restart({ seed: randomSeed() });
     });
     this.setSpeed(this.run.state.speed);
@@ -72,7 +82,23 @@ export class HudScene extends Phaser.Scene {
 
   private setSpeed(s: number) {
     this.run.setSpeed(s);
-    BALANCE.speeds.forEach((v, k) => this.speedBtns[k].setOn(v === s));
+    this.speedBtn.setLabel(`x${s}`).setOn(s > 1);
+  }
+
+  private onCard(t: UnitType) {
+    const block = this.run.toggleCard(t);
+    if (!block) return;
+    const msg = ({ cooldown: 'carta in ricarica', troops: 'truppe insufficienti', cap: 'massimo pedine in campo', tile: '' } as const)[block];
+    const card = this.cards.find((c) => c.type === t)!;
+    this.tweens.add({ targets: card, x: card.x + 4, duration: 50, yoyo: true, repeat: 2 });
+    if (msg) this.toast(msg, PALETTE.ko);
+  }
+
+  /** Messaggio di contesto in alto al centro (null = nascondi). */
+  setHint(msg: string | null) {
+    this.tweens.killTweensOf(this.hint);
+    if (!msg) return void this.hint.setVisible(false);
+    this.hint.setText(msg).setVisible(true).setAlpha(1);
   }
 
   private layout() {
@@ -81,9 +107,13 @@ export class HudScene extends Phaser.Scene {
     this.rightPanel.setX(rx);
     this.rows.forEach((r, k) => r.setPosition(rx + 26, PAD + 5 + ROW_H * (k + 0.5)));
     this.aliveKey = ''; // forza il ridisegno dei simboli
-    this.speedBtns.forEach((b, k) => b.setPosition(width - PAD - (BALANCE.speeds.length - k) * 54 + 6, height - PAD - 40));
-    this.newRunBtn.setPosition(PAD, height - PAD - 40);
-    this.seed.setPosition(PAD, height - PAD - 46);
+    this.speedBtn.setPosition(width - PAD - 56, height - PAD - 44);
+    this.newRunBtn.setPosition(rx, PAD + this.rightPanel.height + 6);
+    this.cards.forEach((c, k) => {
+      c.baseY = height - PAD - CARD_H;
+      c.setPosition(PAD + k * (CARD_W + 6), c.baseY);
+    });
+    this.seed.setPosition(width - PAD, height - PAD - 50).setOrigin(1, 1);
     const free = width - 2 * PAD - LEFT_W - RIGHT_W - 2 * PAD;
     this.hint.setPosition(width / 2, PAD).setWordWrapWidth(Math.max(180, free));
   }
@@ -112,7 +142,15 @@ export class HudScene extends Phaser.Scene {
         const info = FACTION_INFO[k];
         g.setAlpha(1);
         drawSymbol(g, info.symbol, rx + 14, this.rows[k].y, 6, f.alive ? info.fill : 0x555555, PALETTE.carta);
+        const dom = BALANCE.aiUnits.dominant[k] as UnitType | '';
+        if (dom && f.alive) drawUnitIcon(g, dom, rx + RIGHT_W - 14, this.rows[k].y, 6, PALETTE.ocra);
       });
+    }
+    const sel = this.run.selectedCard;
+    for (const c of this.cards) {
+      const cd = Math.max(0, st.cooldowns[PLAYER][c.type] - st.gameTimeMs) / BALANCE.units.cooldownMs;
+      const block = st.deployBlock(PLAYER, c.type);
+      c.refresh(cd, block === null || block === 'cooldown', sel === c.type);
     }
     st.factions.forEach((f, k) => {
       const r = this.rows[k];
@@ -165,6 +203,6 @@ export class HudScene extends Phaser.Scene {
     if (this.overlay.length) return true;
     const inRect = (r: Phaser.GameObjects.Rectangle) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
     if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
-    return [...this.speedBtns, this.newRunBtn].some((b) => b.contains(x, y));
+    return [this.speedBtn, this.newRunBtn, ...this.cards].some((b) => b.contains(x, y));
   }
 }

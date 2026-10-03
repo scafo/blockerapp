@@ -80,6 +80,10 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 - `npm run dev` · `npm run build` · `npm run typecheck`
 - `npm run check:land` — verifica la maschera terra contro `geoContains` (a runtime si usa un point-in-polygon planare: 50 ms invece di 5 s).
-- `npx vite-node scripts/sim.ts 1 6` — simula 6 run senza grafica (giocatore 1 tap/s) per tarare `balance.ts`.
+- `npx vite-node scripts/sim.ts 1 6 1` — simula 6 run senza grafica (giocatore 1 tap/s, usa le pedine) per tarare `balance.ts`.
 - `?seed=abc123` nell'URL → mappa riproducibile.
-- Stato: M1 ✅ · M2 parziale (IA + combattimento ✅, unità ⏳).
+- Stato: M1 ✅ · M2 ✅ (in attesa dei 10 minuti di Nico).
+- Unità (decisione di Nico): **pedine sulla mappa**, pagate con truppe del pool. Carta → tocca un tuo territorio → la pedina compare;
+  tocca la pedina → tocca una casella → ci va casella per casella conquistando (perde hp = difesa × captureCost).
+  Fanteria > Raider > Artiglieria (gittata 2) > Fanteria. Si curano sul proprio territorio. Ogni IA ha un'unità preferita
+  (icona nel pannello fazioni). Testi in `src/data/units.json`, numeri in `balance.ts` (`units`, `aiUnits`).

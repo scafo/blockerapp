@@ -48,6 +48,28 @@ export const BALANCE = {
     minDistanceBetween: 7, // passi esagonali tra fazioni IA
     releaseLootShare: 0.5, // quota di bottino rilasciata quando eliminata
   },
+  // Pedine: costano truppe del pool, si muovono casella per casella e conquistano dove passano.
+  units: {
+    fanteria: { cost: 60, hp: 60, attack: 6, range: 1, moveMs: 1000, captureCost: 0.4 },
+    raider: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 500, captureCost: 0.5 },
+    artiglieria: { cost: 70, hp: 30, attack: 9, range: 2, moveMs: 1500, captureCost: 0.8 },
+    strong: 1.75, // moltiplicatore danno contro l'unità che batti
+    weak: 0.5, // moltiplicatore danno contro l'unità che ti batte
+    cooldownMs: 6000, // ricarica della carta (tempo di gioco)
+    maxPerFaction: 4,
+    healPerTick: 1, // hp recuperati sul proprio territorio, fuori combattimento
+    // captureCost: hp persi conquistando = difesa della casella * captureCost
+  },
+  aiUnits: {
+    dominant: ['', 'raider', 'artiglieria', 'fanteria'], // unità preferita per fazione (indice = fazione)
+    dominantChance: 0.7,
+    spawnEveryMs: 25_000,
+    spawnJitterMs: 5_000,
+    reserve: 1.5, // schiera solo se truppe > costo * reserve
+    maxUnits: 2,
+    repathMs: 6_000,
+    playerBias: 1, // 1 = le pedine IA vanno sul nemico più vicino, chiunque sia
+  },
   loot: {
     rovine: [8, 20] as [number, number],
   },
@@ -62,3 +84,4 @@ export const BALANCE = {
 } as const;
 
 export type TileType = 'terra' | 'deserto' | 'rovine' | 'tossica';
+export type UnitType = 'fanteria' | 'raider' | 'artiglieria';

@@ -63,3 +63,15 @@ export function pixelToIndex(px: number, py: number): number {
   const row = rz, col = rx + (rz - (rz & 1)) / 2;
   return col < 0 || col >= cols || row < 0 || row >= rows ? -1 : idx(col, row);
 }
+
+function toCube(i: number): [number, number, number] {
+  const c = colOf(i), r = rowOf(i);
+  const x = c - (r - (r & 1)) / 2;
+  return [x, -x - r, r];
+}
+
+/** Distanza in passi esagonali (ignora ostacoli). */
+export function hexDistance(a: number, b: number): number {
+  const [ax, ay, az] = toCube(a), [bx, by, bz] = toCube(b);
+  return Math.max(Math.abs(ax - bx), Math.abs(ay - by), Math.abs(az - bz));
+}
