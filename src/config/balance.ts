@@ -27,6 +27,7 @@ export const BALANCE = {
     terra: 6,
     deserto: 3,
     rovine: 12,
+    anomalia: 22,
     variance: 0.3, // ± percentuale casuale per casella
   },
   // Caselle possedute: difesa = base * mult + min(truppe/caselle * garrison, garrisonMax)
@@ -70,8 +71,35 @@ export const BALANCE = {
     repathMs: 6_000,
     playerBias: 1, // 1 = le pedine IA vanno sul nemico più vicino, chiunque sia
   },
+  // Bottino delle rovine: ogni rovina contiene una sola risorsa.
   loot: {
-    rovine: [8, 20] as [number, number],
+    weights: { rottami: 0.5, carburante: 0.25, viveri: 0.25 },
+    rottami: [8, 20] as [number, number],
+    carburante: [4, 10] as [number, number],
+    viveri: [5, 12] as [number, number],
+  },
+  // Anomalie: caselle-segnale molto difese. Tenerne `victory.anomalies` = vittoria.
+  anomalies: {
+    count: 5,
+    distance: [8, 28] as [number, number], // passi esagonali dalla partenza del giocatore
+    minApart: 6,
+  },
+  victory: {
+    mapShare: 0.6, // quota della regione di partenza (terra attraversabile)
+    anomalies: 3,
+    bonus: 0.5, // +50% dello zaino in caso di vittoria
+  },
+  // Tempesta di cenere: arriva e restringe la mappa attorno a un punto.
+  storm: {
+    startMs: 480_000, // 8 min di gioco
+    warnMs: 60_000, // avviso + cerchio finale visibile prima dell'arrivo
+    durationMs: 90_000, // tempo per chiudersi fino a finalRadius
+    finalRadius: 3,
+    unitDamage: 6, // hp per tick alle pedine nella cenere
+  },
+  end: {
+    eliminatedLoss: 0.7, // zaino perso se eliminato (o travolto dalla tempesta)
+    resultDelayMs: 1200, // pausa prima della schermata finale
   },
   speeds: [1, 2, 4],
   camera: {
@@ -83,5 +111,6 @@ export const BALANCE = {
   },
 } as const;
 
-export type TileType = 'terra' | 'deserto' | 'rovine' | 'tossica';
+export type TileType = 'terra' | 'deserto' | 'rovine' | 'tossica' | 'anomalia';
+export type Resource = 'rottami' | 'carburante' | 'viveri';
 export type UnitType = 'fanteria' | 'raider' | 'artiglieria';

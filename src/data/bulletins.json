@@ -1,0 +1,22 @@
+{
+  "victory": [
+    "Radio Atlas annuncia: un nuovo impero sorge dalle ceneri. Le ceneri chiedono di non essere disturbate.",
+    "Festeggiamenti in tutto il territorio conquistato. Il resto del mondo non è stato informato.",
+    "Il segnale delle anomalie tace per un istante. Poi riprende, più forte. Nessuno ne parla a cena."
+  ],
+  "retreat": [
+    "La spedizione rientra in buon ordine. Il buon ordine è stato raggiunto correndo.",
+    "Ritirata strategica completata. Gli strateghi confermano: era strategica.",
+    "Il convoglio torna all'accampamento con il bottino e quasi tutti i passeggeri."
+  ],
+  "eliminated": [
+    "Notizie dal fronte: il fronte non risponde. Parte dello zaino è ora proprietà altrui.",
+    "La spedizione è stata sciolta. Anche le truppe, in parte.",
+    "Il nemico ringrazia per l'equipaggiamento e lo considera un regalo."
+  ],
+  "storm": [
+    "La tempesta di cenere ha preso quasi tutto, tranne la vergogna. Quella torna a casa con voi.",
+    "Previsioni del tempo: cenere, poi altra cenere. Si consiglia di partire prima.",
+    "Dal 1971 il cielo non perdona i ritardatari. Oggi nemmeno."
+  ]
+}

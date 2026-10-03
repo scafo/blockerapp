@@ -24,7 +24,7 @@ npx vite-node scripts/sim.ts 1 6 1 # simula run senza grafica per tarare balance
 |---|---|
 | 1. Mappa + conquista a tap | ✅ |
 | 2. IA + combattimento + unità | ✅ (pedine sulla mappa) |
-| 3. Zaino, ritirata, tempesta, schermata finale | — |
+| 3. Zaino, ritirata, tempesta, schermata finale | ✅ |
 | 4. Accampamento + eventi | — |
 | 5. Juice, onboarding, estetica placeholder | — |
 | 6. Analytics + build Capacitor + test Android | — |

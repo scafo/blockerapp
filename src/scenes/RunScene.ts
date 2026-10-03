@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { BALANCE, type UnitType } from '../config/balance';
+import { BALANCE, type Resource, type UnitType } from '../config/balance';
+import { RESOURCE_INFO } from '../game/resources';
 import { PALETTE } from '../config/palette';
 import { generateMap, type RunMap } from '../map/generate';
-import { NEIGHBORS, WORLD_H, WORLD_W, center, corners, pixelToIndex } from '../map/hexGrid';
+import { NEIGHBORS, WORLD_H, WORLD_W, center, corners, hexDistance, pixelToIndex } from '../map/hexGrid';
 import { NEUTRAL, PLAYER, RunState } from '../game/RunState';
 import { FACTION_INFO } from '../game/factions';
 import { textStyle } from '../ui/style';
@@ -19,6 +20,7 @@ const TERRAIN_COLOR = {
   deserto: PALETTE.ocra,
   rovine: PALETTE.rovine,
   tossica: PALETTE.radioattivo,
+  anomalia: 0x14302b,
 } as const;
 
 export class RunScene extends Phaser.Scene {
@@ -34,6 +36,8 @@ export class RunScene extends Phaser.Scene {
   private nameTags: Phaser.GameObjects.Container[] = [];
   private nameTimer = 0;
   private lastHitFx = 0;
+  private stormGfx!: Phaser.GameObjects.Graphics;
+  private ending = false;
   // pedine
   selectedCard: UnitType | null = null;
   private selectedUnit: number | null = null;
@@ -60,7 +64,10 @@ export class RunScene extends Phaser.Scene {
     this.drawGraticule();
     this.drawTerrain();
     this.ownedGfx = this.add.graphics();
+    this.drawAnomalies();
+    this.stormGfx = this.add.graphics();
     this.frontierGfx = this.add.graphics();
+    this.ending = false;
     this.burst = this.add.particles(0, 0, 'dot', {
       speed: { min: 40, max: 140 },
       lifespan: 450,
@@ -99,17 +106,21 @@ export class RunScene extends Phaser.Scene {
     for (const e of this.state.drainEvents()) {
       if (e.type === 'conquer') {
         this.ownedDirty = true;
-        if (e.from === PLAYER && time - this.lastHitFx > 250) {
+        if (e.from === PLAYER && e.by !== NEUTRAL && time - this.lastHitFx > 250) {
           this.lastHitFx = time;
           this.lostFx(e.i, e.by);
         }
       } else if (e.type === 'unitDied') {
         this.unitDeathFx(e.unit);
+      } else if (e.type === 'storm') {
+        this.hud.onStorm(e.phase);
       } else {
         this.hud.onEliminated(e.faction, e.by, e.loot);
       }
     }
     this.syncUnits();
+    if (ticks > 0 && this.state.stormIn <= BALANCE.storm.warnMs) this.redrawStorm();
+    if (this.state.over && !this.ending) this.finish();
     if (this.ownedDirty) {
       this.ownedDirty = false;
       this.redrawOwned();
@@ -348,7 +359,7 @@ export class RunScene extends Phaser.Scene {
     if (res.ok) {
       this.redrawOwned();
       this.redrawFrontier(true);
-      this.conquestFx(x, y, res.cost, res.loot);
+      this.conquestFx(x, y, res.cost, res.loot, res.lootType);
       this.hud.onConquest(res.loot);
     } else if (res.reason === 'troops') {
       this.failFx(x, y, `servono ${res.need! + 1}`);
@@ -359,15 +370,73 @@ export class RunScene extends Phaser.Scene {
     }
   }
 
-  private conquestFx(x: number, y: number, cost: number, loot: number) {
+  /** Fine run: un attimo per vedere cos'è successo, poi la schermata finale. */
+  private finish() {
+    this.ending = true;
+    this.selectedCard = null;
+    this.selectUnit(null);
+    this.hud.showEnd(this.state.over!, this.state.victoryReason);
+    this.time.delayedCall(BALANCE.end.resultDelayMs, () => {
+      this.scene.stop('Hud');
+      this.scene.start('Result', this.state.summary());
+    });
+  }
+
+  ritirata() {
+    this.state.retreat();
+  }
+
+  // ---------- anomalie e tempesta ----------
+
+  /** Anomalie: anelli di segnale che pulsano, sopra il colore del proprietario. */
+  private drawAnomalies() {
+    const g = this.add.graphics();
+    for (const i of this.map.anomalies) {
+      const { x, y } = center(i);
+      g.lineStyle(1.4, PALETTE.radioattivo, 1).strokeCircle(x, y, S * 0.35).strokeCircle(x, y, S * 0.65);
+      g.fillStyle(PALETTE.radioattivo, 1).fillCircle(x, y, 1.6);
+      const pulse = this.add.graphics({ x, y });
+      pulse.lineStyle(1.2, PALETTE.radioattivo, 1).strokeCircle(0, 0, S * 0.6);
+      this.tweens.add({ targets: pulse, scale: { from: 0.6, to: 2.2 }, alpha: { from: 0.9, to: 0 }, duration: 1600, repeat: -1 });
+    }
+  }
+
+  /** Cenere sulle caselle inghiottite + confine della zona sicura (o di quella finale, durante l'avviso). */
+  private redrawStorm() {
+    const st = this.state;
+    const g = this.stormGfx.clear();
+    g.fillStyle(0x3a3530, 0.88);
+    for (let i = 0; i < st.stormed.length; i++) {
+      if (!st.stormed[i]) continue;
+      const { x, y } = center(i);
+      this.hexPath(g, x, y, S + 0.4);
+    }
+    const r = st.stormIn > 0 ? BALANCE.storm.finalRadius : st.stormRadius;
+    const dist = (i: number) => this.stormDistOf(i);
+    g.lineStyle(st.stormIn > 0 ? 3.2 : 2.4, st.stormIn > 0 ? 0xffffff : PALETTE.ko, 1);
+    for (let i = 0; i < st.stormed.length; i++) {
+      if (!this.map.tiles[i] || dist(i) > r) continue;
+      const { x, y } = center(i);
+      const c = corners(x, y, S);
+      NEIGHBORS[i].forEach((n, k) => {
+        if (n < 0 || dist(n) > r) g.lineBetween(c[k].x, c[k].y, c[(k + 1) % 6].x, c[(k + 1) % 6].y);
+      });
+    }
+  }
+
+  private stormDistOf(i: number): number {
+    return hexDistance(i, this.map.stormCenter);
+  }
+
+  private conquestFx(x: number, y: number, cost: number, loot: number, lootType: Resource = 'rottami') {
     const flash = this.add.graphics({ x, y }).setDepth(9);
     flash.fillStyle(0xffffff, 1).fillPoints(corners(0, 0, S), true);
     this.tweens.add({ targets: flash, scale: 1.8, alpha: 0, duration: 380, ease: 'Cubic.easeOut', onComplete: () => flash.destroy() });
-    this.burst.setParticleTint(loot ? PALETTE.ocra : PALETTE.carta);
+    this.burst.setParticleTint(loot ? RESOURCE_INFO[lootType].color : PALETTE.carta);
     this.burst.explode(loot ? 18 : 10, x, y);
     this.floatText(x, y - 4, `-${cost}`, PALETTE.carta);
     if (loot) {
-      this.floatText(x, y + 8, `+${loot} rottami`, PALETTE.ocra, 160);
+      this.floatText(x, y + 8, `+${loot} ${RESOURCE_INFO[lootType].name.toLowerCase()}`, RESOURCE_INFO[lootType].color, 160);
       this.cameras.main.shake(120, 0.003);
     }
   }

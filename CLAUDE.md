@@ -82,7 +82,13 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 - `npm run check:land` — verifica la maschera terra contro `geoContains` (a runtime si usa un point-in-polygon planare: 50 ms invece di 5 s).
 - `npx vite-node scripts/sim.ts 1 6 1` — simula 6 run senza grafica (giocatore 1 tap/s, usa le pedine) per tarare `balance.ts`.
 - `?seed=abc123` nell'URL → mappa riproducibile.
-- Stato: M1 ✅ · M2 ✅ (in attesa dei 10 minuti di Nico).
+- Stato: M1 ✅ · M2 ✅ · M3 ✅ (in attesa dei 10 minuti di Nico).
+- M3 (decisioni del dev, tutte in `balance.ts`): le rovine contengono una sola risorsa (Rottami 50%, Carburante 25%, Viveri 25%).
+  5 anomalie (caselle-segnale, difesa alta) nella regione del giocatore; tenerne 3 = vittoria. 60% = della regione raggiungibile.
+  Tempesta di cenere: avviso a 7:00 col confine finale, arriva a 8:00 e si chiude in 90 s attorno a un punto vicino al baricentro
+  della regione; a chiusura vince chi ha più territorio, altrimenti "travolto" = come eliminato (−70%). Vittoria = +50% zaino.
+  Ritirata a doppio tocco in qualsiasi momento. Lo zaino finisce nella scorta dell'accampamento (localStorage, `src/save/`).
+  Bollettini di fine run in `src/data/bulletins.json`.
 - Unità (decisione di Nico): **pedine sulla mappa**, pagate con truppe del pool. Carta → tocca un tuo territorio → la pedina compare;
   tocca la pedina → tocca una casella → ci va casella per casella conquistando (perde hp = difesa × captureCost).
   Fanteria > Raider > Artiglieria (gittata 2) > Fanteria. Si curano sul proprio territorio. Ogni IA ha un'unità preferita

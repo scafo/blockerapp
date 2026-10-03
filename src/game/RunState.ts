@@ -1,5 +1,6 @@
 // Stato logico di una run: nessuna dipendenza da Phaser.
-import { BALANCE, type UnitType } from '../config/balance';
+import { BALANCE, type Resource, type UnitType } from '../config/balance';
+import { addBag, emptyBag, scaleBag, type Bag } from './resources';
 import { NEIGHBORS, hexDistance } from '../map/hexGrid';
 import { findPath, rps, type Unit } from './units';
 import { createRng, type Rng } from '../map/rng';
@@ -13,17 +14,32 @@ export interface Faction {
   troops: number;
   tiles: number;
   maxTiles: number;
-  loot: number; // per il giocatore è lo zaino della run
+  loot: Bag; // per il giocatore è lo zaino della run
   alive: boolean;
 }
 
 export type RunEvent =
-  | { type: 'conquer'; by: number; from: number; i: number; cost: number; loot: number; unit?: number }
+  | { type: 'conquer'; by: number; from: number; i: number; cost: number; loot: number; lootType: Resource; unit?: number }
+  | { type: 'storm'; phase: 'warn' | 'start' }
   | { type: 'unitDied'; unit: Unit }
-  | { type: 'eliminated'; faction: number; by: number; loot: number };
+  | { type: 'eliminated'; faction: number; by: number; loot: Bag };
+
+export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'storm';
+export type VictoryReason = 'map' | 'anomalies' | 'storm';
+
+export interface RunSummary {
+  seed: string;
+  outcome: Outcome;
+  reason?: VictoryReason;
+  timeMs: number;
+  maxTiles: number;
+  anomalies: number;
+  backpack: Bag; // zaino a fine run
+  kept: Bag; // portato a casa dopo perdite/bonus
+}
 
 export type ConquerResult =
-  | { ok: true; tile: Tile; cost: number; loot: number }
+  | { ok: true; tile: Tile; cost: number; loot: number; lootType: Resource }
   | { ok: false; reason: 'not-adjacent' | 'impassable' | 'owned' | 'troops'; need?: number };
 
 export class RunState {
@@ -31,7 +47,13 @@ export class RunState {
   readonly factions: Faction[];
   gameTimeMs = 0;
   speed = 1;
-  over: null | 'eliminated' = null;
+  over: null | Outcome = null;
+  victoryReason?: VictoryReason;
+  /** casella → 1 se già inghiottita dalla tempesta */
+  readonly stormed: Uint8Array;
+  private stormDist: Int16Array;
+  private stormMaxR = 0;
+  private stormPhase: 'none' | 'warn' | 'active' = 'none';
   units: Unit[] = [];
   /** fazione → tipo → tempo di gioco in cui la carta torna disponibile */
   readonly cooldowns: Record<UnitType, number>[];
@@ -51,9 +73,26 @@ export class RunState {
       troops: id === PLAYER ? BALANCE.start.troops : BALANCE.ai.startTroops,
       tiles: 0,
       maxTiles: 0,
-      loot: 0,
+      loot: emptyBag(),
       alive: true,
     }));
+    this.stormed = new Uint8Array(map.tiles.length);
+    this.stormDist = new Int16Array(map.tiles.length);
+    for (let i = 0; i < map.tiles.length; i++) this.stormDist[i] = hexDistance(i, map.stormCenter);
+    // raggio iniziale: copre tutta la regione raggiungibile dal giocatore
+    const seen = new Uint8Array(map.tiles.length);
+    const queue = [map.starts[0]];
+    seen[map.starts[0]] = 1;
+    for (let h = 0; h < queue.length; h++) {
+      const c = queue[h];
+      this.stormMaxR = Math.max(this.stormMaxR, this.stormDist[c]);
+      for (const n of NEIGHBORS[c]) {
+        if (n >= 0 && !seen[n] && this.passable(n)) {
+          seen[n] = 1;
+          queue.push(n);
+        }
+      }
+    }
     this.cooldowns = this.factions.map(() => ({ fanteria: 0, raider: 0, artiglieria: 0 }));
     this.aiSpawnAt = this.factions.map(() => BALANCE.ai.graceMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
     map.starts.forEach((s, f) => {
@@ -114,6 +153,94 @@ export class RunState {
     return f.tiles * BALANCE.tick.troopsPerTile * mult;
   }
 
+  // ---------- tempesta ----------
+
+  /** Raggio sicuro attuale attorno all'occhio (Infinity prima dell'arrivo). */
+  get stormRadius(): number {
+    const S = BALANCE.storm;
+    if (this.gameTimeMs < S.startMs) return Infinity;
+    const k = Math.min(1, (this.gameTimeMs - S.startMs) / S.durationMs);
+    return this.stormMaxR + (S.finalRadius - this.stormMaxR) * k;
+  }
+
+  /** ms di gioco all'arrivo della tempesta (negativo = già arrivata). */
+  get stormIn(): number {
+    return BALANCE.storm.startMs - this.gameTimeMs;
+  }
+
+  inStorm(i: number): boolean {
+    return this.stormDist[i] > this.stormRadius;
+  }
+
+  private stormTick() {
+    const S = BALANCE.storm;
+    if (this.stormPhase === 'none' && this.stormIn <= S.warnMs) {
+      this.stormPhase = 'warn';
+      this.events.push({ type: 'storm', phase: 'warn' });
+    }
+    if (this.stormPhase !== 'active' && this.stormIn <= 0) {
+      this.stormPhase = 'active';
+      this.events.push({ type: 'storm', phase: 'start' });
+    }
+    if (this.stormPhase !== 'active') return;
+    const r = this.stormRadius;
+    for (let i = 0; i < this.stormed.length; i++) {
+      if (this.stormed[i] || !this.map.tiles[i] || this.stormDist[i] <= r) continue;
+      this.stormed[i] = 1;
+      const o = this.owner[i];
+      if (o === NEUTRAL) continue;
+      this.owner[i] = NEUTRAL;
+      this.factions[o].tiles--;
+      this.frontierCache.clear();
+      this.events.push({ type: 'conquer', by: NEUTRAL, from: o, i, cost: 0, loot: 0, lootType: 'rottami' });
+      if (this.factions[o].tiles <= 0 && this.factions[o].alive) this.eliminate(o, NEUTRAL);
+    }
+    for (const u of this.units) if (this.stormed[u.tile]) u.hp -= S.unitDamage;
+    this.removeDead();
+    if (this.over) return;
+    if (this.gameTimeMs >= S.startMs + S.durationMs) {
+      // la tempesta è arrivata: vince chi ha più territorio
+      const best = Math.max(...this.factions.filter((f) => f.alive).map((f) => f.tiles));
+      this.end(this.player.tiles >= best ? 'victory' : 'storm', 'storm');
+    }
+  }
+
+  // ---------- fine run ----------
+
+  anomaliesOwned(f = PLAYER): number {
+    return this.map.anomalies.filter((i) => this.owner[i] === f).length;
+  }
+
+  get mapShare(): number {
+    return this.player.tiles / Math.max(1, this.map.regionSize);
+  }
+
+  private checkVictory() {
+    if (this.over) return;
+    if (this.mapShare >= BALANCE.victory.mapShare) this.end('victory', 'map');
+    else if (this.anomaliesOwned() >= BALANCE.victory.anomalies) this.end('victory', 'anomalies');
+  }
+
+  retreat() {
+    if (!this.over) this.end('retreat');
+  }
+
+  private end(outcome: Outcome, reason?: VictoryReason) {
+    this.over = outcome;
+    this.victoryReason = outcome === 'victory' ? reason : undefined;
+  }
+
+  summary(): RunSummary {
+    const outcome = this.over ?? 'retreat';
+    const bag = this.player.loot;
+    const k = outcome === 'victory' ? 1 + BALANCE.victory.bonus
+      : outcome === 'retreat' ? 1 : 1 - BALANCE.end.eliminatedLoss;
+    return {
+      seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
+      maxTiles: this.player.maxTiles, anomalies: this.anomaliesOwned(), backpack: { ...bag }, kept: scaleBag(bag, k),
+    };
+  }
+
   private tick() {
     for (const f of this.factions) if (f.alive) f.troops += this.growth(f);
     for (const f of this.factions) {
@@ -124,6 +251,8 @@ export class RunState {
       this.aiUnits(f);
     }
     this.unitsTick();
+    this.stormTick();
+    this.checkVictory();
   }
 
   // ---------- pedine ----------
@@ -200,7 +329,7 @@ export class RunState {
           }
         }
       }
-      if (this.owner[u.tile] !== u.owner) {
+      if (this.owner[u.tile] !== u.owner && !this.stormed[u.tile]) {
         u.hp -= this.defenseOf(u.tile) * stats.captureCost;
         if (u.hp > 0) this.transfer(u.owner, u.tile, 0, u.id);
       } else if (!u.inCombat) {
@@ -280,7 +409,7 @@ export class RunState {
 
   passable(i: number): boolean {
     const t = this.map.tiles[i];
-    return !!t && t.type !== 'tossica';
+    return !!t && t.type !== 'tossica' && !this.stormed[i];
   }
 
   /** Difesa attuale: neutrale = base; posseduta = base * mult + presidio del proprietario. */
@@ -318,7 +447,7 @@ export class RunState {
 
   attack(by: number, i: number): ConquerResult {
     const tile = this.map.tiles[i];
-    if (!tile || tile.type === 'tossica') return { ok: false, reason: 'impassable' };
+    if (!tile || !this.passable(i)) return { ok: false, reason: 'impassable' };
     if (this.owner[i] === by) return { ok: false, reason: 'owned' };
     if (!this.isFrontier(i, by)) return { ok: false, reason: 'not-adjacent' };
     const cost = this.defenseOf(i);
@@ -327,7 +456,7 @@ export class RunState {
 
     att.troops -= cost;
     const loot = this.transfer(by, i, cost);
-    return { ok: true, tile, cost, loot };
+    return { ok: true, tile, cost, loot, lootType: tile.lootType };
   }
 
   /** Passa la casella a `by` (il costo è già stato pagato); ritorna il bottino raccolto. */
@@ -341,10 +470,10 @@ export class RunState {
       def.tiles--;
     }
     const loot = tile.loot;
-    this.factions[by].loot += loot;
+    this.factions[by].loot[tile.lootType] += loot;
     tile.loot = 0;
     this.claim(by, i);
-    this.events.push({ type: 'conquer', by, from, i, cost, loot, unit });
+    this.events.push({ type: 'conquer', by, from, i, cost, loot, lootType: tile.lootType, unit });
     if (from !== NEUTRAL && this.factions[from].tiles <= 0) this.eliminate(from, by);
     return loot;
   }
@@ -355,10 +484,10 @@ export class RunState {
     dead.troops = 0;
     for (const u of this.unitsOf(f)) u.hp = 0;
     this.removeDead();
-    const released = f === PLAYER ? 0 : Math.floor(dead.loot * BALANCE.ai.releaseLootShare);
-    this.factions[by].loot += released;
+    const released = f === PLAYER || by === NEUTRAL ? emptyBag() : scaleBag(dead.loot, BALANCE.ai.releaseLootShare);
+    if (by !== NEUTRAL) this.factions[by].loot = addBag(this.factions[by].loot, released);
     this.events.push({ type: 'eliminated', faction: f, by, loot: released });
-    if (f === PLAYER) this.over = 'eliminated';
+    if (f === PLAYER) this.end(by === NEUTRAL ? 'storm' : 'eliminated');
   }
 
   private claim(f: number, i: number) {

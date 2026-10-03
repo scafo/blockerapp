@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { PALETTE } from './config/palette';
 import { BootScene } from './scenes/BootScene';
 import { HudScene } from './scenes/HudScene';
+import { ResultScene } from './scenes/ResultScene';
 import { RunScene } from './scenes/RunScene';
 
 const game = new Phaser.Game({
@@ -11,7 +12,7 @@ const game = new Phaser.Game({
   scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
   input: { activePointers: 3 },
   render: { antialias: true },
-  scene: [BootScene, RunScene, HudScene],
+  scene: [BootScene, RunScene, HudScene, ResultScene],
 });
 
 // debug/test: accesso al gioco dalla console
