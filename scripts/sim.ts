@@ -1,5 +1,5 @@
 // Simula run senza grafica per tarare balance.ts.
-// Uso: npx vite-node scripts/sim.ts [taps al secondo del giocatore] [numero run] [pedine: 0/1]
+// Uso: npx vite-node scripts/sim.ts [taps al secondo del giocatore] [numero run] [pedine: 0/1] [avanzate: 0/1]
 import { buildLandMask } from '../src/map/landMask';
 import { generateMap } from '../src/map/generate';
 import { RunState, PLAYER } from '../src/game/RunState';
@@ -10,6 +10,7 @@ import { BALANCE } from '../src/config/balance';
 const tapsPerSec = Number(process.argv[2] ?? 2);
 const runs = Number(process.argv[3] ?? 6);
 const useUnits = process.argv[4] !== '0';
+const useFlow = process.argv[5] !== '0'; // 5° argomento: 0 = niente avanzate
 const mask = buildLandMask();
 for (let r = 0; r < runs; r++) {
   const st = new RunState(generateMap('sim' + r, mask));
@@ -24,6 +25,15 @@ for (let r = 0; r < runs; r++) {
       // giocatore "medio": attacca la casella più debole che può permettersi
       const f = st.frontier(PLAYER).filter((i) => st.troops > st.defenseOf(i));
       if (f.length) st.tryConquer(f.reduce((a, b) => (st.defenseOf(a) <= st.defenseOf(b) ? a : b)));
+    }
+    // giocatore "da OpenFront": se le truppe superano il punto ottimale lancia un'avanzata verso il nemico/neutro più vicino
+    if (useFlow && ms % 1000 === 0 && st.flowTarget === null && st.fill() > BALANCE.population.optimum + 0.1) {
+      const front = st.frontier(PLAYER);
+      if (front.length) {
+        const f0 = front[Math.floor((ms / 1000) % front.length)];
+        const far = st.map.land.filter((i) => st.passable(i) && st.owner[i] !== PLAYER && hexDistance(i, f0) === 6);
+        if (far.length) st.startFlow(far[0]);
+      }
     }
     if (useUnits && ms % 2000 === 0) {
       // giocatore attivo: contro la pedina nemica più vicina schiera quella che la batte

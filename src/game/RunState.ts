@@ -18,13 +18,16 @@ export interface Faction {
   maxTiles: number;
   loot: Bag; // per il giocatore è lo zaino della run
   alive: boolean;
+  cap: number; // tetto di popolazione
+  workers: number; // quota di lavoratori (0..1)
+  lootAcc: Record<Resource, number>; // frazioni di risorse prodotte dai lavoratori
 }
 
 export type RunEvent =
   | { type: 'conquer'; by: number; from: number; i: number; cost: number; loot: number; lootType: Resource; unit?: number }
   | { type: 'storm'; phase: 'warn' | 'start' }
   | { type: 'event'; event: GameEvent }
-  | { type: 'flowEnd'; reason: 'reached' | 'blocked' }
+  | { type: 'flowEnd'; reason: 'reached' | 'blocked' | 'budget' }
   | { type: 'unitDied'; unit: Unit }
   | { type: 'eliminated'; faction: number; by: number; loot: Bag };
 
@@ -69,6 +72,9 @@ export class RunState {
   // avanzata automatica del giocatore
   flowTarget: number | null = null;
   private flowAcc = 0;
+  private flowBudget = 0;
+  /** quota delle truppe che un'avanzata può spendere */
+  attackRatio: number = BALANCE.attack.default;
   private flowBestD = Infinity;
   private anomalyDefMult = 1;
   units: Unit[] = [];
@@ -93,6 +99,9 @@ export class RunState {
       maxTiles: 0,
       loot: emptyBag(),
       alive: true,
+      cap: BALANCE.population.base,
+      workers: id === PLAYER ? (opts.tutorial ? 0 : BALANCE.workers.default) : BALANCE.ai.workers,
+      lootAcc: emptyBag(),
     }));
     this.stormed = new Uint8Array(map.tiles.length);
     this.stormDist = new Int16Array(map.tiles.length);
@@ -142,7 +151,34 @@ export class RunState {
     return this.player.loot;
   }
   get troopsPerSecond(): number {
-    return (this.growth(this.player) * 1000) / BALANCE.tick.ms;
+    return (this.growth(this.player) * (1 - this.player.workers) * 1000) / BALANCE.tick.ms;
+  }
+
+  /** Risorse al secondo prodotte dai lavoratori del giocatore. */
+  get workLootPerSecond(): number {
+    return (this.growth(this.player) * this.player.workers * BALANCE.workers.lootPerWorker * 1000) / BALANCE.tick.ms;
+  }
+
+  setWorkers(ratio: number) {
+    this.player.workers = Math.max(0, Math.min(0.9, ratio));
+  }
+
+  /** Tetti di popolazione di tutte le fazioni in una passata sulla mappa. */
+  private updateCaps() {
+    const P = BALANCE.population;
+    const caps = this.factions.map(() => P.base);
+    for (let i = 0; i < this.owner.length; i++) {
+      const o = this.owner[i];
+      if (o === NEUTRAL) continue;
+      const t = this.map.tiles[i]!;
+      caps[o] += P.perTile[t.type] + (t.type === 'rovine' ? P.settlementBonus : 0);
+    }
+    this.factions.forEach((f, k) => (f.cap = caps[k]));
+  }
+
+  /** Riempimento del tetto (0..1+) della fazione. */
+  fill(f: Faction = this.player): number {
+    return f.troops / Math.max(1, f.cap);
   }
 
   drainEvents(): RunEvent[] {
@@ -173,10 +209,33 @@ export class RunState {
     return ticks;
   }
 
+  /** Crescita lorda per tick (truppe + lavoratori): massima intorno al punto ottimale del tetto. */
   private growth(f: Faction): number {
+    const P = BALANCE.population;
     const boost = this.gameTimeMs < this.growthBoost.until ? this.growthBoost.mult : 1;
     const mult = f.id === PLAYER ? boost : this.opts.tutorial ? BALANCE.tutorial.aiGrowthMult : BALANCE.ai.growthMult;
-    return f.tiles * BALANCE.tick.troopsPerTile * mult;
+    const fill = this.fill(f);
+    const shape = fill <= P.optimum
+      ? P.emptyGrowth + (1 - P.emptyGrowth) * (fill / P.optimum)
+      : Math.max(P.minGrowth, 1 - (fill - P.optimum) / (1 - P.optimum));
+    return f.tiles * P.growthPerTile * shape * mult;
+  }
+
+  /** Un tick di popolazione: soldati fino al tetto, lavoratori in risorse nello zaino. */
+  private grow(f: Faction) {
+    const P = BALANCE.population, W = BALANCE.workers;
+    const g = this.growth(f);
+    f.troops += g * (1 - f.workers);
+    if (f.troops > f.cap) f.troops -= (f.troops - f.cap) * P.overflowDecay + Math.min(f.troops - f.cap, g * (1 - f.workers));
+    const made = g * f.workers * W.lootPerWorker;
+    for (const r of Object.keys(W.mix) as Resource[]) {
+      f.lootAcc[r] += made * W.mix[r];
+      const whole = Math.floor(f.lootAcc[r]);
+      if (whole > 0) {
+        f.loot[r] += whole;
+        f.lootAcc[r] -= whole;
+      }
+    }
   }
 
   // ---------- tempesta ----------
@@ -278,11 +337,14 @@ export class RunState {
   }
 
   private tick() {
-    for (const f of this.factions) if (f.alive) f.troops += this.growth(f);
+    this.updateCaps();
+    for (const f of this.factions) if (f.alive) this.grow(f);
     for (const f of this.factions) {
       if (f.id === PLAYER || !f.alive) continue;
       if (this.aiRng() <= BALANCE.ai.actChance) {
-        for (let a = 0; a < BALANCE.ai.attacksPerAct; a++) if (!this.aiAttack(f)) break;
+        // sopra il punto ottimale attacca di più: le truppe ferme non crescono
+        const n = this.fill(f) > BALANCE.population.optimum ? BALANCE.ai.maxAttacksWhenFull : BALANCE.ai.attacksPerAct;
+        for (let a = 0; a < n; a++) if (!this.aiAttack(f)) break;
       }
       this.aiUnits(f);
     }
@@ -303,10 +365,11 @@ export class RunState {
     this.flowTarget = target;
     this.flowAcc = BALANCE.flow.stepMs; // primo passo subito
     this.flowBestD = Infinity;
+    this.flowBudget = this.troops * (this.opts.tutorial ? 1 : this.attackRatio); // forza d'attacco
     return true;
   }
 
-  stopFlow(reason: 'reached' | 'blocked' = 'blocked') {
+  stopFlow(reason: 'reached' | 'blocked' | 'budget' = 'blocked') {
     if (this.flowTarget === null) return;
     this.flowTarget = null;
     this.events.push({ type: 'flowEnd', reason });
@@ -326,9 +389,10 @@ export class RunState {
       }
     }
     if (best < 0 || bestD > this.flowBestD + BALANCE.flow.giveUpSteps) return this.stopFlow('blocked');
+    if (bestDef > this.flowBudget) return this.stopFlow('budget'); // forza d'attacco esaurita
     if (this.troops - bestDef <= BALANCE.flow.reserve) return; // aspetta rinforzi, il bersaglio resta
     this.flowBestD = Math.min(this.flowBestD, bestD);
-    this.attack(PLAYER, best);
+    if (this.attack(PLAYER, best).ok) this.flowBudget -= bestDef;
   }
 
   // ---------- eventi ----------
@@ -557,7 +621,8 @@ export class RunState {
     if (o === NEUTRAL) return base;
     const f = this.factions[o];
     const garrison = Math.min((f.troops / Math.max(1, f.tiles)) * BALANCE.owned.garrison, BALANCE.owned.garrisonMax);
-    return Math.ceil(base * BALANCE.owned.defenseMult + garrison);
+    const settlement = t.type === 'rovine' ? BALANCE.owned.settlementDefense : 0;
+    return Math.ceil(base * BALANCE.owned.defenseMult + garrison + settlement);
   }
 
   isFrontier(i: number, f = PLAYER): boolean {

@@ -10,6 +10,7 @@ import { EventCard } from '../ui/EventCard';
 import { TutorialGuide, type GuideSignal } from '../ui/TutorialGuide';
 import { analytics } from '../analytics/analytics';
 import { fpsEnabled } from '../ui/debug';
+import { savePrefs } from '../save/storage';
 import { Button } from '../ui/Button';
 import { CARD_H, CARD_W, UnitCard } from '../ui/UnitCard';
 import { drawResourceIcon } from '../ui/resourceIcons';
@@ -59,6 +60,11 @@ export class HudScene extends Phaser.Scene {
   private symPos: { x: number; y: number }[] = [];
   private unitPos: ({ x: number; y: number } | null)[] = [];
   private topBottom = PAD + LEFT_H; // dove finisce l'HUD in alto
+  private popBar!: Phaser.GameObjects.Graphics;
+  private nextBannerAt = 0;
+  private popText!: Phaser.GameObjects.Text;
+  private attackBtn: Button | null = null;
+  private workBtn: Button | null = null;
   private eventCard: EventCard | null = null;
   private guide: TutorialGuide | null = null;
   private fps: Phaser.GameObjects.Text | null = null;
@@ -74,6 +80,7 @@ export class HudScene extends Phaser.Scene {
   create() {
     uiCamera(this);
     this.shownTroops = -1;
+    this.nextBannerAt = 0;
     this.aliveKey = '';
     this.ended = false;
     this.retreatArmed = null;
@@ -89,6 +96,9 @@ export class HudScene extends Phaser.Scene {
     this.resIcons = this.add.graphics();
     this.resTexts = RESOURCES.map(() => this.add.text(0, 0, '0', textStyle(12, PALETTE.carta)).setOrigin(0, 0.5));
     this.stormText = this.add.text(0, 0, '', textStyle(12, PALETTE.ocra));
+    // popolazione: truppe sul tetto, con la zona di crescita migliore
+    this.popBar = this.add.graphics();
+    this.popText = this.add.text(0, 0, '', textStyle(10, PALETTE.carta, false)).setOrigin(0, 0.5);
 
     // pannello destro: fazioni
     this.rightPanel = this.add.rectangle(0, PAD, RIGHT_W, FACTION_INFO.length * ROW_H + 10, PALETTE.inchiostro, 0.88)
@@ -108,6 +118,13 @@ export class HudScene extends Phaser.Scene {
       this.setSpeed(sp[(sp.indexOf(this.run.state.speed) + 1) % sp.length]);
     });
     this.retreatBtn = new Button(this, 'RITIRATA', 112, 44, () => this.onRetreat());
+    // le due leve alla OpenFront: forza d'attacco e soldati/lavoratori (non nella run guidata)
+    this.attackBtn = this.workBtn = null;
+    if (!this.run.state.opts.tutorial) {
+      this.attackBtn = new Button(this, '', 112, 36, () => this.cycleAttack(), 13);
+      this.workBtn = new Button(this, '', 112, 36, () => this.cycleWorkers(), 13);
+      this.refreshLevers();
+    }
     this.setSpeed(this.run.state.speed);
 
     // prima run: guida con frecce al posto del suggerimento testuale
@@ -133,6 +150,31 @@ export class HudScene extends Phaser.Scene {
     this.layout();
     this.scale.on('resize', this.layout, this);
     this.events.once('shutdown', () => this.scale.off('resize', this.layout, this));
+  }
+
+  private refreshLevers() {
+    const st = this.run.state;
+    this.attackBtn?.setLabel(`ATTACCO ${Math.round(st.attackRatio * 100)}%`);
+    this.workBtn?.setLabel(`LAVORO ${Math.round(st.player.workers * 100)}%`);
+  }
+
+  /** Forza d'attacco: quante truppe può spendere un'avanzata (il resto resta a difendere). */
+  private cycleAttack() {
+    const st = this.run.state, R = BALANCE.attack.ratios as readonly number[];
+    st.attackRatio = R[(R.indexOf(st.attackRatio) + 1) % R.length] ?? BALANCE.attack.default;
+    savePrefs({ attack: st.attackRatio });
+    this.refreshLevers();
+    this.toast(`Le avanzate usano il ${Math.round(st.attackRatio * 100)}% delle truppe`, PALETTE.carta);
+  }
+
+  /** Soldati contro lavoratori: i lavoratori riempiono lo zaino, ma l'esercito cresce meno. */
+  private cycleWorkers() {
+    const st = this.run.state, W = BALANCE.workers.steps as readonly number[];
+    const next = W[(W.indexOf(st.player.workers) + 1) % W.length] ?? BALANCE.workers.default;
+    st.setWorkers(next);
+    savePrefs({ workers: next });
+    this.refreshLevers();
+    this.toast(next ? `${Math.round(next * 100)}% lavoratori: più bottino, meno soldati` : 'Tutti sotto le armi: niente bottino dai lavoratori', PALETTE.carta);
   }
 
   private setSpeed(s: number) {
@@ -217,13 +259,30 @@ export class HudScene extends Phaser.Scene {
     // la cornice disegnata del rettangolo segue la nuova misura
     P.setStrokeStyle(2, PALETTE.ocra);
     this.rightPanel.setStrokeStyle(2, PALETTE.ocra);
-    this.rate.setPosition(this.troops.x + this.troops.width + 10, this.troops.y + 12);
+    this.rate.setPosition(this.troops.x + this.troops.width + 10, this.troops.y + 10);
     this.fps?.setPosition(PAD, this.topBottom + 6);
     this.aliveKey = ''; // forza il ridisegno dei simboli
     this.cards.forEach((c, k) => {
       c.baseY = height - PAD - CARD_H;
       c.setPosition(PAD + k * (CARD_W + 6), c.baseY);
     });
+    // leve sopra le carte, nell'angolo in basso a sinistra
+    const ly = height - PAD - CARD_H - 8 - 36;
+    this.attackBtn?.setPosition(PAD, ly);
+    this.workBtn?.setPosition(PAD + 112 + 6, ly);
+  }
+
+  /** Barra della popolazione: verde nella zona dove si cresce di più, ruggine se stai sprecando crescita. */
+  private drawPop() {
+    const st = this.run.state, P = BALANCE.population;
+    const x = this.rate.x, y = this.troops.y + 30, w = 100, h = 5;
+    const fill = Math.min(1, st.fill());
+    const col = fill > 0.7 ? PALETTE.ko : fill >= 0.25 ? PALETTE.radioattivo : PALETTE.ocra;
+    const g = this.popBar.clear();
+    g.fillStyle(0x000000, 0.45).fillRect(x, y, w, h);
+    g.fillStyle(col, 1).fillRect(x, y, w * fill, h);
+    g.fillStyle(PALETTE.carta, 1).fillRect(x + w * P.optimum - 1, y - 2, 2, h + 4);
+    this.popText.setPosition(x + w + 6, y + 2).setText(`max ${Math.round(st.player.cap)}`);
   }
 
   private layoutResources(x: number, y: number, step: number) {
@@ -246,6 +305,7 @@ export class HudScene extends Phaser.Scene {
       this.rate.setX(this.troops.x + this.troops.width + 10);
     }
     this.rate.setText(`+${st.troopsPerSecond.toFixed(1)}/s`);
+    this.drawPop();
     const share = Math.round(st.mapShare * 100);
     const goal = `${share}%/${BALANCE.victory.mapShare * 100}%`, anom = `anomalie ${st.anomaliesOwned()}/${BALANCE.victory.anomalies}`;
     this.stats.setText(this.portrait ? `${st.tilesOwned} caselle · ${goal}\n${anom}` : `${st.tilesOwned} caselle ${goal} · ${anom}`);
@@ -301,8 +361,8 @@ export class HudScene extends Phaser.Scene {
 
   private toast(msg: string, color: number) {
     const { width } = view(this);
-    const t = this.add.text(width / 2, this.topBottom + 70, msg, textStyle(16, color)).setOrigin(0.5).setAlign('center')
-      .setBackgroundColor('#2b2118').setPadding(12, 8, 12, 8).setScale(0.6).setAlpha(0);
+    const t = this.add.text(width / 2, this.topBottom + 70, msg, textStyle(this.portrait ? 14 : 16, color)).setOrigin(0.5).setAlign('center')
+      .setWordWrapWidth(width - 2 * PAD - 24).setBackgroundColor('#2b2118').setPadding(12, 8, 12, 8).setScale(0.6).setAlpha(0);
     this.tweens.add({ targets: t, scale: 1, alpha: 1, duration: 220, ease: 'Back.easeOut' });
     this.tweens.add({ targets: t, alpha: 0, delay: 2600, duration: 400, onComplete: () => t.destroy() });
   }
@@ -333,7 +393,17 @@ export class HudScene extends Phaser.Scene {
   }
 
   /** Cartello grande e breve al centro: per i momenti epici. */
+  /** I cartelli escono uno alla volta: se due arrivano insieme il secondo aspetta il suo turno. */
   private banner(title: string, color: number, sub: string) {
+    const now = this.time.now;
+    const at = Math.max(now, this.nextBannerAt);
+    this.nextBannerAt = at + 1300;
+    if (at > now) this.time.delayedCall(at - now, () => this.showBanner(title, color, sub));
+    else this.showBanner(title, color, sub);
+  }
+
+  private showBanner(title: string, color: number, sub: string) {
+    if (this.ended) return;
     const { width, height } = view(this);
     const t = this.add.text(width / 2, height * 0.36, title, textStyle(34, color)).setOrigin(0.5).setStroke('#2b2118', 7).setDepth(40);
     const s2 = this.add.text(width / 2, height * 0.36 + 32, sub.toUpperCase(), textStyle(14, PALETTE.carta)).setOrigin(0.5)
@@ -385,6 +455,7 @@ export class HudScene extends Phaser.Scene {
     if (layoutOnly && y > this.hint.y - 4 && y < this.hint.y + 60 && Math.abs(x - this.hint.x) < 200) return true; // etichetta della guida
     const inRect = (r: Phaser.GameObjects.Rectangle) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
     if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
-    return [this.speedBtn, this.retreatBtn, ...this.cards].some((b) => b.contains(x, y));
+    const btns = [this.speedBtn, this.retreatBtn, ...this.cards, this.attackBtn, this.workBtn].filter((b) => b !== null);
+    return btns.some((b) => b.contains(x, y));
   }
 }

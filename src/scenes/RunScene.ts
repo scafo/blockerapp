@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { BALANCE, type Resource, type UnitType } from '../config/balance';
 import { RESOURCE_INFO } from '../game/resources';
 import { runOptions, settle, type RunOptions } from '../game/camp';
-import { loadProfile, saveProfile } from '../save/storage';
+import { loadPrefs, loadProfile, saveProfile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
 import { PALETTE } from '../config/palette';
 import { generateMap, type RunMap } from '../map/generate';
@@ -81,6 +81,12 @@ export class RunScene extends Phaser.Scene {
     this.map = generateMap(data.seed, this.registry.get('landMask'), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count);
     this.state = new RunState(this.map, opts);
     analytics.runStart(opts.tutorial, data.seed);
+    if (!opts.tutorial) {
+      // forza d'attacco e lavoratori come li avevi lasciati
+      const prefs = loadPrefs();
+      if (prefs.attack !== undefined) this.state.attackRatio = prefs.attack;
+      if (prefs.workers !== undefined) this.state.setWorkers(prefs.workers);
+    }
     this.usage = { tocchi: 0, avanzate: 0, pittura: 0, pedine: 0 };
     this.nextMilestone = 0;
     this.tapFxTile = -1;
@@ -154,6 +160,7 @@ export class RunScene extends Phaser.Scene {
       } else if (e.type === 'unitDied') {
         this.unitDeathFx(e.unit);
       } else if (e.type === 'flowEnd') {
+        if (e.reason === 'budget' && this.flowMarker.visible) this.floatText(this.flowMarker.x, this.flowMarker.y - 8, 'forza esaurita', PALETTE.carta);
         this.flowMarker.setVisible(false);
       } else if (e.type === 'event') {
         this.selectedCard = null;
@@ -307,6 +314,15 @@ export class RunScene extends Phaser.Scene {
       const { x, y } = center(i);
       g.fillStyle(FACTION_INFO[own[i]].fill, 0.92);
       this.hexPath(g, x, y, S + 0.4);
+    }
+    // insediamenti (rovine possedute): casetta in carta, alzano il tetto di popolazione
+    for (let i = 0; i < own.length; i++) {
+      if (own[i] === NEUTRAL || this.map.tiles[i]!.type !== 'rovine') continue;
+      const { x, y } = center(i);
+      const w = S * 0.32;
+      g.fillStyle(PALETTE.carta, 1).fillRect(x - w, y - w * 0.3, w * 2, w * 1.3);
+      g.fillTriangle(x - w * 1.25, y - w * 0.3, x + w * 1.25, y - w * 0.3, x, y - w * 1.4);
+      g.fillStyle(FACTION_INFO[own[i]].border, 1).fillRect(x - w * 0.3, y + w * 0.25, w * 0.6, w * 0.75);
     }
     // confini netti: solo i lati verso caselle di altri
     for (let i = 0; i < own.length; i++) {
@@ -506,6 +522,8 @@ export class RunScene extends Phaser.Scene {
     this.hud.showEnd(this.state.over!, this.state.victoryReason);
     buzz(this.state.over === 'victory' ? [40, 60, 40, 60, 120] : 150);
     for (const [k, v] of Object.entries(this.usage)) analytics.design(['controlli', k], v);
+    analytics.design(['controlli', 'lavoro_finale'], Math.round(this.state.player.workers * 100));
+    analytics.design(['controlli', 'attacco_finale'], Math.round(this.state.attackRatio * 100));
     this.time.delayedCall(BALANCE.end.resultDelayMs, () => {
       this.scene.stop('Hud');
       this.scene.start('Result', this.state.summary());

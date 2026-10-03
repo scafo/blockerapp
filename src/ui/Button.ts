@@ -8,10 +8,10 @@ export class Button extends Phaser.GameObjects.Container {
   private label: Phaser.GameObjects.Text;
   private active_ = false;
 
-  constructor(scene: Phaser.Scene, text: string, w: number, h: number, onClick: () => void) {
+  constructor(scene: Phaser.Scene, text: string, w: number, h: number, onClick: () => void, size = 16) {
     super(scene, 0, 0);
     this.bg = scene.add.rectangle(0, 0, w, h, PALETTE.inchiostro).setStrokeStyle(2, PALETTE.ocra).setOrigin(0);
-    this.label = scene.add.text(w / 2, h / 2, text, textStyle(16, PALETTE.carta)).setOrigin(0.5);
+    this.label = scene.add.text(w / 2, h / 2, text, textStyle(size, PALETTE.carta)).setOrigin(0.5);
     this.add([this.bg, this.label]);
     this.setSize(w, h);
     this.bg.setInteractive({ useHandCursor: true }).on('pointerup', () => {

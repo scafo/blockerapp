@@ -91,6 +91,13 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   in punti CSS con `view(this)` + `uiCamera(this)`. HUD, accampamento, schermata finale e carte si adattano a verticale/orizzontale.
   Vibrazioni brevi in `src/ui/haptics.ts`. Contatore FPS: 5 tocchi sul titolo
   nell'accampamento o `?fps=1`. Dopo modifiche web per l'app: `npm run build && npx cap sync android`.
+- Gameplay alla OpenFront / Call of War (richiesta di Nico), numeri in `balance.ts` (`population`, `workers`, `attack`):
+  **popolazione con tetto** (base + caselle; il deserto ne dà metà) e crescita massima intorno al 40% del tetto: accumulare spreca
+  crescita (barra sotto le truppe, tacca = punto ottimale). **Soldati vs lavoratori** (tasto LAVORO 0/25/50/75%): i lavoratori
+  riempiono lo zaino di risorse, l'esercito cresce meno. **Forza d'attacco** (tasto ATTACCO 25/50/100%): budget di truppe di
+  un'avanzata. **Insediamenti**: le rovine possedute alzano il tetto (+40) e si difendono meglio (casetta sulla mappa).
+  Le IA seguono le stesse regole (15% lavoratori) e attaccano di più quando sono sopra il punto ottimale.
+  Le leve sono nascoste nella run guidata e ricordate tra le run (`loadPrefs`/`savePrefs`).
 - Controlli mappa (M5): tocco su casella adiacente = attacco; tocco lontano = **avanzata** (il confine "cola" verso il bersaglio,
   una casella ogni 160 ms finché bastano le truppe; tocco sul tuo territorio = alt); trascinamento che parte dal tuo territorio =
   **dipingi** la frontiera; trascinamento altrove = sposta; due dita = zoom + sposta. Numeri in `balance.ts` (`flow`).

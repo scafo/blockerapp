@@ -27,7 +27,7 @@ Obiettivo: **D7 > 20%** su ~20 tester. Qui: come avere l'app, come accendere le 
 | % Rivincita dopo una sconfitta | `run:rivincita:eliminated` + `run:rivincita:storm` contro `run:fine:eliminated:*` + `run:fine:storm:*` |
 | % che torna a ritirare una spedizione | `spedizione:ritira:*` contro `spedizione:parti:*` |
 | Dove si bloccano i nuovi | `tutorial:<passo>` (tap → troops → flow → paint → unit → order → goal) |
-| Come giocano | `controlli:tocchi / avanzate / pittura / pedine`, `pedina:<tipo>`, `evento:<id>:<lato>` |
+| Come giocano | `controlli:tocchi / avanzate / pittura / pedine`, `controlli:lavoro_finale / attacco_finale` (%), `pedina:<tipo>`, `evento:<id>:<lato>` |
 | Economia | eventi risorsa: Source (run, spedizione) / Sink (edificio) per rottami, carburante, viveri |
 
 ## 3. Test sul telefono economico (Nico, prima dei tester)

@@ -17,7 +17,30 @@ export const BALANCE = {
   },
   tick: {
     ms: 500,
-    troopsPerTile: 0.1, // troops += tiles * troopsPerTile
+  },
+  // Popolazione (alla OpenFront): il territorio dà un tetto di truppe; si cresce più in fretta intorno al 40% del tetto,
+  // quindi accumulare non conviene: conviene attaccare. Crescita = caselle * growthPerTile * forma(riempimento).
+  population: {
+    base: 60, // tetto minimo
+    perTile: { terra: 6, deserto: 3, rovine: 6, anomalia: 6, tossica: 0 }, // il deserto sfama poca gente
+    settlementBonus: 40, // ogni rovina posseduta è un insediamento: tetto più alto
+    growthPerTile: 0.16, // crescita per casella per tick al punto ottimale
+    optimum: 0.4, // riempimento del tetto con la crescita massima
+    emptyGrowth: 0.5, // crescita relativa a caserme vuote
+    minGrowth: 0.1, // crescita relativa a tetto pieno (mai zero)
+    overflowDecay: 0.05, // sopra il tetto (territorio perso) le truppe calano del 5% dell'eccesso a tick
+  },
+  // Soldati contro lavoratori: la quota di lavoratori non diventa truppa ma riempie lo zaino di risorse.
+  workers: {
+    steps: [0, 0.25, 0.5, 0.75],
+    default: 0.25,
+    lootPerWorker: 0.04, // risorse per ogni "truppa" mandata a lavorare
+    mix: { rottami: 0.6, carburante: 0.2, viveri: 0.2 },
+  },
+  // Forza d'attacco: quota delle truppe che un'avanzata può spendere (il resto resta a difendere).
+  attack: {
+    ratios: [0.25, 0.5, 1],
+    default: 0.5,
   },
   start: {
     troops: 25,
@@ -35,19 +58,22 @@ export const BALANCE = {
     defenseMult: 1,
     garrison: 0.5,
     garrisonMax: 12, // niente fortezze imbattibili accumulando truppe
+    settlementDefense: 6, // gli insediamenti (rovine possedute) si difendono meglio
   },
   ai: {
     count: 3,
     startTroops: 20,
-    growthMult: 0.85, // rispetto alla crescita del giocatore
+    growthMult: 0.75, // rispetto alla crescita del giocatore
     actChance: 0.6, // probabilità di agire a ogni tick
     attacksPerAct: 1,
     reserve: 1.25, // attacca solo se truppe > difesa * reserve
-    playerBias: 0.7, // le caselle del giocatore "sembrano" più deboli: ce l'hanno con te
+    playerBias: 0.85, // le caselle del giocatore "sembrano" più deboli: ce l'hanno con te
     graceMs: 60_000, // tempo di gioco prima che le IA attacchino il giocatore
     startDistance: [9, 20] as [number, number], // passi esagonali dal giocatore
     minDistanceBetween: 7, // passi esagonali tra fazioni IA
     releaseLootShare: 0.5, // quota di bottino rilasciata quando eliminata
+    workers: 0.15, // anche le IA mandano gente a lavorare: più bottino da rubare
+    maxAttacksWhenFull: 2, // sopra il punto ottimale l'IA attacca di più (non spreca crescita)
   },
   // Pedine: costano truppe del pool, si muovono casella per casella e conquistano dove passano.
   units: {

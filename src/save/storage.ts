@@ -42,3 +42,27 @@ export function saveProfile(p: Profile) {
     /* storage pieno o bloccato: si gioca lo stesso */
   }
 }
+
+/** Preferenze di gioco ricordate tra una run e l'altra (forza d'attacco, quota lavoratori). */
+export interface Prefs {
+  attack?: number;
+  workers?: number;
+}
+
+const PREFS_KEY = 'ashen-atlas:prefs';
+
+export function loadPrefs(): Prefs {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Prefs;
+  } catch {
+    return {};
+  }
+}
+
+export function savePrefs(p: Prefs) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...loadPrefs(), ...p }));
+  } catch {
+    /* pazienza */
+  }
+}
