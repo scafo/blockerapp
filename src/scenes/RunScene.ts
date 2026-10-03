@@ -15,9 +15,11 @@ import { DPR } from '../ui/screen';
 import { buzz } from '../ui/haptics';
 import { drawUnitIcon } from '../ui/unitIcons';
 import { unitInfo, type Unit } from '../game/units';
+import type { Boat } from '../game/boats';
 import type { HudScene } from './HudScene';
 
 const S = BALANCE.map.hexSize;
+const FOG_RES = 0.5; // la nebbia non ha bisogno di dettaglio: mezza risoluzione, bordi morbidi
 const CAM = BALANCE.camera;
 
 /** Schiarisce (>1) o scurisce (<1) un colore 0xRRGGBB. */
@@ -48,6 +50,10 @@ export class RunScene extends Phaser.Scene {
   private nameTimer = 0;
   private lastHitFx = 0;
   private stormGfx!: Phaser.GameObjects.Graphics;
+  private fogRT!: Phaser.GameObjects.RenderTexture;
+  private fogBrush!: Phaser.GameObjects.Graphics;
+  private fogVersion = -1;
+  private boatSprites = new Map<number, Phaser.GameObjects.Container>();
   private flowMarker!: Phaser.GameObjects.Graphics;
   private nextMilestone = 0;
   private tapFxTile = -1;
@@ -55,7 +61,7 @@ export class RunScene extends Phaser.Scene {
   private lastMid: { x: number; y: number } | null = null;
   private lastPainted = -1;
   /** quante volte si usa ogni controllo (va in analytics a fine run) */
-  private usage = { tocchi: 0, avanzate: 0, pittura: 0, pedine: 0 };
+  private usage = { tocchi: 0, avanzate: 0, pittura: 0, pedine: 0, navi: 0 };
   private ending = false;
   // pedine
   selectedCard: UnitType | null = null;
@@ -80,6 +86,7 @@ export class RunScene extends Phaser.Scene {
     const opts = data.opts ?? runOptions(profile);
     this.map = generateMap(data.seed, this.registry.get('landMask'), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count);
     this.state = new RunState(this.map, opts);
+    this.state.initFog();
     analytics.runStart(opts.tutorial, data.seed);
     if (!opts.tutorial) {
       // forza d'attacco e lavoratori come li avevi lasciati
@@ -87,7 +94,7 @@ export class RunScene extends Phaser.Scene {
       if (prefs.attack !== undefined) this.state.attackRatio = prefs.attack;
       if (prefs.workers !== undefined) this.state.setWorkers(prefs.workers);
     }
-    this.usage = { tocchi: 0, avanzate: 0, pittura: 0, pedine: 0 };
+    this.usage = { tocchi: 0, avanzate: 0, pittura: 0, pedine: 0, navi: 0 };
     this.nextMilestone = 0;
     this.tapFxTile = -1;
     this.labels = [];
@@ -99,6 +106,12 @@ export class RunScene extends Phaser.Scene {
     this.drawTerrain();
     this.bakeStatic(this.children.list.slice(before));
     this.ownedGfx = this.add.graphics();
+    // nebbia sopra i colori delle fazioni ma sotto anomalie, tempesta e pedine
+    this.fogVersion = -1;
+    this.fogRT = this.add.renderTexture(0, 0, Math.ceil(WORLD_W * FOG_RES), Math.ceil(WORLD_H * FOG_RES)).setOrigin(0).setScale(1 / FOG_RES)
+      .setVisible(opts.fog);
+    this.fogBrush = this.make.graphics({}, false);
+    this.boatSprites = new Map();
     this.drawAnomalies();
     this.stormGfx = this.add.graphics();
     this.frontierGfx = this.add.graphics();
@@ -159,6 +172,8 @@ export class RunScene extends Phaser.Scene {
         }
       } else if (e.type === 'unitDied') {
         this.unitDeathFx(e.unit);
+      } else if (e.type === 'boat') {
+        this.boatLandFx(e.boat, e.phase);
       } else if (e.type === 'flowEnd') {
         if (e.reason === 'budget' && this.flowMarker.visible) this.floatText(this.flowMarker.x, this.flowMarker.y - 8, 'forza esaurita', PALETTE.carta);
         this.flowMarker.setVisible(false);
@@ -173,6 +188,8 @@ export class RunScene extends Phaser.Scene {
       }
     }
     this.syncUnits();
+    this.syncBoats();
+    if (this.state.opts.fog && this.state.fogVersion !== this.fogVersion) this.redrawFog();
     this.tapFxTile = -1;
     const ms = BALANCE.milestones;
     while (this.nextMilestone < ms.length && this.state.maxTiles >= ms[this.nextMilestone]) {
@@ -365,7 +382,7 @@ export class RunScene extends Phaser.Scene {
     }
     this.state.factions.forEach((f, k) => {
       const tag = this.nameTags[k];
-      if (!f.alive || best[k] < 0) return void tag.setVisible(false);
+      if (!f.alive || best[k] < 0 || !this.state.sees(best[k])) return void tag.setVisible(false); // niente nomi nella nebbia
       const { x, y } = center(best[k]);
       const scale = Phaser.Math.Clamp(0.6 + Math.sqrt(f.tiles) * 0.09, 0.7, 2.6);
       if (!tag.visible || tag.x === 0) tag.setPosition(x, y).setScale(scale).setVisible(true);
@@ -487,7 +504,18 @@ export class RunScene extends Phaser.Scene {
         return;
       }
       if (this.state.passable(i)) {
-        if (!this.state.startFlow(i)) return this.failFx(x, y, 'irraggiungibile');
+        if (!this.state.startFlow(i)) {
+          // via terra non ci si arriva: si prova per mare
+          const why = this.state.launchBoat(i);
+          if (!why) {
+            this.floatText(x, y - 6, 'nave in rotta!', PALETTE.carta);
+            buzz(15);
+            this.usage.navi++;
+            return;
+          }
+          const msg = { locked: 'irraggiungibile', notCoast: 'sbarca su una costa', far: 'troppo mare', max: 'troppe navi in mare', troops: 'servono più truppe' }[why];
+          return this.failFx(x, y, msg);
+        }
         this.flowMarker.setPosition(x, y).setVisible(true);
         this.floatText(x, y - 6, 'avanzata!', PALETTE.carta);
         this.hud.tutorialSignal('flow');
@@ -613,6 +641,7 @@ export class RunScene extends Phaser.Scene {
       alive.add(u.id);
       let sp = this.unitSprites.get(u.id);
       if (!sp) this.unitSprites.set(u.id, (sp = this.makeUnitSprite(u)));
+      sp.c.setVisible(u.owner === PLAYER || this.state.sees(u.tile)); // pedine nemiche nascoste nella nebbia
       if (sp.tile !== u.tile) {
         sp.tile = u.tile;
         const { x, y } = center(u.tile);
@@ -647,6 +676,70 @@ export class RunScene extends Phaser.Scene {
     if (this.selectedUnit !== null) {
       const sp = this.unitSprites.get(this.selectedUnit);
       if (sp) this.selRing.setPosition(sp.c.x, sp.c.y);
+    }
+  }
+
+  // ---------- nebbia e navi ----------
+
+  /** Nebbia in una texture a mezza risoluzione (bordi morbidi, costa poco): si ridisegna solo quando la vista cambia. */
+  private redrawFog() {
+    const st = this.state, F = BALANCE.fog;
+    this.fogVersion = st.fogVersion;
+    const g = this.fogBrush.clear().setScale(FOG_RES);
+    for (const i of this.map.land) {
+      if (st.visible[i]) continue;
+      const { x, y } = center(i);
+      g.fillStyle(0x15110c, st.seen[i] ? F.seenAlpha : F.unseenAlpha);
+      g.fillPoints(corners(x, y, S + 0.6), true);
+    }
+    this.fogRT.clear();
+    this.fogRT.draw(g);
+  }
+
+  private makeBoat(b: Boat) {
+    const f = FACTION_INFO[b.owner];
+    const g = this.add.graphics();
+    g.fillStyle(f.fill, 1).fillPoints([{ x: -9, y: -2 }, { x: 9, y: -2 }, { x: 6, y: 4 }, { x: -6, y: 4 }], true);
+    g.lineStyle(1.4, PALETTE.carta, 1).strokePoints([{ x: -9, y: -2 }, { x: 9, y: -2 }, { x: 6, y: 4 }, { x: -6, y: 4 }], true);
+    g.fillStyle(PALETTE.carta, 1).fillRect(-3, -7, 6, 5); // cabina
+    const lbl = this.add.text(0, -14, String(b.troops), textStyle(9, PALETTE.carta)).setOrigin(0.5).setResolution(3).setStroke('#2b2118', 3);
+    const { x, y } = center(b.from);
+    const c = this.add.container(x, y, [g, lbl]).setDepth(8);
+    this.tweens.add({ targets: g, y: 1.2, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }); // rollio
+    return c;
+  }
+
+  /** Allinea gli sprite delle navi: scivolano di casella in casella lasciando una scia. */
+  private syncBoats() {
+    const live = new Set<number>();
+    for (const b of this.state.boats) {
+      live.add(b.id);
+      let sp = this.boatSprites.get(b.id);
+      if (!sp) this.boatSprites.set(b.id, (sp = this.makeBoat(b)));
+      const { x, y } = center(b.path[Math.min(b.pos, b.path.length - 1)]);
+      if (sp.getData('pos') !== b.pos) {
+        sp.setData('pos', b.pos);
+        this.tweens.add({ targets: sp, x, y, duration: BALANCE.boats.stepMs / this.state.speed, ease: 'Linear' });
+        const wake = this.add.circle(sp.x, sp.y + 3, 3, PALETTE.carta, 0.5).setDepth(7);
+        this.tweens.add({ targets: wake, scale: 2.2, alpha: 0, duration: 700, onComplete: () => wake.destroy() });
+      }
+    }
+    for (const [id, sp] of this.boatSprites) {
+      if (live.has(id)) continue;
+      sp.destroy();
+      this.boatSprites.delete(id);
+    }
+  }
+
+  private boatLandFx(b: Boat, phase: 'landed' | 'lost') {
+    const { x, y } = center(b.path[b.path.length - 1]);
+    if (phase === 'landed') {
+      this.conquestFx(x, y, 0, 0);
+      this.floatText(x, y - 8, 'sbarco!', PALETTE.carta);
+      buzz(30);
+    } else {
+      this.failFx(x, y, 'sbarco respinto');
+      buzz([20, 40, 20]);
     }
   }
 

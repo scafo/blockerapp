@@ -27,7 +27,7 @@ Obiettivo: **D7 > 20%** su ~20 tester. Qui: come avere l'app, come accendere le 
 | % Rivincita dopo una sconfitta | `run:rivincita:eliminated` + `run:rivincita:storm` contro `run:fine:eliminated:*` + `run:fine:storm:*` |
 | % che torna a ritirare una spedizione | `spedizione:ritira:*` contro `spedizione:parti:*` |
 | Dove si bloccano i nuovi | `tutorial:<passo>` (tap → troops → flow → paint → unit → order → goal) |
-| Come giocano | `controlli:tocchi / avanzate / pittura / pedine`, `controlli:lavoro_finale / attacco_finale` (%), `pedina:<tipo>`, `evento:<id>:<lato>` |
+| Come giocano | `controlli:tocchi / avanzate / pittura / pedine / navi`, `controlli:lavoro_finale / attacco_finale` (%), `pedina:<tipo>`, `evento:<id>:<lato>` |
 | Economia | eventi risorsa: Source (run, spedizione) / Sink (edificio) per rottami, carburante, viveri |
 
 ## 3. Test sul telefono economico (Nico, prima dei tester)
@@ -37,6 +37,7 @@ Attiva il contatore: nell'accampamento tocca **5 volte** il titolo "ASHEN ATLAS"
 - [ ] Avvio fino alla prima schermata: < 5 s
 - [ ] FPS in run, zoom lontano e vicino, con 3 fazioni grandi: ≥ 30 (sotto i 25 segnalamelo con modello del telefono)
 - [ ] Tempesta che avanza (8:00 a x4 = 2 min reali): niente scatti forti
+- [ ] Nebbia che si apre mentre ti espandi e navi in viaggio: niente scatti
 - [ ] Tocchi precisi sulle caselle con lo zoom di partenza; trascinamento e due dita non si confondono
 - [ ] Telefono non bollente dopo 3 run di fila
 - [ ] Uscire e rientrare dall'app: la run riparte, la scorta e i cantieri restano

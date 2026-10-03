@@ -16,12 +16,13 @@ export interface RunOptions {
   eliminatedLoss: number;
   retreatBonus: number;
   tutorial: boolean; // prima run guidata
+  fog: boolean; // nebbia di guerra
 }
 
 /** Tutto sbloccato, niente eventi: usato dal simulatore e come ripiego. */
 export const DEFAULT_OPTIONS: RunOptions = {
   units: ['fanteria', 'raider', 'artiglieria'], unitHpMult: 1, events: 0, warnBonusMs: 0,
-  eliminatedLoss: BALANCE.end.eliminatedLoss, retreatBonus: 0, tutorial: false,
+  eliminatedLoss: BALANCE.end.eliminatedLoss, retreatBonus: 0, tutorial: false, fog: false,
 };
 
 export function runOptions(p: Profile): RunOptions {
@@ -34,6 +35,7 @@ export function runOptions(p: Profile): RunOptions {
     eliminatedLoss: C.magazzinoLoss[magazzino],
     retreatBonus: C.magazzinoRetreatBonus[magazzino],
     tutorial: p.runs === 0,
+    fog: p.runs > 0, // niente nebbia nella run guidata: un sistema nuovo alla volta
   };
 }
 

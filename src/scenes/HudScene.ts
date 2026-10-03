@@ -60,9 +60,7 @@ export class HudScene extends Phaser.Scene {
   private symPos: { x: number; y: number }[] = [];
   private unitPos: ({ x: number; y: number } | null)[] = [];
   private topBottom = PAD + LEFT_H; // dove finisce l'HUD in alto
-  private popBar!: Phaser.GameObjects.Graphics;
   private nextBannerAt = 0;
-  private popText!: Phaser.GameObjects.Text;
   private attackBtn: Button | null = null;
   private workBtn: Button | null = null;
   private eventCard: EventCard | null = null;
@@ -96,9 +94,6 @@ export class HudScene extends Phaser.Scene {
     this.resIcons = this.add.graphics();
     this.resTexts = RESOURCES.map(() => this.add.text(0, 0, '0', textStyle(12, PALETTE.carta)).setOrigin(0, 0.5));
     this.stormText = this.add.text(0, 0, '', textStyle(12, PALETTE.ocra));
-    // popolazione: truppe sul tetto, con la zona di crescita migliore
-    this.popBar = this.add.graphics();
-    this.popText = this.add.text(0, 0, '', textStyle(10, PALETTE.carta, false)).setOrigin(0, 0.5);
 
     // pannello destro: fazioni
     this.rightPanel = this.add.rectangle(0, PAD, RIGHT_W, FACTION_INFO.length * ROW_H + 10, PALETTE.inchiostro, 0.88)
@@ -272,19 +267,6 @@ export class HudScene extends Phaser.Scene {
     this.workBtn?.setPosition(PAD + 112 + 6, ly);
   }
 
-  /** Barra della popolazione: verde nella zona dove si cresce di più, ruggine se stai sprecando crescita. */
-  private drawPop() {
-    const st = this.run.state, P = BALANCE.population;
-    const x = this.rate.x, y = this.troops.y + 30, w = 100, h = 5;
-    const fill = Math.min(1, st.fill());
-    const col = fill > 0.7 ? PALETTE.ko : fill >= 0.25 ? PALETTE.radioattivo : PALETTE.ocra;
-    const g = this.popBar.clear();
-    g.fillStyle(0x000000, 0.45).fillRect(x, y, w, h);
-    g.fillStyle(col, 1).fillRect(x, y, w * fill, h);
-    g.fillStyle(PALETTE.carta, 1).fillRect(x + w * P.optimum - 1, y - 2, 2, h + 4);
-    this.popText.setPosition(x + w + 6, y + 2).setText(`max ${Math.round(st.player.cap)}`);
-  }
-
   private layoutResources(x: number, y: number, step: number) {
     this.resIcons.clear();
     RESOURCES.forEach((r, k) => {
@@ -305,7 +287,6 @@ export class HudScene extends Phaser.Scene {
       this.rate.setX(this.troops.x + this.troops.width + 10);
     }
     this.rate.setText(`+${st.troopsPerSecond.toFixed(1)}/s`);
-    this.drawPop();
     const share = Math.round(st.mapShare * 100);
     const goal = `${share}%/${BALANCE.victory.mapShare * 100}%`, anom = `anomalie ${st.anomaliesOwned()}/${BALANCE.victory.anomalies}`;
     this.stats.setText(this.portrait ? `${st.tilesOwned} caselle · ${goal}\n${anom}` : `${st.tilesOwned} caselle ${goal} · ${anom}`);

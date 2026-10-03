@@ -3,6 +3,7 @@ import { BALANCE, type Resource, type UnitType } from '../config/balance';
 import { addBag, emptyBag, scaleBag, type Bag } from './resources';
 import { NEIGHBORS, hexDistance } from '../map/hexGrid';
 import { findPath, rps, type Unit } from './units';
+import { isCoast, seaRoute, type Boat } from './boats';
 import { DEFAULT_OPTIONS, type RunOptions } from './camp';
 import { EVENTS, type EventChoice, type EventEffects, type GameEvent } from './events';
 import { createRng, type Rng } from '../map/rng';
@@ -18,7 +19,7 @@ export interface Faction {
   maxTiles: number;
   loot: Bag; // per il giocatore è lo zaino della run
   alive: boolean;
-  cap: number; // tetto di popolazione
+  settlements: number; // rovine possedute
   workers: number; // quota di lavoratori (0..1)
   lootAcc: Record<Resource, number>; // frazioni di risorse prodotte dai lavoratori
 }
@@ -28,6 +29,7 @@ export type RunEvent =
   | { type: 'storm'; phase: 'warn' | 'start' }
   | { type: 'event'; event: GameEvent }
   | { type: 'flowEnd'; reason: 'reached' | 'blocked' | 'budget' }
+  | { type: 'boat'; phase: 'landed' | 'lost'; boat: Boat }
   | { type: 'unitDied'; unit: Unit }
   | { type: 'eliminated'; faction: number; by: number; loot: Bag };
 
@@ -73,6 +75,14 @@ export class RunState {
   flowTarget: number | null = null;
   private flowAcc = 0;
   private flowBudget = 0;
+  // navi in viaggio
+  boats: Boat[] = [];
+  private nextBoatId = 1;
+  // nebbia di guerra: 1 = visibile ora / già esplorato
+  readonly visible: Uint8Array;
+  readonly seen: Uint8Array;
+  /** cambia quando cambia ciò che il giocatore vede (per ridisegnare la nebbia solo se serve) */
+  fogVersion = 0;
   /** quota delle truppe che un'avanzata può spendere */
   attackRatio: number = BALANCE.attack.default;
   private flowBestD = Infinity;
@@ -87,10 +97,12 @@ export class RunState {
   private tickAcc = 0;
   private frontierCache = new Map<number, number[]>();
   private aiRng: Rng;
+  private ruins: number[];
 
   constructor(readonly map: RunMap, readonly opts: RunOptions = DEFAULT_OPTIONS) {
     this.owner = new Int8Array(map.tiles.length).fill(NEUTRAL);
     this.aiRng = createRng(map.seed + ':ia');
+    this.ruins = map.land.filter((i) => map.tiles[i]!.type === 'rovine');
     this.evRng = createRng(map.seed + ':eventi');
     this.factions = map.starts.map((_, id) => ({
       id,
@@ -99,11 +111,14 @@ export class RunState {
       maxTiles: 0,
       loot: emptyBag(),
       alive: true,
-      cap: BALANCE.population.base,
+      settlements: 0,
       workers: id === PLAYER ? (opts.tutorial ? 0 : BALANCE.workers.default) : BALANCE.ai.workers,
       lootAcc: emptyBag(),
     }));
     this.stormed = new Uint8Array(map.tiles.length);
+    this.visible = new Uint8Array(map.tiles.length);
+    this.seen = new Uint8Array(map.tiles.length);
+    for (const a of map.anomalies) this.seen[a] = 1; // il segnale si sente da lontano
     this.stormDist = new Int16Array(map.tiles.length);
     for (let i = 0; i < map.tiles.length; i++) this.stormDist[i] = hexDistance(i, map.stormCenter);
     // raggio iniziale: copre tutta la regione raggiungibile dal giocatore
@@ -129,6 +144,11 @@ export class RunState {
         if (n >= 0 && this.passable(n) && this.owner[n] === NEUTRAL) this.claim(f, n);
       }
     });
+  }
+
+  /** Da chiamare dopo il costruttore (la scena lo fa): nebbia pronta dal primo fotogramma. */
+  initFog() {
+    this.updateFog();
   }
 
   // --- accessi comodi per il giocatore ---
@@ -163,22 +183,13 @@ export class RunState {
     this.player.workers = Math.max(0, Math.min(0.9, ratio));
   }
 
-  /** Tetti di popolazione di tutte le fazioni in una passata sulla mappa. */
-  private updateCaps() {
-    const P = BALANCE.population;
-    const caps = this.factions.map(() => P.base);
-    for (let i = 0; i < this.owner.length; i++) {
+  /** Insediamenti (rovine possedute) per fazione, in una passata sulla mappa. */
+  private countSettlements() {
+    this.factions.forEach((f) => (f.settlements = 0));
+    for (const i of this.ruins) {
       const o = this.owner[i];
-      if (o === NEUTRAL) continue;
-      const t = this.map.tiles[i]!;
-      caps[o] += P.perTile[t.type] + (t.type === 'rovine' ? P.settlementBonus : 0);
+      if (o !== NEUTRAL) this.factions[o].settlements++;
     }
-    this.factions.forEach((f, k) => (f.cap = caps[k]));
-  }
-
-  /** Riempimento del tetto (0..1+) della fazione. */
-  fill(f: Faction = this.player): number {
-    return f.troops / Math.max(1, f.cap);
   }
 
   drainEvents(): RunEvent[] {
@@ -199,6 +210,7 @@ export class RunState {
       this.tick();
       ticks++;
     }
+    this.moveBoats(dt);
     if (this.flowTarget !== null) {
       this.flowAcc += dt;
       while (this.flowAcc >= BALANCE.flow.stepMs && this.flowTarget !== null && !this.over) {
@@ -209,24 +221,19 @@ export class RunState {
     return ticks;
   }
 
-  /** Crescita lorda per tick (truppe + lavoratori): massima intorno al punto ottimale del tetto. */
+  /** Crescita lorda per tick (truppe + lavoratori): caselle × 0,1, gli insediamenti valgono qualche casella in più. */
   private growth(f: Faction): number {
-    const P = BALANCE.population;
     const boost = this.gameTimeMs < this.growthBoost.until ? this.growthBoost.mult : 1;
     const mult = f.id === PLAYER ? boost : this.opts.tutorial ? BALANCE.tutorial.aiGrowthMult : BALANCE.ai.growthMult;
-    const fill = this.fill(f);
-    const shape = fill <= P.optimum
-      ? P.emptyGrowth + (1 - P.emptyGrowth) * (fill / P.optimum)
-      : Math.max(P.minGrowth, 1 - (fill - P.optimum) / (1 - P.optimum));
-    return f.tiles * P.growthPerTile * shape * mult;
+    const tiles = f.tiles + f.settlements * BALANCE.settlements.growthTiles;
+    return tiles * BALANCE.tick.troopsPerTile * mult;
   }
 
-  /** Un tick di popolazione: soldati fino al tetto, lavoratori in risorse nello zaino. */
+  /** Un tick di crescita: soldati nel pool, lavoratori in risorse nello zaino. */
   private grow(f: Faction) {
-    const P = BALANCE.population, W = BALANCE.workers;
+    const W = BALANCE.workers;
     const g = this.growth(f);
     f.troops += g * (1 - f.workers);
-    if (f.troops > f.cap) f.troops -= (f.troops - f.cap) * P.overflowDecay + Math.min(f.troops - f.cap, g * (1 - f.workers));
     const made = g * f.workers * W.lootPerWorker;
     for (const r of Object.keys(W.mix) as Resource[]) {
       f.lootAcc[r] += made * W.mix[r];
@@ -337,14 +344,12 @@ export class RunState {
   }
 
   private tick() {
-    this.updateCaps();
+    this.countSettlements();
     for (const f of this.factions) if (f.alive) this.grow(f);
     for (const f of this.factions) {
       if (f.id === PLAYER || !f.alive) continue;
       if (this.aiRng() <= BALANCE.ai.actChance) {
-        // sopra il punto ottimale attacca di più: le truppe ferme non crescono
-        const n = this.fill(f) > BALANCE.population.optimum ? BALANCE.ai.maxAttacksWhenFull : BALANCE.ai.attacksPerAct;
-        for (let a = 0; a < n; a++) if (!this.aiAttack(f)) break;
+        for (let a = 0; a < BALANCE.ai.attacksPerAct; a++) if (!this.aiAttack(f)) break;
       }
       this.aiUnits(f);
     }
@@ -352,6 +357,97 @@ export class RunState {
     this.stormTick();
     this.checkVictory();
     this.eventTick();
+    this.updateFog();
+  }
+
+  // ---------- navi ----------
+
+  /** Nave verso una costa: parte dalla tua costa più vicina con la forza d'attacco. */
+  launchBoat(target: number): null | 'locked' | 'notCoast' | 'far' | 'max' | 'troops' {
+    const B = BALANCE.boats;
+    if (this.opts.tutorial) return 'locked';
+    if (!this.passable(target) || this.owner[target] === PLAYER || !isCoast(this.map.tiles, target)) return 'notCoast';
+    if (this.boats.filter((b) => b.owner === PLAYER).length >= B.maxInFlight) return 'max';
+    const troops = Math.floor(this.troops * this.attackRatio);
+    if (troops < B.minTroops) return 'troops';
+    const route = seaRoute(this.map.tiles, (i) => this.owner[i] === PLAYER, target, B.maxSea);
+    if (!route) return 'far';
+    this.troops -= troops;
+    this.boats.push({ id: this.nextBoatId++, owner: PLAYER, from: route.from, path: route.path, pos: 0, troops, acc: 0 });
+    return null;
+  }
+
+  private moveBoats(dt: number) {
+    for (const b of [...this.boats]) {
+      b.acc += dt;
+      while (b.acc >= BALANCE.boats.stepMs && this.boats.includes(b)) {
+        b.acc -= BALANCE.boats.stepMs;
+        b.pos++;
+        if (b.pos >= b.path.length - 1) this.land(b);
+      }
+    }
+  }
+
+  /** Sbarco: se le truppe superano la difesa prendi la costa e chi resta torna nel pool. */
+  private land(b: Boat) {
+    this.boats = this.boats.filter((x) => x !== b);
+    const t = b.path[b.path.length - 1];
+    const f = this.factions[b.owner];
+    if (this.owner[t] === b.owner) {
+      f.troops += b.troops;
+      this.events.push({ type: 'boat', phase: 'landed', boat: b });
+      return;
+    }
+    const cost = this.passable(t) ? this.defenseOf(t) : Infinity;
+    if (!f.alive || b.troops <= cost) {
+      this.events.push({ type: 'boat', phase: 'lost', boat: b });
+      return;
+    }
+    this.transfer(b.owner, t, cost);
+    f.troops += b.troops - cost;
+    this.events.push({ type: 'boat', phase: 'landed', boat: b });
+  }
+
+  // ---------- nebbia ----------
+
+  /** Ricalcola cosa vede il giocatore: anelli attorno a territorio, pedine e navi. */
+  private updateFog() {
+    if (!this.opts.fog) return;
+    const F = BALANCE.fog;
+    const vis = new Uint8Array(this.visible.length);
+    const dist = new Int8Array(this.visible.length).fill(-1);
+    const queue: number[] = [];
+    const seed = (i: number, r: number) => {
+      if (i < 0 || dist[i] >= r) return;
+      dist[i] = r;
+      queue.push(i);
+    };
+    for (let i = 0; i < this.owner.length; i++) if (this.owner[i] === PLAYER) seed(i, F.territory);
+    for (const u of this.unitsOf(PLAYER)) seed(u.tile, F.unit);
+    for (const b of this.boats) if (b.owner === PLAYER) seed(b.path[b.pos], F.boat);
+    for (let h = 0; h < queue.length; h++) {
+      const c = queue[h];
+      vis[c] = 1;
+      if (dist[c] <= 0) continue;
+      for (const n of NEIGHBORS[c]) if (n >= 0 && dist[n] < dist[c] - 1) {
+        dist[n] = dist[c] - 1;
+        queue.push(n);
+      }
+    }
+    let changed = false;
+    for (let i = 0; i < vis.length; i++) {
+      if (vis[i] !== this.visible[i]) {
+        this.visible[i] = vis[i];
+        changed = true;
+      }
+      if (vis[i]) this.seen[i] = 1;
+    }
+    if (changed) this.fogVersion++;
+  }
+
+  /** La casella è visibile al giocatore? (senza nebbia: sempre) */
+  sees(i: number): boolean {
+    return !this.opts.fog || this.visible[i] === 1;
   }
 
   // ---------- avanzata ----------

@@ -17,23 +17,17 @@ export const BALANCE = {
   },
   tick: {
     ms: 500,
+    troopsPerTile: 0.1, // troops += tiles * troopsPerTile (crescita originale, senza tetto)
   },
-  // Popolazione (alla OpenFront): il territorio dà un tetto di truppe; si cresce più in fretta intorno al 40% del tetto,
-  // quindi accumulare non conviene: conviene attaccare. Crescita = caselle * growthPerTile * forma(riempimento).
-  population: {
-    base: 60, // tetto minimo
-    perTile: { terra: 6, deserto: 3, rovine: 6, anomalia: 6, tossica: 0 }, // il deserto sfama poca gente
-    settlementBonus: 40, // ogni rovina posseduta è un insediamento: tetto più alto
-    growthPerTile: 0.16, // crescita per casella per tick al punto ottimale
-    optimum: 0.4, // riempimento del tetto con la crescita massima
-    emptyGrowth: 0.5, // crescita relativa a caserme vuote
-    minGrowth: 0.1, // crescita relativa a tetto pieno (mai zero)
-    overflowDecay: 0.05, // sopra il tetto (territorio perso) le truppe calano del 5% dell'eccesso a tick
+  // Insediamenti: le rovine possedute contano come caselle in più per la crescita e si difendono meglio.
+  settlements: {
+    growthTiles: 3,
   },
   // Soldati contro lavoratori: la quota di lavoratori non diventa truppa ma riempie lo zaino di risorse.
+  // Parte da 0: senza toccare la leva le truppe crescono esattamente come la formula originale.
   workers: {
     steps: [0, 0.25, 0.5, 0.75],
-    default: 0.25,
+    default: 0,
     lootPerWorker: 0.04, // risorse per ogni "truppa" mandata a lavorare
     mix: { rottami: 0.6, carburante: 0.2, viveri: 0.2 },
   },
@@ -63,17 +57,16 @@ export const BALANCE = {
   ai: {
     count: 3,
     startTroops: 20,
-    growthMult: 0.75, // rispetto alla crescita del giocatore
+    growthMult: 1, // rispetto alla crescita del giocatore (con il 15% di lavoratori = 0,85 in truppe, come prima)
     actChance: 0.6, // probabilità di agire a ogni tick
     attacksPerAct: 1,
     reserve: 1.25, // attacca solo se truppe > difesa * reserve
-    playerBias: 0.85, // le caselle del giocatore "sembrano" più deboli: ce l'hanno con te
+    playerBias: 0.7, // le caselle del giocatore "sembrano" più deboli: ce l'hanno con te
     graceMs: 60_000, // tempo di gioco prima che le IA attacchino il giocatore
     startDistance: [9, 20] as [number, number], // passi esagonali dal giocatore
     minDistanceBetween: 7, // passi esagonali tra fazioni IA
     releaseLootShare: 0.5, // quota di bottino rilasciata quando eliminata
     workers: 0.15, // anche le IA mandano gente a lavorare: più bottino da rubare
-    maxAttacksWhenFull: 2, // sopra il punto ottimale l'IA attacca di più (non spreca crescita)
   },
   // Pedine: costano truppe del pool, si muovono casella per casella e conquistano dove passano.
   units: {
@@ -128,6 +121,21 @@ export const BALANCE = {
     stepMs: 160,
     reserve: 5, // truppe che l'avanzata lascia sempre in cassa
     giveUpSteps: 3, // si ferma se si allontana dal bersaglio di tanti passi (es. mare in mezzo)
+  },
+  // Navi: tocchi una costa che non raggiungi via terra; la nave parte dalla tua costa più vicina con la forza d'attacco.
+  boats: {
+    stepMs: 220, // tempo per attraversare una casella di mare
+    maxSea: 30, // caselle di mare massime per una traversata
+    maxInFlight: 3,
+    minTroops: 10,
+  },
+  // Nebbia di guerra: vedi solo vicino a territorio, pedine e navi. Le anomalie si vedono sempre (emettono il segnale).
+  fog: {
+    territory: 4,
+    unit: 3,
+    boat: 2,
+    seenAlpha: 0.45, // già esplorato ma ora fuori vista
+    unseenAlpha: 0.88, // mai visto
   },
   // Prima run guidata: 1 sola IA che non attacca, niente tempesta né eventi, si vince con goalTiles caselle.
   tutorial: {

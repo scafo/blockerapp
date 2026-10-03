@@ -27,7 +27,7 @@ for (let r = 0; r < runs; r++) {
       if (f.length) st.tryConquer(f.reduce((a, b) => (st.defenseOf(a) <= st.defenseOf(b) ? a : b)));
     }
     // giocatore "da OpenFront": se le truppe superano il punto ottimale lancia un'avanzata verso il nemico/neutro più vicino
-    if (useFlow && ms % 1000 === 0 && st.flowTarget === null && st.fill() > BALANCE.population.optimum + 0.1) {
+    if (useFlow && ms % 1000 === 0 && st.flowTarget === null && st.troops > 40 + st.tilesOwned) {
       const front = st.frontier(PLAYER);
       if (front.length) {
         const f0 = front[Math.floor((ms / 1000) % front.length)];
