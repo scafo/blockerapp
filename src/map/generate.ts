@@ -23,7 +23,7 @@ export interface RunMap {
 
 const M = BALANCE.map;
 
-export function generateMap(seed: string, landMask: Uint8Array): RunMap {
+export function generateMap(seed: string, landMask: Uint8Array, aiCount: number = BALANCE.ai.count): RunMap {
   const rng = createRng(seed);
   const tiles: (Tile | null)[] = new Array(landMask.length).fill(null);
   const land: number[] = [];
@@ -65,7 +65,7 @@ export function generateMap(seed: string, landMask: Uint8Array): RunMap {
     }
   }
 
-  const starts = pickStarts(rng, tiles, land);
+  const starts = pickStarts(rng, tiles, land, aiCount);
   const dist = bfs(tiles, starts[0]);
   const region = land.filter((i) => dist[i] >= 0);
   const anomalies = placeAnomalies(rng, tiles, region, dist, starts);
@@ -149,7 +149,7 @@ const goodStart = (tiles: (Tile | null)[], i: number) =>
  * Partenza del giocatore casuale in una regione grande (niente isolette);
  * le IA partono nella stessa regione, a distanza giusta per incontrarsi presto.
  */
-function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[]): number[] {
+function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[], count: number): number[] {
   const pick = <T>(a: T[]) => a[Math.floor(rng() * a.length)];
   const ok = land.filter((i) => goodStart(tiles, i));
   let player = -1;
@@ -162,7 +162,7 @@ function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[]): number[] 
     if (size >= BALANCE.map.minStartRegion) break;
   }
 
-  const { startDistance: [dMin, dMax], minDistanceBetween, count } = BALANCE.ai;
+  const { startDistance: [dMin, dMax], minDistanceBetween } = BALANCE.ai;
   const reachable = ok.filter((i) => dist[i] > 2 * BALANCE.start.radius + 1);
   const starts = [player];
   const aiDist: Int32Array[] = [];

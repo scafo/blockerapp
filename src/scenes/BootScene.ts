@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { PALETTE } from '../config/palette';
 import { buildLandMask } from '../map/landMask';
+import { randomSeed } from '../map/rng';
+import { loadProfile } from '../save/storage';
 import { textStyle } from '../ui/style';
 
 export class BootScene extends Phaser.Scene {
@@ -21,6 +23,7 @@ export class BootScene extends Phaser.Scene {
       // ?seed=... salta l'accampamento e apre subito quella mappa (test e rivincite condivise)
       const seed = new URLSearchParams(location.search).get('seed');
       if (seed) this.scene.start('Run', { seed });
+      else if (loadProfile().runs === 0) this.scene.start('Run', { seed: randomSeed() }); // prima volta: subito in azione (run guidata)
       else this.scene.start('Camp');
     });
   }

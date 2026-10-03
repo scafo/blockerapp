@@ -17,6 +17,12 @@ import type { HudScene } from './HudScene';
 const S = BALANCE.map.hexSize;
 const CAM = BALANCE.camera;
 
+/** Schiarisce (>1) o scurisce (<1) un colore 0xRRGGBB. */
+function shade(c: number, f: number): number {
+  const ch = (v: number) => Math.max(0, Math.min(255, Math.round(v * f)));
+  return (ch((c >> 16) & 255) << 16) | (ch((c >> 8) & 255) << 8) | ch(c & 255);
+}
+
 const TERRAIN_COLOR = {
   terra: PALETTE.terra,
   deserto: PALETTE.ocra,
@@ -39,6 +45,12 @@ export class RunScene extends Phaser.Scene {
   private nameTimer = 0;
   private lastHitFx = 0;
   private stormGfx!: Phaser.GameObjects.Graphics;
+  private flowMarker!: Phaser.GameObjects.Graphics;
+  private nextMilestone = 0;
+  private tapFxTile = -1;
+  private dragMode: 'pan' | 'paint' = 'pan';
+  private lastMid: { x: number; y: number } | null = null;
+  private lastPainted = -1;
   private ending = false;
   // pedine
   selectedCard: UnitType | null = null;
@@ -57,11 +69,14 @@ export class RunScene extends Phaser.Scene {
   }
 
   create(data: { seed: string; opts?: RunOptions }) {
-    this.map = generateMap(data.seed, this.registry.get('landMask'));
     // l'accampamento decide cosa è sbloccato in questa run
     const profile = loadProfile();
     if (settle(profile, Date.now())) saveProfile(profile);
-    this.state = new RunState(this.map, data.opts ?? runOptions(profile));
+    const opts = data.opts ?? runOptions(profile);
+    this.map = generateMap(data.seed, this.registry.get('landMask'), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count);
+    this.state = new RunState(this.map, opts);
+    this.nextMilestone = 0;
+    this.tapFxTile = -1;
     this.labels = [];
     this.lastAffordable = '';
     this.cameras.main.setBackgroundColor(PALETTE.oceano);
@@ -72,6 +87,9 @@ export class RunScene extends Phaser.Scene {
     this.drawAnomalies();
     this.stormGfx = this.add.graphics();
     this.frontierGfx = this.add.graphics();
+    this.flowMarker = this.add.graphics().setDepth(8).setVisible(false);
+    this.flowMarker.lineStyle(2.5, 0xffffff, 1).strokeCircle(0, 0, S * 0.9).lineStyle(1.5, 0xffffff, 0.8).strokeCircle(0, 0, S * 0.45);
+    this.tweens.add({ targets: this.flowMarker, scale: { from: 0.8, to: 1.25 }, duration: 380, yoyo: true, repeat: -1 });
     this.ending = false;
     this.burst = this.add.particles(0, 0, 'dot', {
       speed: { min: 40, max: 140 },
@@ -108,15 +126,26 @@ export class RunScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     const ticks = this.state.update(delta);
+    let pops = 0;
     for (const e of this.state.drainEvents()) {
       if (e.type === 'conquer') {
         this.ownedDirty = true;
+        if (e.by === PLAYER) {
+          if (e.i !== this.tapFxTile && pops++ < 8) this.popFx(e.i);
+          this.hud.tutorialSignal('conquer');
+        }
+        if (this.map.tiles[e.i]!.type === 'anomalia' && (e.by === PLAYER || e.from === PLAYER)) {
+          if (e.by === PLAYER) this.anomalyFx(e.i);
+          this.hud.onAnomaly(this.state.anomaliesOwned(), e.by === PLAYER);
+        }
         if (e.from === PLAYER && e.by !== NEUTRAL && time - this.lastHitFx > 250) {
           this.lastHitFx = time;
           this.lostFx(e.i, e.by);
         }
       } else if (e.type === 'unitDied') {
         this.unitDeathFx(e.unit);
+      } else if (e.type === 'flowEnd') {
+        this.flowMarker.setVisible(false);
       } else if (e.type === 'event') {
         this.selectedCard = null;
         this.selectUnit(null);
@@ -128,6 +157,11 @@ export class RunScene extends Phaser.Scene {
       }
     }
     this.syncUnits();
+    this.tapFxTile = -1;
+    const ms = BALANCE.milestones;
+    while (this.nextMilestone < ms.length && this.state.maxTiles >= ms[this.nextMilestone]) {
+      this.hud.onMilestone(ms[this.nextMilestone++]);
+    }
     if (ticks > 0 && this.state.stormIn <= BALANCE.storm.warnMs) this.redrawStorm();
     if (this.state.over && !this.ending) this.finish();
     if (this.ownedDirty) {
@@ -151,6 +185,10 @@ export class RunScene extends Phaser.Scene {
 
   private get hud() {
     return this.scene.get('Hud') as HudScene;
+  }
+
+  get selectedUnitId(): number | null {
+    return this.selectedUnit;
   }
 
   setSpeed(s: number) {
@@ -177,6 +215,25 @@ export class RunScene extends Phaser.Scene {
       g.lineBetween(0, y, WORLD_W, y);
     }
     g.lineStyle(3, PALETTE.ocra, 0.6).strokeRect(-6, -6, WORLD_W + 12, WORLD_H + 12);
+    // tratteggio del mare, da carta militare
+    g.lineStyle(1, PALETTE.graticola, 0.35);
+    for (let d = -WORLD_H; d < WORLD_W; d += 16) g.lineBetween(Math.max(0, d), Math.max(0, -d), Math.min(WORLD_W, d + WORLD_H), Math.min(WORLD_H, WORLD_W - d));
+    this.drawCompass(140, WORLD_H - 150, 70);
+  }
+
+  /** Rosa dei venti a 8 punte con la N. */
+  private drawCompass(x: number, y: number, r: number) {
+    const g = this.add.graphics();
+    g.lineStyle(1.5, PALETTE.ocra, 0.7).strokeCircle(x, y, r * 0.78).strokeCircle(x, y, r * 0.7);
+    for (let k = 0; k < 8; k++) {
+      const a = (k * Math.PI) / 4 - Math.PI / 2, long = k % 2 === 0, len = long ? r : r * 0.55, w = long ? r * 0.13 : r * 0.09;
+      const tip = { x: x + Math.cos(a) * len, y: y + Math.sin(a) * len };
+      const l = { x: x + Math.cos(a - Math.PI / 2) * w, y: y + Math.sin(a - Math.PI / 2) * w };
+      const rr = { x: x + Math.cos(a + Math.PI / 2) * w, y: y + Math.sin(a + Math.PI / 2) * w };
+      g.fillStyle(PALETTE.ocra, 0.85).fillTriangle(x, y, tip.x, tip.y, l.x, l.y);
+      g.fillStyle(PALETTE.carta, 0.85).fillTriangle(x, y, tip.x, tip.y, rr.x, rr.y);
+    }
+    this.add.text(x, y - r - 14, 'N', textStyle(18, PALETTE.ocra)).setOrigin(0.5).setResolution(2);
   }
 
   private drawTerrain() {
@@ -184,13 +241,24 @@ export class RunScene extends Phaser.Scene {
     for (const i of this.map.land) {
       const t = this.map.tiles[i]!;
       const { x, y } = center(i);
-      g.fillStyle(TERRAIN_COLOR[t.type], 1);
+      // leggera variazione di tinta: carta stampata, non piastrelle
+      const jitter = t.type === 'terra' || t.type === 'deserto' ? (((i * 2654435761) >>> 0) % 7 - 3) * 0.018 : 0;
+      g.fillStyle(shade(TERRAIN_COLOR[t.type], 1 + jitter), 1);
       this.hexPath(g, x, y, S + 0.4);
     }
     g.lineStyle(0.6, PALETTE.inchiostro, 0.25);
     for (const i of this.map.land) {
       const { x, y } = center(i);
       g.strokePoints(corners(x, y, S), true);
+    }
+    // coste nette (leggibilità prima di tutto)
+    g.lineStyle(1.6, PALETTE.inchiostro, 0.85);
+    for (const i of this.map.land) {
+      const { x, y } = center(i);
+      const c = corners(x, y, S);
+      NEIGHBORS[i].forEach((n, k) => {
+        if (n < 0 || !this.map.tiles[n]) g.lineBetween(c[k].x, c[k].y, c[(k + 1) % 6].x, c[(k + 1) % 6].y);
+      });
     }
     // segni: rovine (quadrato scuro), zone tossiche (pallino)
     for (const i of this.map.land) {
@@ -350,6 +418,7 @@ export class RunScene extends Phaser.Scene {
       this.syncUnits();
       this.conquestFx(x, y, BALANCE.units[t].cost, 0);
       this.selectUnit(u.id);
+      this.hud.tutorialSignal('deploy');
       return;
     }
     const mine = this.state.unitAt(i);
@@ -359,13 +428,32 @@ export class RunScene extends Phaser.Scene {
       if (u && this.state.order(u, i)) {
         this.floatText(x, y - 4, 'avanti!', PALETTE.radioattivo);
         this.selectUnit(null);
+        this.hud.tutorialSignal('order');
         return;
       }
       if (u) return this.failFx(x, y, 'irraggiungibile');
     }
 
+    if (!this.state.isFrontier(i)) {
+      if (this.state.owner[i] === PLAYER) {
+        if (this.state.flowTarget !== null) {
+          this.state.stopFlow();
+          this.floatText(x, y - 4, 'alt!', PALETTE.carta);
+        }
+        return;
+      }
+      if (this.state.passable(i)) {
+        if (!this.state.startFlow(i)) return this.failFx(x, y, 'irraggiungibile');
+        this.flowMarker.setPosition(x, y).setVisible(true);
+        this.floatText(x, y - 6, 'avanzata!', PALETTE.carta);
+        this.hud.tutorialSignal('flow');
+        return;
+      }
+    }
+
     const res = this.state.tryConquer(i);
     if (res.ok) {
+      this.tapFxTile = i;
       this.redrawOwned();
       this.redrawFrontier(true);
       this.conquestFx(x, y, res.cost, res.loot, res.lootType);
@@ -519,6 +607,27 @@ export class RunScene extends Phaser.Scene {
     if (u.owner === PLAYER) this.floatText(x, y - 6, `${unitInfo(u.type).short} caduta`, PALETTE.ko);
   }
 
+  /** Casella appena presa (avanzata, pittura, pedine): un lampo piccolo, per non coprire la mappa. */
+  private popFx(i: number) {
+    const { x, y } = center(i);
+    const g = this.add.graphics({ x, y }).setDepth(9);
+    g.fillStyle(0xffffff, 0.75).fillPoints(corners(0, 0, S), true);
+    this.tweens.add({ targets: g, scale: { from: 0.5, to: 1.15 }, alpha: 0, duration: 260, ease: 'Quad.easeOut', onComplete: () => g.destroy() });
+  }
+
+  /** Anomalia presa: onda del segnale, scossone, particelle radioattive. */
+  private anomalyFx(i: number) {
+    const { x, y } = center(i);
+    for (let k = 0; k < 3; k++) {
+      const ring = this.add.graphics({ x, y }).setDepth(9);
+      ring.lineStyle(3, PALETTE.radioattivo, 1).strokeCircle(0, 0, S);
+      this.tweens.add({ targets: ring, scale: 6, alpha: 0, delay: k * 140, duration: 900, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
+    }
+    this.burst.setParticleTint(PALETTE.radioattivo);
+    this.burst.explode(30, x, y);
+    this.cameras.main.shake(260, 0.006);
+  }
+
   /** Una nostra casella è caduta: lampo nel colore del nemico. */
   private lostFx(i: number, by: number) {
     const { x, y } = center(i);
@@ -570,6 +679,25 @@ export class RunScene extends Phaser.Scene {
     this.labelTimer = 0;
   }
 
+  /** Coordinate schermo → casella (−1 se fuori). */
+  private tileAt(sx: number, sy: number): number {
+    const cam = this.cameras.main;
+    const w = cam.width / 2, h = cam.height / 2;
+    return pixelToIndex(cam.scrollX + w + (sx - w) / cam.zoom, cam.scrollY + h + (sy - h) / cam.zoom);
+  }
+
+  /** Casella → coordinate schermo (per frecce e guida). */
+  tileToScreen(i: number): { x: number; y: number } {
+    const cam = this.cameras.main;
+    const w = cam.width / 2, h = cam.height / 2;
+    const c = center(i);
+    return { x: (c.x - cam.scrollX - w) * cam.zoom + w, y: (c.y - cam.scrollY - h) * cam.zoom + h };
+  }
+
+  /**
+   * Un dito: tocco = attacco / avanzata / pedine; trascinamento che parte dal tuo territorio = dipingi la frontiera,
+   * altrove = sposta la mappa. Due dita: zoom e spostamento.
+   */
   private setupInput() {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (this.hud.hitUi(p.x, p.y)) return;
@@ -577,17 +705,29 @@ export class RunScene extends Phaser.Scene {
         this.down = { x: p.x, y: p.y };
         this.last = { x: p.x, y: p.y };
         this.dragging = false;
+        this.lastPainted = -1;
+        const i = this.tileAt(p.x, p.y);
+        const mine = i >= 0 && (this.state.owner[i] === PLAYER || this.state.isFrontier(i));
+        this.dragMode = mine && !this.selectedCard && this.selectedUnit === null && !this.state.over ? 'paint' : 'pan';
       }
       this.pinchDist = 0;
+      this.lastMid = null;
     });
 
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       const pts = this.activePointers();
+      const cam = this.cameras.main;
       if (pts.length >= 2) {
         const [a, b] = pts;
         const d = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
-        if (this.pinchDist > 0) this.zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, this.cameras.main.zoom * (d / this.pinchDist));
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        if (this.pinchDist > 0) this.zoomAt(mid.x, mid.y, cam.zoom * (d / this.pinchDist));
+        if (this.lastMid) {
+          cam.scrollX -= (mid.x - this.lastMid.x) / cam.zoom;
+          cam.scrollY -= (mid.y - this.lastMid.y) / cam.zoom;
+        }
         this.pinchDist = d;
+        this.lastMid = mid;
         this.dragging = true;
         return;
       }
@@ -596,29 +736,44 @@ export class RunScene extends Phaser.Scene {
         this.dragging = true;
       }
       if (this.dragging) {
-        const cam = this.cameras.main;
-        cam.scrollX -= (p.x - this.last.x) / cam.zoom;
-        cam.scrollY -= (p.y - this.last.y) / cam.zoom;
-        this.labelTimer = Math.min(this.labelTimer, 60);
+        if (this.dragMode === 'paint') {
+          this.paintAlong(this.last.x, this.last.y, p.x, p.y);
+        } else {
+          cam.scrollX -= (p.x - this.last.x) / cam.zoom;
+          cam.scrollY -= (p.y - this.last.y) / cam.zoom;
+          this.labelTimer = Math.min(this.labelTimer, 60);
+        }
       }
       this.last = { x: p.x, y: p.y };
     });
 
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
-      if (this.down && !this.dragging && this.activePointers().length === 0) {
-        const cam = this.cameras.main;
-        const w = cam.width / 2, h = cam.height / 2;
-        const wx = cam.scrollX + w + (p.x - w) / cam.zoom;
-        const wy = cam.scrollY + h + (p.y - h) / cam.zoom;
-        this.tapTile(pixelToIndex(wx, wy));
-      }
+      if (this.down && !this.dragging && this.activePointers().length === 0) this.tapTile(this.tileAt(p.x, p.y));
       if (this.activePointers().length === 0) this.down = null;
       this.pinchDist = 0;
+      this.lastMid = null;
     });
 
     this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
       this.zoomAt(p.x, p.y, this.cameras.main.zoom * (dy > 0 ? 0.88 : 1.14));
     });
+  }
+
+  /** Dipingi: conquista le caselle di frontiera sotto il dito lungo il tratto percorso. */
+  private paintAlong(x0: number, y0: number, x1: number, y1: number) {
+    const steps = Math.max(1, Math.ceil(Phaser.Math.Distance.Between(x0, y0, x1, y1) / 6));
+    for (let k = 1; k <= steps; k++) {
+      const i = this.tileAt(x0 + ((x1 - x0) * k) / steps, y0 + ((y1 - y0) * k) / steps);
+      if (i < 0 || i === this.lastPainted) continue;
+      this.lastPainted = i;
+      if (!this.state.isFrontier(i) || this.state.troops <= this.state.defenseOf(i)) continue;
+      const res = this.state.tryConquer(i);
+      if (res.ok) {
+        this.hud.onConquest(res.loot);
+        this.hud.tutorialSignal('paint');
+        if (res.loot) this.floatText(center(i).x, center(i).y, `+${res.loot} ${RESOURCE_INFO[res.lootType].name.toLowerCase()}`, RESOURCE_INFO[res.lootType].color);
+      }
+    }
   }
 
   private activePointers(): Phaser.Input.Pointer[] {

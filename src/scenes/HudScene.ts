@@ -7,6 +7,7 @@ import { RESOURCES, bagTotal, type Bag } from '../game/resources';
 import { UNIT_TYPES } from '../game/units';
 import type { GameEvent } from '../game/events';
 import { EventCard } from '../ui/EventCard';
+import { TutorialGuide, type GuideSignal } from '../ui/TutorialGuide';
 import { Button } from '../ui/Button';
 import { CARD_H, CARD_W, UnitCard } from '../ui/UnitCard';
 import { drawResourceIcon } from '../ui/resourceIcons';
@@ -48,6 +49,7 @@ export class HudScene extends Phaser.Scene {
   private shownTroops = -1;
   private ended = false;
   private eventCard: EventCard | null = null;
+  private guide: TutorialGuide | null = null;
 
   constructor() {
     super('Hud');
@@ -96,6 +98,22 @@ export class HudScene extends Phaser.Scene {
     });
     this.retreatBtn = new Button(this, 'RITIRATA', 112, 44, () => this.onRetreat());
     this.setSpeed(this.run.state.speed);
+
+    // prima run: guida con frecce al posto del suggerimento testuale
+    this.guide = null;
+    if (this.run.state.opts.tutorial) {
+      this.hint.setVisible(false);
+      this.guide = new TutorialGuide(this, {
+        state: () => this.run.state,
+        tileToScreen: (i) => this.run.tileToScreen(i),
+        selectedCard: () => this.run.selectedCard,
+        selectedUnit: () => this.run.selectedUnitId,
+        cardPos: () => (this.cards[0] ? { x: this.cards[0].x + CARD_W / 2, y: this.cards[0].y } : null),
+        troopsPos: { x: PAD + 150, y: PAD + 34 },
+        labelPos: () => ({ x: this.hint.x, y: PAD }),
+        blocked: (x, y) => this.hitUi(x, y, true),
+      });
+    }
 
     this.layout();
     this.scale.on('resize', this.layout, this);
@@ -159,6 +177,7 @@ export class HudScene extends Phaser.Scene {
   update() {
     const st = this.run.state;
     if (!st) return;
+    if (!this.ended) this.guide?.update();
     const t = Math.floor(st.troops);
     if (t !== this.shownTroops) {
       this.shownTroops = t;
@@ -171,7 +190,9 @@ export class HudScene extends Phaser.Scene {
       `${st.tilesOwned} caselle ${share}%/${BALANCE.victory.mapShare * 100}% · anomalie ${st.anomaliesOwned()}/${BALANCE.victory.anomalies}`,
     );
     RESOURCES.forEach((r, k) => this.resTexts[k].setText(String(st.backpack[r])));
-    if (st.stormIn > 0) {
+    if (st.opts.tutorial) {
+      this.stormText.setText(`prima missione: ${BALANCE.tutorial.goalTiles} caselle`).setColor('#3fd9b0');
+    } else if (st.stormIn > 0) {
       this.stormText.setText(`tempesta di cenere tra ${mmss(st.stormIn)}`).setColor(st.stormIn <= BALANCE.storm.warnMs ? '#d8432b' : '#c8963e');
     } else {
       const left = BALANCE.storm.startMs + BALANCE.storm.durationMs - st.gameTimeMs;
@@ -236,12 +257,50 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
+  tutorialSignal(kind: GuideSignal) {
+    this.guide?.signal(kind);
+  }
+
+  onAnomaly(count: number, gained: boolean) {
+    if (gained) this.banner(`ANOMALIA ${count}/${BALANCE.victory.anomalies}`, PALETTE.radioattivo, 'il segnale è tuo');
+    else this.toast(`ANOMALIA PERSA · ${count}/${BALANCE.victory.anomalies}`, PALETTE.ko);
+  }
+
+  onMilestone(tiles: number) {
+    const names: Record<number, string> = { 25: 'avamposto', 50: 'contea', 100: 'regno', 200: 'impero', 400: 'leggenda' };
+    this.banner(`${tiles} CASELLE`, PALETTE.ocra, names[tiles] ?? '');
+  }
+
+  /** Cartello grande e breve al centro: per i momenti epici. */
+  private banner(title: string, color: number, sub: string) {
+    const { width, height } = this.scale;
+    const t = this.add.text(width / 2, height * 0.36, title, textStyle(34, color)).setOrigin(0.5).setStroke('#2b2118', 7).setDepth(40);
+    const s2 = this.add.text(width / 2, height * 0.36 + 32, sub.toUpperCase(), textStyle(14, PALETTE.carta)).setOrigin(0.5)
+      .setStroke('#2b2118', 5).setDepth(40);
+    for (const o of [t, s2]) {
+      o.setScale(1.8).setAlpha(0);
+      this.tweens.add({ targets: o, scale: 1, alpha: 1, duration: 260, ease: 'Back.easeOut' });
+      this.tweens.add({ targets: o, alpha: 0, y: o.y - 20, delay: 1500, duration: 400, onComplete: () => o.destroy() });
+    }
+  }
+
   /** Cartello di fine run, mostrato prima della schermata finale. */
   showEnd(outcome: Outcome, reason?: VictoryReason) {
     this.ended = true;
+    this.guide?.destroy();
+    this.guide = null;
     const { width, height } = this.scale;
+    if (outcome === 'victory') {
+      // coriandoli di carta e ocra
+      const conf = this.add.particles(width / 2, -10, 'dot', {
+        x: { min: -width / 2, max: width / 2 }, speedY: { min: 120, max: 260 }, speedX: { min: -60, max: 60 },
+        lifespan: 2200, scale: { min: 0.8, max: 1.6 }, tint: [PALETTE.ocra, PALETTE.carta, PALETTE.radioattivo, PALETTE.ruggine],
+        quantity: 4, frequency: 30, duration: 900,
+      }).setDepth(41);
+      this.time.delayedCall(2600, () => conf.destroy());
+    }
     const title = {
-      victory: reason === 'anomalies' ? 'IL SEGNALE È TUO' : reason === 'storm' ? 'ULTIMI IN PIEDI' : 'IMPERO!',
+      victory: reason === 'anomalies' ? 'IL SEGNALE È TUO' : reason === 'storm' ? 'ULTIMI IN PIEDI' : reason === 'tutorial' ? 'PRIMA VITTORIA!' : 'IMPERO!',
       retreat: 'RITIRATA',
       eliminated: 'ELIMINATO',
       storm: 'TRAVOLTO DALLA CENERE',
@@ -253,15 +312,16 @@ export class HudScene extends Phaser.Scene {
   }
 
   onConquest(loot: number) {
-    if (this.hint.visible && !this.run.selectedCard) {
+    if (this.hint.visible && !this.run.selectedCard && !this.guide) {
       this.tweens.add({ targets: this.hint, alpha: 0, duration: 300, onComplete: () => this.hint.setVisible(false) });
     }
     if (loot) this.tweens.add({ targets: this.resTexts, scale: { from: 1.3, to: 1 }, duration: 220 });
   }
 
   /** true se il punto (schermo) cade su un elemento dell'HUD. */
-  hitUi(x: number, y: number): boolean {
-    if (this.ended || this.eventCard) return true;
+  hitUi(x: number, y: number, layoutOnly = false): boolean {
+    if (!layoutOnly && (this.ended || this.eventCard)) return true;
+    if (layoutOnly && y < PAD + 80 && Math.abs(x - this.hint.x) < 200) return true; // etichetta della guida
     const inRect = (r: Phaser.GameObjects.Rectangle) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
     if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
     return [this.speedBtn, this.retreatBtn, ...this.cards].some((b) => b.contains(x, y));

@@ -15,12 +15,13 @@ export interface RunOptions {
   warnBonusMs: number;
   eliminatedLoss: number;
   retreatBonus: number;
+  tutorial: boolean; // prima run guidata
 }
 
 /** Tutto sbloccato, niente eventi: usato dal simulatore e come ripiego. */
 export const DEFAULT_OPTIONS: RunOptions = {
   units: ['fanteria', 'raider', 'artiglieria'], unitHpMult: 1, events: 0, warnBonusMs: 0,
-  eliminatedLoss: BALANCE.end.eliminatedLoss, retreatBonus: 0,
+  eliminatedLoss: BALANCE.end.eliminatedLoss, retreatBonus: 0, tutorial: false,
 };
 
 export function runOptions(p: Profile): RunOptions {
@@ -32,6 +33,7 @@ export function runOptions(p: Profile): RunOptions {
     warnBonusMs: C.radioWarnBonusMs[radio],
     eliminatedLoss: C.magazzinoLoss[magazzino],
     retreatBonus: C.magazzinoRetreatBonus[magazzino],
+    tutorial: p.runs === 0,
   };
 }
 

@@ -16,7 +16,7 @@ npx vite-node scripts/sim.ts 1 6 1 # simula run senza grafica per tarare balance
 ```
 
 - `?seed=abc123` nell'URL → salta l'accampamento e apre quella mappa.
-- Controlli: tap = attacca, trascina = sposta, pinch/rotella = zoom.
+- Controlli: tocco vicino = attacca, tocco lontano = avanzata, trascina dal tuo territorio = dipingi, trascina altrove / due dita = sposta e zoom.
 - Pedine: tocca una carta → un tuo territorio; tocca una pedina → una destinazione.
 
 ## Stato
@@ -27,5 +27,5 @@ npx vite-node scripts/sim.ts 1 6 1 # simula run senza grafica per tarare balance
 | 2. IA + combattimento + unità | ✅ (pedine sulla mappa) |
 | 3. Zaino, ritirata, tempesta, schermata finale | ✅ |
 | 4. Accampamento + eventi | ✅ |
-| 5. Juice, onboarding, estetica placeholder | — |
+| 5. Juice, onboarding, estetica placeholder | ✅ |
 | 6. Analytics + build Capacitor + test Android | — |

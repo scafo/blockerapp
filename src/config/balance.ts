@@ -97,6 +97,20 @@ export const BALANCE = {
     finalRadius: 3,
     unitDamage: 6, // hp per tick alle pedine nella cenere
   },
+  // Avanzata: tocchi una casella lontana e il confine "cola" verso di lei, una casella ogni stepMs.
+  flow: {
+    stepMs: 160,
+    reserve: 5, // truppe che l'avanzata lascia sempre in cassa
+    giveUpSteps: 3, // si ferma se si allontana dal bersaglio di tanti passi (es. mare in mezzo)
+  },
+  // Prima run guidata: 1 sola IA che non attacca, niente tempesta né eventi, si vince con goalTiles caselle.
+  tutorial: {
+    aiCount: 1,
+    goalTiles: 40,
+    aiGrowthMult: 0.5,
+  },
+  // Traguardi di territorio che meritano un cartello
+  milestones: [25, 50, 100, 200, 400],
   // Eventi stile Reigns (servono la Radio): una carta con 2 scelte, la run è in pausa mentre è aperta.
   events: {
     firstMs: 45_000,

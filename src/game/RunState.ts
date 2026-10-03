@@ -24,11 +24,12 @@ export type RunEvent =
   | { type: 'conquer'; by: number; from: number; i: number; cost: number; loot: number; lootType: Resource; unit?: number }
   | { type: 'storm'; phase: 'warn' | 'start' }
   | { type: 'event'; event: GameEvent }
+  | { type: 'flowEnd'; reason: 'reached' | 'blocked' }
   | { type: 'unitDied'; unit: Unit }
   | { type: 'eliminated'; faction: number; by: number; loot: Bag };
 
 export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'storm';
-export type VictoryReason = 'map' | 'anomalies' | 'storm';
+export type VictoryReason = 'map' | 'anomalies' | 'storm' | 'tutorial';
 
 export interface RunSummary {
   seed: string;
@@ -39,6 +40,7 @@ export interface RunSummary {
   anomalies: number;
   backpack: Bag; // zaino a fine run
   kept: Bag; // portato a casa dopo perdite/bonus
+  tutorial: boolean;
 }
 
 export type ConquerResult =
@@ -64,6 +66,10 @@ export class RunState {
   private seenEvents = new Set<string>();
   private evRng: Rng;
   private growthBoost = { mult: 1, until: 0 };
+  // avanzata automatica del giocatore
+  flowTarget: number | null = null;
+  private flowAcc = 0;
+  private flowBestD = Infinity;
   private anomalyDefMult = 1;
   units: Unit[] = [];
   /** fazione → tipo → tempo di gioco in cui la carta torna disponibile */
@@ -157,18 +163,26 @@ export class RunState {
       this.tick();
       ticks++;
     }
+    if (this.flowTarget !== null) {
+      this.flowAcc += dt;
+      while (this.flowAcc >= BALANCE.flow.stepMs && this.flowTarget !== null && !this.over) {
+        this.flowAcc -= BALANCE.flow.stepMs;
+        this.flowStep();
+      }
+    }
     return ticks;
   }
 
   private growth(f: Faction): number {
     const boost = this.gameTimeMs < this.growthBoost.until ? this.growthBoost.mult : 1;
-    const mult = f.id === PLAYER ? boost : BALANCE.ai.growthMult;
+    const mult = f.id === PLAYER ? boost : this.opts.tutorial ? BALANCE.tutorial.aiGrowthMult : BALANCE.ai.growthMult;
     return f.tiles * BALANCE.tick.troopsPerTile * mult;
   }
 
   // ---------- tempesta ----------
 
   get stormStartMs(): number {
+    if (this.opts.tutorial) return Infinity; // niente tempesta nella prima run
     return BALANCE.storm.startMs + this.stormDelayMs;
   }
 
@@ -234,6 +248,10 @@ export class RunState {
 
   private checkVictory() {
     if (this.over) return;
+    if (this.opts.tutorial) {
+      if (this.player.tiles >= BALANCE.tutorial.goalTiles) this.end('victory', 'tutorial');
+      return;
+    }
     if (this.mapShare >= BALANCE.victory.mapShare) this.end('victory', 'map');
     else if (this.anomaliesOwned() >= BALANCE.victory.anomalies) this.end('victory', 'anomalies');
   }
@@ -255,6 +273,7 @@ export class RunState {
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
       maxTiles: this.player.maxTiles, anomalies: this.anomaliesOwned(), backpack: { ...bag }, kept: scaleBag(bag, k),
+      tutorial: this.opts.tutorial,
     };
   }
 
@@ -273,10 +292,49 @@ export class RunState {
     this.eventTick();
   }
 
+  // ---------- avanzata ----------
+
+  /** Avanzata verso `target`: il confine conquista da solo le caselle più vicine al bersaglio. */
+  startFlow(target: number): boolean {
+    if (!this.passable(target) || this.owner[target] === PLAYER) return false;
+    let own = -1;
+    for (let i = 0; i < this.owner.length && own < 0; i++) if (this.owner[i] === PLAYER) own = i;
+    if (own < 0 || !findPath(own, target, (i) => this.passable(i)).length) return false;
+    this.flowTarget = target;
+    this.flowAcc = BALANCE.flow.stepMs; // primo passo subito
+    this.flowBestD = Infinity;
+    return true;
+  }
+
+  stopFlow(reason: 'reached' | 'blocked' = 'blocked') {
+    if (this.flowTarget === null) return;
+    this.flowTarget = null;
+    this.events.push({ type: 'flowEnd', reason });
+  }
+
+  private flowStep() {
+    const t = this.flowTarget!;
+    if (this.owner[t] === PLAYER) return this.stopFlow('reached');
+    if (!this.passable(t)) return this.stopFlow('blocked');
+    let best = -1, bestD = Infinity, bestDef = Infinity;
+    for (const i of this.frontier(PLAYER)) {
+      const d = hexDistance(i, t), def = this.defenseOf(i);
+      if (d < bestD || (d === bestD && def < bestDef)) {
+        best = i;
+        bestD = d;
+        bestDef = def;
+      }
+    }
+    if (best < 0 || bestD > this.flowBestD + BALANCE.flow.giveUpSteps) return this.stopFlow('blocked');
+    if (this.troops - bestDef <= BALANCE.flow.reserve) return; // aspetta rinforzi, il bersaglio resta
+    this.flowBestD = Math.min(this.flowBestD, bestD);
+    this.attack(PLAYER, best);
+  }
+
   // ---------- eventi ----------
 
   private eventTick() {
-    if (this.over || this.opts.events <= 0 || this.gameTimeMs < this.nextEventAt) return;
+    if (this.over || this.opts.events <= 0 || this.opts.tutorial || this.gameTimeMs < this.nextEventAt) return;
     const E = BALANCE.events;
     this.nextEventAt = this.gameTimeMs + E.everyMs + (this.evRng() * 2 - 1) * E.jitterMs;
     const pool = EVENTS.filter((e) => !this.seenEvents.has(e.id) && (!e.rare || this.opts.events >= 2));
@@ -457,7 +515,7 @@ export class RunState {
 
   private nearestEnemyTile(f: number, from: number): number {
     let best = -1, bestD = Infinity;
-    const playerReady = this.gameTimeMs >= BALANCE.ai.graceMs;
+    const playerReady = !this.opts.tutorial && this.gameTimeMs >= BALANCE.ai.graceMs;
     for (let i = 0; i < this.owner.length; i++) {
       const o = this.owner[i];
       if (o === NEUTRAL || o === f || (o === PLAYER && !playerReady)) continue;
@@ -473,7 +531,7 @@ export class RunState {
   /** IA: attacca la casella vicina più debole, se se lo può permettere. */
   private aiAttack(f: Faction): boolean {
     let best = -1, bestScore = Infinity;
-    const grace = this.gameTimeMs < BALANCE.ai.graceMs;
+    const grace = this.opts.tutorial || this.gameTimeMs < BALANCE.ai.graceMs;
     for (const i of this.frontier(f.id)) {
       if (grace && this.owner[i] === PLAYER) continue;
       const score = this.defenseOf(i) * (this.owner[i] === PLAYER ? BALANCE.ai.playerBias : 1);

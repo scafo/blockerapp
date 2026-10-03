@@ -16,7 +16,7 @@ const TITLES: Record<RunSummary['outcome'], string> = {
   storm: 'TRAVOLTO DALLA CENERE',
 };
 
-const REASONS = { map: 'Impero sul 60% della regione', anomalies: '3 anomalie in mano tua', storm: 'Più territorio alla fine della tempesta' };
+const REASONS = { map: 'Impero sul 60% della regione', anomalies: '3 anomalie in mano tua', storm: 'Più territorio alla fine della tempesta', tutorial: 'Il primo pezzo di mondo è tuo' };
 
 /** Schermata finale stile manifesto: esito, bollettino radio, bottino portato a casa, rivincita. */
 export class ResultScene extends Phaser.Scene {
@@ -75,5 +75,11 @@ export class ResultScene extends Phaser.Scene {
     const bw = 250 + 12 + 170;
     again.setPosition(cx - bw / 2, y0 + H - 46 - 16);
     fresh.setPosition(cx - bw / 2 + 262, y0 + H - 46 - 16);
+    if (sum.tutorial) {
+      // dopo la run guidata si va a scoprire l'accampamento (la rivincita genererebbe un'altra mappa)
+      again.destroy();
+      fresh.setPosition(cx - 85, y0 + H - 46 - 16);
+      this.tweens.add({ targets: fresh, scale: 1.06, duration: 600, yoyo: true, repeat: -1 });
+    }
   }
 }
