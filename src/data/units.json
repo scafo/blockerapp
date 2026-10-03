@@ -1,0 +1,5 @@
+[
+  { "id": "fanteria", "name": "Fanteria pesante", "short": "FANTERIA", "beats": "raider", "desc": "Lenta e dura. Regge le conquiste lunghe, schiaccia i raider." },
+  { "id": "raider", "name": "Raider", "short": "RAIDER", "beats": "artiglieria", "desc": "Veloce e fragile. Entra nelle retrovie, travolge l'artiglieria." },
+  { "id": "artiglieria", "name": "Artiglieria", "short": "ARTIGL.", "beats": "fanteria", "desc": "Colpisce a 2 caselle. Pessima di corsa, micidiale sulla fanteria." }
+]
