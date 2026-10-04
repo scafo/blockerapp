@@ -36,6 +36,7 @@ export function coverImage(scene: Phaser.Scene, key: string, x: number, y: numbe
 }
 
 /** Velo per leggere il testo sopra un'immagine: sfuma dal trasparente al colore `c` verso il basso (o verso l'alto). */
-export function fade(scene: Phaser.Scene, x: number, y: number, w: number, h: number, c: number, from = 0, to = 1): Phaser.GameObjects.Graphics {
-  return scene.add.graphics().fillGradientStyle(c, c, c, c, from, from, to, to).fillRect(x, y, w, h);
+export function fade(scene: Phaser.Scene, x: number, y: number, w: number, h: number, c: number, from = 0, to = 1, dir: 'v' | 'h' = 'v'): Phaser.GameObjects.Graphics {
+  const [tl, tr, bl, br] = dir === 'v' ? [from, from, to, to] : [from, to, from, to]; // verticale: dall'alto in basso; orizzontale: da sinistra
+  return scene.add.graphics().fillGradientStyle(c, c, c, c, tl, tr, bl, br).fillRect(x, y, w, h);
 }

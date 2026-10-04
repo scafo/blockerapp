@@ -29,9 +29,9 @@ const PAD = 12;
 const LEFT_W = 300;
 const LEFT_H = 148;
 const RIGHT_W = 180;
-const BAR_H = 64; // orizzontale: barra in alto (truppe, obiettivi, tempo, bottino)
+const BAR_H = 74; // orizzontale: barra in alto (truppe, obiettivi, tempo, bottino)
 const ROW_H = 18;
-const TOP_H = 112; // verticale: altezza del pannello in alto
+const TOP_H = 122; // verticale: altezza del pannello in alto
 const STRIP_H = 46; // verticale: fazioni su due righe
 
 const mmss = (ms: number) => {
@@ -113,7 +113,7 @@ export class HudScene extends Phaser.Scene {
 
     // pannello sinistro: truppe, territorio/obiettivi, zaino, tempo di campagna
     // (le posizioni le decide layout(): verticale e orizzontale hanno disposizioni diverse)
-    this.leftPanel = this.add.rectangle(PAD, PAD, LEFT_W, LEFT_H, PALETTE.inchiostro, 0.84).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
+    this.leftPanel = this.add.rectangle(PAD, PAD, LEFT_W, LEFT_H, PALETTE.inchiostro, 0.95).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
     this.troopsLbl = this.add.text(0, 0, 'TRUPPE', textStyle(11, PALETTE.ocra));
     this.troops = this.add.text(0, 0, '0', textStyle(28, PALETTE.carta));
     this.rate = this.add.text(0, 0, '', textStyle(12, PALETTE.radioattivo));
@@ -138,7 +138,7 @@ export class HudScene extends Phaser.Scene {
     this.stormText = this.add.text(0, 0, '', textStyle(12, PALETTE.ocra));
 
     // pannello destro: fazioni
-    this.rightPanel = this.add.rectangle(0, PAD, RIGHT_W, majorCount() * ROW_H + 10, PALETTE.inchiostro, 0.88)
+    this.rightPanel = this.add.rectangle(0, PAD, RIGHT_W, majorCount() * ROW_H + 10, PALETTE.inchiostro, 0.95)
       .setOrigin(0).setStrokeStyle(1, PALETTE.linea);
     this.symbols = this.add.graphics();
     this.rows = FACTION_INFO.slice(0, majorCount()).map((_, k) => {
@@ -351,7 +351,7 @@ export class HudScene extends Phaser.Scene {
     RESOURCES.forEach((r, k) => {
       drawResourceIcon(this.resIcons, r, x + 4 + k * step, y, 9);
       this.resTexts[k].setPosition(x + 18 + k * step, y);
-      this.incTexts[k].setPosition(x + 18 + k * step, y + 11);
+      this.incTexts[k].setPosition(x + 19 + k * step, y + 13); // entrate al minuto sotto il numero, dentro la barra
     });
   }
 
@@ -752,6 +752,14 @@ export class HudScene extends Phaser.Scene {
     this.provCard = null;
     this.provCardP = -1;
     this.selUnit = -1;
+    this.setBottomVisible(true);
+  }
+
+  /** Con la tabella aperta in fondo (alla Call of War) le carte e le leve si fanno da parte; in verticale anche i tasti. */
+  private setBottomVisible(on: boolean) {
+    const list: (Phaser.GameObjects.Components.Visible | null | undefined)[] = [...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn];
+    if (this.portrait) list.push(this.retreatBtn, this.speedBtn, this.seed);
+    for (const o of list) o?.setVisible(on);
   }
 
   refreshProvince() {
@@ -766,11 +774,11 @@ export class HudScene extends Phaser.Scene {
     const st = this.run.state, p = this.provCardP;
     this.provCard?.destroy();
     this.provCard = null;
-    if (st.over || (p < 0 && this.selUnit < 0)) return void (this.provCardP = this.selUnit = -1);
+    if (st.over || (p < 0 && this.selUnit < 0)) return void this.hideProvince();
     const unit = this.selUnit >= 0 ? st.units.find((u) => u.id === this.selUnit) : undefined;
-    if (this.selUnit >= 0 && !unit) return void (this.selUnit = -1); // la pedina non c'è più
+    if (this.selUnit >= 0 && !unit) return void this.hideProvince(); // la pedina non c'è più
     const { width, height } = view(this);
-    const W = Math.min(560, width - 2 * PAD);
+    const W = Math.min(560, width - 2 * PAD - (this.portrait ? 0 : 252));
     const own = !unit && st.provOwner[p] === PLAYER;
     const ready = own ? st.workOf(p) : null, prog = own ? st.workInProgress(p) : null;
     const grid = own && this.provOpen && !ready && !prog;
@@ -779,8 +787,10 @@ export class HudScene extends Phaser.Scene {
     const perRow = W - 24 >= 500 ? nCells : Math.min(nCells, 3), rows = Math.ceil(nCells / perRow);
     const cellsY = 34, cellH = 42, actY = cellsY + rows * cellH + 8;
     const H = grid ? actY + 2 * 62 + 6 + 10 : actY + 40;
-    const ly = height - PAD - CARD_H - 8 - 36;
-    const bottom = this.portrait ? (this.abilityCards.length ? this.portraitAbilityY() : ly) - 8 : ly - 8;
+    // in fondo allo schermo come in Call of War: in orizzontale a sinistra (a destra restano RITIRATA, pausa e velocità)
+    const bottom = height - PAD;
+    const left = this.portrait ? (width - W) / 2 : PAD;
+    this.setBottomVisible(false);
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, W, H, PALETTE.inchiostro, 0.95).setOrigin(0).setStrokeStyle(1, PALETTE.linea),
     ];
@@ -889,7 +899,7 @@ export class HudScene extends Phaser.Scene {
       }
     }
     items.push(g, close);
-    this.provCard = this.add.container((width - W) / 2, bottom - H, items).setDepth(45);
+    this.provCard = this.add.container(left, bottom - H, items).setDepth(45);
     this.hint.setVisible(false);
   }
 
@@ -905,6 +915,6 @@ export class HudScene extends Phaser.Scene {
     if (this.provCard && inRect(this.provCard.list[0] as Phaser.GameObjects.Rectangle, this.provCard.x, this.provCard.y)) return true;
     if (this.profile && inRect(this.profile.list[0] as Phaser.GameObjects.Rectangle, this.profile.x, this.profile.y)) return true;
     const btns = [this.speedBtn, this.pauseBtn, this.retreatBtn, ...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn].filter((b) => b !== null);
-    return btns.some((b) => b.contains(x, y));
+    return btns.some((b) => b.visible && b.contains(x, y));
   }
 }

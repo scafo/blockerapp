@@ -104,6 +104,12 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 ## Note del developer (stato e comandi)
 
+- **Caricamento con la lore e tabella in fondo** (ultima richiesta di Nico): il caricamento è un documento dell'archivio che si scrive
+  lettera per lettera (telescrivente legata al tempo vero, `CHAR_MS`) in font da terminale (IBM Plex Mono, `FONT_MONO`) sopra
+  l'immagine a tutto schermo; sotto solo la barra; dura apposta 6,5–11 s (`MIN_MS`/`MAX_MS` in `LoadScene.ts`), si salta toccando
+  solo a testo finito. Lore di ogni schermata in `src/data/loading.json` (`lines`). La tabella della selezione sta in fondo allo
+  schermo come in Call of War (in orizzontale a sinistra, accanto a RITIRATA/pausa/velocità) e mentre è aperta carte e leve si
+  fanno da parte; barra in alto della campagna più alta e opaca (entrate al minuto dentro la barra, i nomi della mappa non trasparono).
 - **Mercato, schede, mappa e tabella** (ultime richieste di Nico): **Mercato** nella home (tasto accanto a RICERCA; solo risorse di
   gioco, niente soldi veri né casse a sorpresa come da regole di design): scambi 50→30 tra risorse, rifornimenti per la prossima
   campagna (truppe fresche, carte del Radar, sacchi di sabbia; uno per tipo, si consumano alla partenza: `profile.supplies`),
@@ -155,7 +161,7 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   (moduli collegati al Centro di Comando, radar che spazza, convoglio in missione, toppe di reparto). Avvio da terminale.
 - **Modalità test** (HQ → `[ TEST ]`): postazioni al massimo, tutte le ricerche, risorse piene, civiltà sbloccate, cantieri/ricerche/spedizioni
   istantanei, +1000 truppe e abilità con ricarica ×0,25 in campagna (`balance.test`); si esce azzerando il profilo.
-- **Nitidezza**: densità reale dello schermo fino a 3×; font JetBrains Mono 500/700 (dati) + Oswald (titoli), nessun testo sotto 11 pt
+- **Nitidezza**: densità reale dello schermo fino a 3×; font Barlow Semi Condensed (dati) + Oswald (titoli) + IBM Plex Mono (archivio nei caricamenti), nessun testo sotto 11 pt
   (`textSize` in `src/ui/style.ts`), pixel allineati sulle camere di interfaccia, canvas a misura CSS esatta; testi della mappa disegnati nello spazio dello schermo (`src/render/MapLabels.ts`),
   sempre nitidi a ogni zoom; mappa statica in texture a tasselli 2,6× (1,6× sui dispositivi deboli).
 

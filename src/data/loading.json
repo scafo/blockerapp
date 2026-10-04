@@ -4,31 +4,56 @@
       "img": "load-statua",
       "title": "LA CONCORDIA",
       "quote": "Per cento anni il mondo non conobbe la guerra. Non avevamo nemmeno una parola per «nemico».",
-      "source": "archivio del Senato · sezione distrutta"
+      "source": "archivio del Senato · sezione distrutta",
+      "lines": [
+        "Cento anni senza guerra. Le caserme diventarono scuole, i cannoni monumenti.",
+        "Le classi dirigenti impararono a governare senza nemici: un'arte che oggi nessuno ricorda.",
+        "Poi, in una notte d'inverno, le stazioni radio di mezzo mondo ricevettero lo stesso segnale."
+      ]
     },
     {
       "img": "load-croce",
       "title": "ANNO ZERO",
       "quote": "Scesero con le ali accese, nella notte più fredda del secolo. Chi li guardò troppo a lungo smise di parlare.",
-      "source": "testimonianza raccolta sul Baltico"
+      "source": "testimonianza raccolta sul Baltico",
+      "lines": [
+        "Erano alti il doppio di un uomo. Le ali facevano la luce di un faro sotto la neve.",
+        "Non attaccarono nessuno. Caddero e basta: in mare, sulle città, sulle pianure del Nord.",
+        "Il Comando chiama quella notte Anno Zero. Le potenze la chiamano l'inizio."
+      ]
     },
     {
       "img": "load-ghiaccio",
       "title": "LA CORRUZIONE",
       "quote": "Dove sono caduti la terra non brucia. Gela, e poi cambia.",
-      "source": "rapporto sanitario n° 311"
+      "source": "rapporto sanitario n° 311",
+      "lines": [
+        "Attorno ai punti di caduta il terreno si copre di una brina viola che non si scioglie.",
+        "Le piante crescono storte, i metalli si spezzano, gli uomini parlano nel sonno in lingue morte.",
+        "Le zone sono recintate. Le potenze ci mandano comunque squadre: è lì che si trovano i Frammenti."
+      ]
     },
     {
       "img": "load-nave",
       "title": "IL LUME",
       "quote": "I Frammenti fanno una luce che non scalda. Le flotte ora navigano con quella.",
-      "source": "intercettazione navale · banda 9"
+      "source": "intercettazione navale · banda 9",
+      "lines": [
+        "Un Frammento grande come un pugno illumina una nave per un mese. Non scalda, non consuma.",
+        "Le flotte di tre potenze ora navigano col Lume. La quarta lo compra al mercato nero.",
+        "Chi controlla i Frammenti controlla la notte. E la notte, adesso, dura di più."
+      ]
     },
     {
       "img": "load-radar",
       "title": "LA PROVA",
       "quote": "Il cielo trasmette di nuovo, sulla frequenza della Caduta. È un conto alla rovescia.",
-      "source": "Sala Radar · turno di notte"
+      "source": "Sala Radar · turno di notte",
+      "lines": [
+        "La Sala Radar registra un impulso ogni ventisette ore, sempre sulla frequenza della Caduta.",
+        "Ogni volta l'intervallo si accorcia di qualche secondo. I matematici del Senato non dormono più.",
+        "Non era una punizione. Era una prova. E il tempo per superarla sta finendo."
+      ]
     }
   ],
   "status": [
