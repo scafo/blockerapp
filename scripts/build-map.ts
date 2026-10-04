@@ -12,10 +12,10 @@ import world from 'world-atlas/countries-50m.json';
 import namesIt from '../src/data/countries-it.json';
 import terrainSrc from './data/ne-terrain.json'; // Natural Earth 1:10M, regioni fisiche: catene, altopiani, deserti (pubblico dominio)
 import { BALANCE } from '../src/config/balance';
-import { NEIGHBORS, WORLD_W, center, lonLat } from '../src/map/hexGrid';
+import { neighbors, WORLD_W, center, lonLat } from '../src/map/hexGrid';
 import { createRng } from '../src/map/rng';
 
-const TARGET = 5900; // province circa
+const TARGET = 17700; // province circa
 const SCALE = 8; // coordinate salvate in 1/8 di pixel-mondo
 const { latMax, latMin, rows, cols, hexSize: S } = BALANCE.map;
 const rng = createRng('ashen-atlas-province');
@@ -228,7 +228,7 @@ for (let e = 0; e < E.length; e++) if (!used[e]) walk(E[e].u, e);
 // confini interni (Voronoi, dritti): ondulati con rumore morbido, estremi fermi, uguali per le due province
 function hash(i: number, j: number) { let h = (i * 374761393 + j * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295 - 0.5; }
 function noise(x: number, y: number) {
-  const c = 5, gx = x / c, gy = y / c, ix = Math.floor(gx), iy = Math.floor(gy), fx = gx - ix, fy = gy - iy;
+  const c = 3, gx = x / c, gy = y / c, ix = Math.floor(gx), iy = Math.floor(gy), fx = gx - ix, fy = gy - iy;
   const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
   const a = hash(ix, iy), b = hash(ix + 1, iy), d = hash(ix, iy + 1), e = hash(ix + 1, iy + 1);
   return (a + (b - a) * sx + (d - a) * sy + (a - b - d + e) * sx * sy) * 2;
@@ -239,7 +239,7 @@ const chainPts: Pt[][] = chains.map((c) => {
   if (!pb || pa.country !== pb.country || c.closed) return pts;
   const out: Pt[] = [pts[0]];
   for (let i = 1; i < pts.length; i++) {
-    const [ax, ay] = pts[i - 1], [bx, by] = pts[i], L = Math.hypot(bx - ax, by - ay), n = Math.max(1, Math.round(L / 1.3));
+    const [ax, ay] = pts[i - 1], [bx, by] = pts[i], L = Math.hypot(bx - ax, by - ay), n = Math.max(1, Math.round(L / 1.0));
     for (let s = 1; s <= n; s++) out.push([ax + ((bx - ax) * s) / n, ay + ((by - ay) * s) / n]);
   }
   const [sx, sy] = out[0], [ex, ey] = out[out.length - 1], L = Math.hypot(ex - sx, ey - sy) || 1;
@@ -247,7 +247,7 @@ const chainPts: Pt[][] = chains.map((c) => {
   return out.map(([x, y], i) => {
     if (i === 0 || i === out.length - 1) return [x, y] as Pt;
     const w = Math.min(1, i / 3, (out.length - 1 - i) / 3); // estremi fermi, ondulazione che cresce piano
-    const d = noise(x, y) * 1.7 * w;
+    const d = noise(x, y) * 1.0 * w;
     return [x + nx * d, y + ny * d] as Pt;
   });
 });
@@ -343,34 +343,45 @@ for (let pass = 0; pass < 1; pass++) { // una fascia di colline ai piedi delle m
   const ring: number[] = [];
   for (let i = 0; i < terrain.length; i++) {
     if (terrain[i] !== 0 && terrain[i] !== 3) continue;
-    if (NEIGHBORS[i].some((n) => n >= 0 && terrain[n] === 2 - pass)) ring.push(i);
+    if (neighbors(i).some((n) => n >= 0 && terrain[n] === 2 - pass)) ring.push(i);
   }
   for (const i of ring) terrain[i] = 1;
 }
 const tc = [0, 0, 0, 0];
 for (const t of terrain) if (t >= 0) tc[t]++;
 
-// 6. salvataggio compatto: catene a delta interi, anelli come indici di catene, caselle in RLE
-const enc = (pts: Pt[]) => {
-  const o: number[] = [];
+// 6. salvataggio compatto in binario (varint, delta a zigzag) dentro un modulo TS in base64: ~1 byte per numero invece dei
+// 3–4 caratteri del JSON, niente oggetto enorme in memoria a runtime. Lettura in src/map/worldAsset.ts (stesso ordine).
+const bytes: number[] = [];
+const u = (n: number) => { while (n >= 128) { bytes.push((n % 128) + 128); n = Math.floor(n / 128); } bytes.push(n); };
+const s = (n: number) => u(n >= 0 ? n * 2 : -n * 2 - 1);
+u(provs.length);
+provs.forEach((p, k) => {
+  s(p.country);
+  u(provRings[k].length);
+  for (const ring of provRings[k]) { u(ring.length); for (const ref of ring) s(ref); }
+});
+u(chains.length);
+chains.forEach((c, k) => {
+  u(c.a); s(c.b); u(c.closed ? 1 : 0);
+  const pts = chainPts[k];
+  u(pts.length);
   let px = 0, py = 0;
-  for (const [x, y] of pts) { const ix = Math.round(x * SCALE), iy = Math.round(y * SCALE); o.push(ix - px, iy - py); px = ix; py = iy; }
-  return o;
-};
+  for (const [x, y] of pts) { const ix = Math.round(x * SCALE), iy = Math.round(y * SCALE); s(ix - px); s(iy - py); px = ix; py = iy; }
+});
 const runs = (a: Int16Array | Int8Array) => {
   const o: number[] = [];
   for (let i = 0; i < a.length;) { let n = 1; while (i + n < a.length && a[i + n] === a[i]) n++; o.push(a[i], n); i += n; }
-  return o;
+  u(o.length / 2);
+  for (let k = 0; k < o.length; k += 2) { s(o[k]); u(o[k + 1]); }
 };
-const rle = runs(tileProv);
-const out = {
-  v: 1, scale: SCALE, cols, rows, names,
-  provinces: provs.map((p, k) => ({ c: p.country, r: provRings[k] })),
-  chains: chains.map((c, k) => ({ a: c.a, b: c.b, z: c.closed ? 1 : 0, d: enc(chainPts[k]) })),
-  tiles: rle,
-  terrain: runs(terrain),
-};
-writeFileSync('src/data/worldmap.json', JSON.stringify(out));
+runs(tileProv);
+runs(terrain);
+const b64 = Buffer.from(Uint8Array.from(bytes)).toString('base64');
+writeFileSync('src/data/worldmap.ts', `// Generato da scripts/build-map.ts (npm run build:map): non modificare a mano.\n`
+  + `export const WORLD_META = ${JSON.stringify({ v: 2, scale: SCALE, cols, rows, names })};\n`
+  + `export const WORLD_DATA =\n  '${b64}';\n`);
+console.log(`carta: ${(bytes.length / 1e6).toFixed(2)} MB binari, ${(b64.length / 1e6).toFixed(2)} MB in base64`);
 const land = [...tileProv].filter((p) => p >= 0).length;
 console.log(`terreno: pianura ${tc[0]}, colline ${tc[1]}, montagne ${tc[2]}, deserto ${tc[3]}`);
 console.log(`province ${provs.length}, catene ${chains.length} (coste ${chains.filter((c) => c.b < 0).length}), punti inseriti ${inserted}, caselle di terra ${land}, forzate ${forced}, senza caselle ${[...count].filter((n) => !n).length}`);

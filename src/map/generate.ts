@@ -1,7 +1,7 @@
-// Genera la mappa di una run a partire dal seed: rovine, anomalie, partenze (terreno e province vengono dalla carta pronta).
+// Genera la mappa di una run a partire dal seed: rovine, partenze (terreno e province vengono dalla carta pronta).
 import { BALANCE, type Resource, type Terrain, type TileType } from '../config/balance';
 import { createRng, randInt, type Rng } from './rng';
-import { NEIGHBORS, center, hexDistance } from './hexGrid';
+import { neighbors, center } from './hexGrid';
 import type { WorldAsset } from './worldAsset';
 
 export interface Tile {
@@ -45,7 +45,6 @@ export interface RunMap {
   land: number[]; // indici delle caselle di terra
   starts: number[]; // [giocatore, ...IA]
   regionSize: number; // caselle attraversabili raggiungibili dalla partenza del giocatore
-  anomalies: number[];
   provinces: Province[];
   nations: Nation[];
 }
@@ -91,7 +90,6 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
   const starts = pickStarts(rng, tiles, land, aiCount, provinces);
   const dist = bfs(tiles, starts[0]);
   const region = land.filter((i) => dist[i] >= 0);
-  const anomalies = placeAnomalies(rng, tiles, region, dist, starts);
   // città e capitali più difese
   const P = BALANCE.provinces;
   for (const p of provinces) {
@@ -99,7 +97,7 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
     const t = tiles[p.city]!;
     t.defense = Math.round(t.defense * P.cityDefenseMult) + P.cityDefenseBonus + (t.capital ? P.capitalDefenseBonus : 0);
   }
-  return { seed, tiles, land, starts, regionSize: region.length, anomalies, provinces, nations };
+  return { seed, tiles, land, starts, regionSize: region.length, provinces, nations };
 }
 
 /**
@@ -143,7 +141,7 @@ function buildProvinces(tiles: (Tile | null)[], land: number[], world: WorldAsse
       const list = [i];
       seen.add(i);
       for (let h = 0; h < list.length; h++) {
-        for (const n of NEIGHBORS[list[h]]) if (n >= 0 && tiles[n]?.country === c && !seen.has(n)) { seen.add(n); list.push(n); }
+        for (const n of neighbors(list[h])) if (n >= 0 && tiles[n]?.country === c && !seen.has(n)) { seen.add(n); list.push(n); }
       }
       if (list.length > main.length) main = list;
     }
@@ -156,7 +154,7 @@ function buildProvinces(tiles: (Tile | null)[], land: number[], world: WorldAsse
   const nb = provinces.map(() => new Set<number>());
   for (const i of land) {
     const p = tiles[i]!.province;
-    for (const n of NEIGHBORS[i]) {
+    for (const n of neighbors(i)) {
       const q = n >= 0 ? tiles[n]?.province ?? -1 : -1;
       if (q >= 0 && q !== p) nb[p].add(q);
     }
@@ -182,29 +180,6 @@ function pickWeighted<K extends string>(rng: Rng, weights: Record<K, number>): K
   return keys[0];
 }
 
-/** Anomalie nella regione del giocatore: né troppo vicine né irraggiungibili, distanziate tra loro. */
-function placeAnomalies(rng: Rng, tiles: (Tile | null)[], region: number[], dist: Int32Array, starts: number[]): number[] {
-  const A = BALANCE.anomalies;
-  // una per provincia, mai nella provincia di partenza di qualcuno né sulla città
-  const used = new Set(starts.map((s) => tiles[s]!.province));
-  const band = region.filter((i) => dist[i] >= A.distance[0] && dist[i] <= A.distance[1] && !tiles[i]!.city);
-  const out: number[] = [];
-  for (let k = 0; k < A.count; k++) {
-    const free = band.filter((i) => !used.has(tiles[i]!.province));
-    const apart = free.filter((i) => out.every((a) => hexDistance(a, i) >= A.minApart));
-    const pool = apart.length ? apart : free;
-    if (!pool.length) break;
-    const i = pool[Math.floor(rng() * pool.length)];
-    const t = tiles[i]!;
-    t.type = 'anomalia';
-    t.defense = Math.round(rollDefense(rng, 'anomalia') * BALANCE.terrain[t.terrain].defense);
-    t.loot = 0;
-    used.add(t.province);
-    out.push(i);
-  }
-  return out;
-}
-
 function rollDefense(rng: Rng, type: TileType): number {
   const base = BALANCE.defense[type];
   const v = BALANCE.defense.variance;
@@ -220,7 +195,7 @@ function bfs(tiles: (Tile | null)[], from: number): Int32Array {
   const queue = [from];
   for (let h = 0; h < queue.length; h++) {
     const c = queue[h];
-    for (const n of NEIGHBORS[c]) {
+    for (const n of neighbors(c)) {
       if (n >= 0 && dist[n] < 0 && passable(tiles[n])) {
         dist[n] = dist[c] + 1;
         queue.push(n);
@@ -231,7 +206,7 @@ function bfs(tiles: (Tile | null)[], from: number): Int32Array {
 }
 
 const goodStart = (tiles: (Tile | null)[], i: number) =>
-  tiles[i]!.type === 'terra' && NEIGHBORS[i].every((n) => passable(tiles[n] ?? null));
+  tiles[i]!.type === 'terra' && neighbors(i).every((n) => passable(tiles[n] ?? null));
 
 /**
  * Partenza del giocatore casuale in una regione grande (niente isolette);

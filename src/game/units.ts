@@ -1,7 +1,7 @@
 // Pedine: dati, sasso-carta-forbice, percorsi.
 import { BALANCE, type UnitType } from '../config/balance';
 import unitData from '../data/units.json';
-import { NEIGHBORS } from '../map/hexGrid';
+import { CELLS, neighbors } from '../map/hexGrid';
 
 export interface UnitInfo {
   id: UnitType;
@@ -42,13 +42,13 @@ export function rps(a: UnitType, b: UnitType): number {
 /** Percorso più breve sulle caselle attraversabili (vuoto se irraggiungibile). */
 export function findPath(from: number, to: number, passable: (i: number) => boolean): number[] {
   if (from === to || !passable(to)) return [];
-  const prev = new Int32Array(NEIGHBORS.length).fill(-1);
+  const prev = new Int32Array(CELLS).fill(-1);
   prev[from] = from;
   const queue = [from];
   for (let h = 0; h < queue.length; h++) {
     const c = queue[h];
     if (c === to) break;
-    for (const n of NEIGHBORS[c]) {
+    for (const n of neighbors(c)) {
       if (n >= 0 && prev[n] < 0 && passable(n)) {
         prev[n] = c;
         queue.push(n);

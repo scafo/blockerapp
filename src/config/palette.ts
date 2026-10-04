@@ -30,7 +30,7 @@ export const PALETTE = {
     nome: 0xe9eef3, // nomi delle nazioni
     capitale: 0xe9c46a,
     segno: 0xc5d0db, // città, rovine
-    segnale: 0xc78cff, // anomalie: la luce fredda della Caduta
+    segnale: 0xc78cff, // la luce fredda della Caduta
   },
   ok: 0xffffff,
   ko: 0xff5252,

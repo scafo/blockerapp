@@ -702,7 +702,7 @@ export class CampScene extends Phaser.Scene {
     const mm = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}`;
     const brief = [
       (frontText as { brief: string }[])[fi]?.brief ?? '',
-      `OBIETTIVI · ${Math.round(BALANCE.victory.mapShare * 100)}% della regione, ${BALANCE.victory.anomalies} Frammenti, o più territorio di tutti allo scadere.`,
+      `OBIETTIVI · ${Math.round(BALANCE.victory.mapShare * 100)}% della regione, o più territorio di tutti allo scadere.`,
       `INTEL · tregua ${mm(F.graceMs)} · prima offensiva a ${mm(F.offensiveFirstMs)} · bunker nemici ${F.aiBunkers} · crescita nemica ×${String(F.aiGrowthMult).replace('.', ',')}`,
     ].join('\n');
     const limit = y0 + H - 64 - (this.portrait ? 48 : 0);

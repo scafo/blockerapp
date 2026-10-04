@@ -81,7 +81,7 @@
   },
   "segnale": {
     "name": "Segnale",
-    "desc": "Frammenti -15% difesa",
+    "desc": "Vista +2 nelle campagne",
     "lore": "Le anomalie non sono crateri: sono Frammenti degli Alati. Emettono lo stesso segnale registrato la notte della Caduta, a intervalli regolari. Come un battito."
   },
   "frammenti": {
@@ -96,7 +96,7 @@
   },
   "caduta": {
     "name": "Tecnologia della Caduta",
-    "desc": "Per vincere basta un'anomalia in meno",
+    "desc": "Truppe +8% di crescita",
     "lore": "La Caduta non fu una punizione: fu una Prova. Il segnale è un conto alla rovescia verso l'Avvento. Quando il cielo si riaprirà, conterà solo chi tiene il mondo."
   },
   "assalto": {

@@ -361,8 +361,7 @@ export class HudScene extends Phaser.Scene {
     }
     this.rate.setText(`+${st.troopsPerSecond.toFixed(1)}/s`);
     const share = Math.round(st.mapShare * 100);
-    const goal = `${share}%/${BALANCE.victory.mapShare * 100}%`, anom = `frammenti ${st.anomaliesOwned()}/${st.anomaliesToWin}`;
-    this.stats.setText(`${st.player.provinces} ${st.player.provinces === 1 ? 'provincia' : 'province'} · ${goal}\n${anom}`);
+    this.stats.setText(`${st.player.provinces} ${st.player.provinces === 1 ? 'provincia' : 'province'}\nregione ${share}%/${BALANCE.victory.mapShare * 100}%`);
     RESOURCES.forEach((r, k) => {
       const t = this.resTexts[k], v = String(st.backpack[r]);
       if (t.text !== v) {
@@ -464,11 +463,6 @@ export class HudScene extends Phaser.Scene {
     }
   }
 
-  onAnomaly(count: number, gained: boolean) {
-    if (gained) this.banner(`FRAMMENTO ${count}/${this.run.state.anomaliesToWin}`, PALETTE.radioattivo, 'il segnale è tuo');
-    else this.toast(`FRAMMENTO PERSO · ${count}/${this.run.state.anomaliesToWin}`, PALETTE.ko);
-  }
-
   onMilestone(n: number) {
     const names: Record<number, string> = { 8: 'testa di ponte', 15: 'dominio regionale', 30: 'potenza continentale', 60: 'egemonia', 120: 'il mondo trattiene il fiato' };
     this.banner(`${n} PROVINCE`, PALETTE.ocra, names[n] ?? '');
@@ -515,7 +509,7 @@ export class HudScene extends Phaser.Scene {
       this.time.delayedCall(2600, () => conf.destroy());
     }
     const title = {
-      victory: reason === 'anomalies' ? 'IL SEGNALE È TUO' : reason === 'time' ? 'IL CAMPO È TUO' : reason === 'tutorial' ? 'PRIMA VITTORIA!' : 'IMPERO!',
+      victory: reason === 'time' ? 'IL CAMPO È TUO' : reason === 'tutorial' ? 'PRIMA VITTORIA!' : 'IMPERO!',
       retreat: 'RITIRATA',
       eliminated: 'ELIMINATO',
       timeout: 'FINE DELLE OPERAZIONI',

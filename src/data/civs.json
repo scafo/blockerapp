@@ -15,7 +15,7 @@
     "name": "Aristocrazia", "motto": "Il futuro appartiene a chi può pagarlo.",
     "regime": "Oligarchia delle Casate", "classe": "Le Grandi Casate · nobiltà e accademie", "dottrina": "Cultura, tecnologia e degrado",
     "lore": "Nei saloni si balla ancora. Nei sotterranei le Casate studiano il Lume più a fondo di chiunque, e ne pagano il prezzo un po' alla volta.",
-    "bonus": "Tecnologia: unità -30% costo, ma truppe -8% di crescita", "building": "Accademia", "buildingText": "Vista +2 e Frammenti più deboli", "unlock": "Vinci 3 campagne"
+    "bonus": "Tecnologia: unità -30% costo, ma truppe -8% di crescita", "building": "Accademia", "buildingText": "Vista +3 nelle campagne", "unlock": "Vinci 3 campagne"
   },
   "cabal": {
     "name": "Cabal", "motto": "Ogni guerra ha un conto. Lo teniamo noi.",

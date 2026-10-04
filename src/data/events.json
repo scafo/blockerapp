@@ -166,9 +166,9 @@
     "right": {
       "label": "Segui il conto",
       "effects": {
-        "anomalyDefense": 0.6
+        "loot": { "metallo": 25 }
       },
-      "result": "Il conteggio porta ai Frammenti. Il loro segnale, di colpo, vacilla."
+      "result": "Il conteggio porta a un deposito della Concordia sepolto sotto il ghiaccio. Dentro, metallo e silenzio."
     }
   },
   {

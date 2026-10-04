@@ -1,5 +1,5 @@
 // Navi da sbarco: viaggiano sulle caselle di mare (null nella mappa) e sbarcano su una costa.
-import { NEIGHBORS } from '../map/hexGrid';
+import { neighbors } from '../map/hexGrid';
 import type { Tile } from '../map/generate';
 
 export interface Boat {
@@ -15,7 +15,7 @@ export interface Boat {
 const isSea = (tiles: (Tile | null)[], i: number) => i >= 0 && !tiles[i];
 
 /** Una casella di terra che tocca il mare. */
-export const isCoast = (tiles: (Tile | null)[], i: number) => !!tiles[i] && NEIGHBORS[i].some((n) => isSea(tiles, n));
+export const isCoast = (tiles: (Tile | null)[], i: number) => !!tiles[i] && neighbors(i).some((n) => isSea(tiles, n));
 
 /**
  * Rotta più breve dal mare vicino alle coste `owned` fino al mare vicino a `target`.
@@ -28,7 +28,7 @@ export function seaRoute(tiles: (Tile | null)[], owned: (i: number) => boolean, 
   const queue: number[] = [];
   for (let i = 0; i < tiles.length; i++) {
     if (!tiles[i] || !owned(i)) continue;
-    for (const n of NEIGHBORS[i]) {
+    for (const n of neighbors(i)) {
       if (isSea(tiles, n) && prev[n] === -2) {
         prev[n] = -1;
         origin[n] = i;
@@ -37,7 +37,7 @@ export function seaRoute(tiles: (Tile | null)[], owned: (i: number) => boolean, 
       }
     }
   }
-  const goal = new Set(NEIGHBORS[target].filter((n) => isSea(tiles, n)));
+  const goal = new Set(neighbors(target).filter((n) => isSea(tiles, n)));
   for (let h = 0; h < queue.length; h++) {
     const c = queue[h];
     if (goal.has(c)) {
@@ -53,7 +53,7 @@ export function seaRoute(tiles: (Tile | null)[], owned: (i: number) => boolean, 
       return { from: origin[s], path: [...path.reverse(), target] };
     }
     if (dist[c] >= maxSea) continue;
-    for (const n of NEIGHBORS[c]) {
+    for (const n of neighbors(c)) {
       if (isSea(tiles, n) && prev[n] === -2) {
         prev[n] = c;
         dist[n] = dist[c] + 1;

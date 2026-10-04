@@ -2,13 +2,13 @@
 
 export const BALANCE = {
   map: {
-    cols: 640, // griglia fine (invisibile): pedine, navi, nebbia; le forme vengono dalla mappa vera (scripts/build-map.ts)
-    rows: 320,
+    cols: 960, // griglia fine (invisibile): pedine, navi, nebbia; le forme vengono dalla mappa vera (scripts/build-map.ts)
+    rows: 480,
     latMax: 84,
     latMin: -58, // niente Antartide
-    hexSize: 2.5, // raggio esagono in pixel-mondo (griglia fitta: stessa mappa in pixel, più province)
-    ruinsCount: 1620,
-    minStartRegion: 6400, // caselle minime della regione di partenza (ci stanno 4 fazioni)
+    hexSize: 5 / 3, // raggio esagono in pixel-mondo (griglia fitta: stessa mappa in pixel, più province)
+    ruinsCount: 4860,
+    minStartRegion: 14400, // caselle minime della regione di partenza (ci stanno 4 fazioni)
   },
   tick: {
     ms: 500,
@@ -37,7 +37,6 @@ export const BALANCE = {
   defense: {
     terra: 6, // una provincia (~11 caselle) costa la somma delle sue caselle (× terreno)
     rovine: 12,
-    anomalia: 160, // la provincia con l'anomalia costa circa il doppio
     variance: 0.3, // ± percentuale casuale per casella
   },
   // Caselle possedute: difesa = base * mult + min(truppe/caselle * garrison, garrisonMax)
@@ -53,25 +52,25 @@ export const BALANCE = {
     attacksPerAct: 1, // caselle piccole: più caselle per azione (stesso ritmo di prima in superficie)
     reserve: 1.25, // attacca solo se truppe > difesa * reserve
     playerBias: 0.9, // le province del giocatore "sembrano" un po' più deboli
-    startDistance: [32, 69] as [number, number], // passi esagonali dal giocatore
-    minDistanceBetween: 26, // passi esagonali tra fazioni IA
+    startDistance: [28, 60] as [number, number], // passi esagonali dal giocatore
+    minDistanceBetween: 23, // passi esagonali tra fazioni IA
     releaseLootShare: 0.5, // quota di bottino rilasciata quando eliminata
     workers: 0.15, // anche le IA mandano gente a lavorare: più bottino da rubare
   },
   // Pedine: costano truppe del pool, si muovono casella per casella e conquistano dove passano.
   units: {
-    fanteria: { cost: 60, hp: 60, attack: 6, range: 1, moveMs: 373, captureCost: 0.4 },
-    ricognitori: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 186, captureCost: 0.5 },
-    artiglieria: { cost: 70, hp: 30, attack: 9, range: 4, moveMs: 563, captureCost: 0.8 },
+    fanteria: { cost: 60, hp: 60, attack: 6, range: 1, moveMs: 429, captureCost: 0.4 },
+    ricognitori: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 214, captureCost: 0.5 },
+    artiglieria: { cost: 70, hp: 30, attack: 9, range: 4, moveMs: 647, captureCost: 0.8 },
     // secondo gruppo dell'Arsenale
-    corazzati: { cost: 90, hp: 110, attack: 9, range: 1, moveMs: 277, captureCost: 0.25 }, // travolgono fanteria e ricognitori
-    genio: { cost: 50, hp: 50, attack: 4, range: 1, moveMs: 433, captureCost: 0.3 }, // fortifica le caselle attorno, ferma i corazzati
-    cannoniera: { cost: 85, hp: 70, attack: 8, range: 4, moveMs: 217, captureCost: 0 }, // nave: copre le coste
+    corazzati: { cost: 90, hp: 110, attack: 9, range: 1, moveMs: 319, captureCost: 0.25 }, // travolgono fanteria e ricognitori
+    genio: { cost: 50, hp: 50, attack: 4, range: 1, moveMs: 498, captureCost: 0.3 }, // fortifica le caselle attorno, ferma i corazzati
+    cannoniera: { cost: 85, hp: 70, attack: 8, range: 4, moveMs: 250, captureCost: 0 }, // nave: copre le coste
     // unità uniche delle civiltà (arsenale liv. 6)
-    legionari: { cost: 80, hp: 90, attack: 7, range: 1, moveMs: 407, captureCost: 0.35 }, // Imperium
-    guardia: { cost: 55, hp: 75, attack: 6, range: 1, moveMs: 373, captureCost: 0.3 }, // Republica
-    prototipo: { cost: 75, hp: 28, attack: 11, range: 6, moveMs: 624, captureCost: 0.8 }, // Aristocrazia
-    infiltrati: { cost: 40, hp: 32, attack: 7, range: 1, moveMs: 165, captureCost: 0.2 }, // Cabal
+    legionari: { cost: 80, hp: 90, attack: 7, range: 1, moveMs: 468, captureCost: 0.35 }, // Imperium
+    guardia: { cost: 55, hp: 75, attack: 6, range: 1, moveMs: 429, captureCost: 0.3 }, // Republica
+    prototipo: { cost: 75, hp: 28, attack: 11, range: 6, moveMs: 718, captureCost: 0.8 }, // Aristocrazia
+    infiltrati: { cost: 40, hp: 32, attack: 7, range: 1, moveMs: 190, captureCost: 0.2 }, // Cabal
     deckSize: 4, // in campagna porti 4 truppe delle sbloccate (il mazzo, come in Clash)
     fortifyDefense: 8, // genio: difesa in più sulle sue caselle e su quelle accanto
     supportRange: 4, // cannoniera: caselle di costa coperte dal fuoco
@@ -85,7 +84,7 @@ export const BALANCE = {
   },
   // Abilità a ricarica (Arsenale liv. 5): non sono unità
   abilities: {
-    ricognizione: { cooldownMs: 40_000, radius: 15, durationMs: 15_000 }, // ricognizione aerea: svela la zona
+    ricognizione: { cooldownMs: 40_000, radius: 13, durationMs: 15_000 }, // ricognizione aerea: svela la zona
     bombardamento: { cooldownMs: 60_000, radius: 1, unitRadius: 4, delayMs: 1200, unitDamage: 40, troopsPerTile: 3 }, // la provincia nemica colpita torna neutrale
   },
   aiUnits: {
@@ -104,12 +103,6 @@ export const BALANCE = {
     benzina: [2, 4] as [number, number],
     cibo: [2, 5] as [number, number],
   },
-  // Anomalie: caselle-segnale molto difese. Tenerne `victory.anomalies` = vittoria.
-  anomalies: {
-    count: 5,
-    distance: [27, 99] as [number, number], // passi esagonali dalla partenza del giocatore
-    minApart: 21,
-  },
   // Terreno vero (Natural Earth, scripts/build-map.ts): difesa delle caselle, crescita delle truppe, lentezza di pedine e avanzata,
   // risorsa prodotta ogni minuto da ogni provincia posseduta (le fabbriche la moltiplicano).
   terrain: {
@@ -123,7 +116,6 @@ export const BALANCE = {
   overextension: 0.04,
   victory: {
     mapShare: 0.6, // quota della regione di partenza (terra attraversabile)
-    anomalies: 3,
     bonus: 0.5, // +50% dello zaino in caso di vittoria
   },
   // Fine della campagna: allo scadere della durata scelta vince chi ha più territorio (avviso nell'ultimo minuto).
@@ -147,7 +139,7 @@ export const BALANCE = {
   // Nazioni e province (alla Call of War): ogni nazione reale è divisa in province con una città.
   // Prendi la città → le caselle neutrali della provincia si arrendono. La capitale dà truppe a chi la prende.
   provinces: {
-    size: 12, // caselle per provincia (circa; la carta è in src/data/worldmap.json)
+    size: 8, // caselle per provincia (circa; la carta è in src/data/worldmap.ts)
     cityDefenseMult: 2, // difesa città = base × mult + bonus
     cityDefenseBonus: 6,
     capitalDefenseBonus: 8,
@@ -159,16 +151,16 @@ export const BALANCE = {
   },
   // Navi: tocchi una costa che non raggiungi via terra; la nave parte dalla tua costa più vicina con la forza d'attacco.
   boats: {
-    stepMs: 63, // tempo per attraversare una casella di mare
-    maxSea: 105, // caselle di mare massime per una traversata
+    stepMs: 42, // tempo per attraversare una casella di mare
+    maxSea: 158, // caselle di mare massime per una traversata
     maxInFlight: 3,
     minTroops: 10,
   },
   // Nebbia di guerra: vedi solo vicino a territorio, pedine e navi. Le anomalie si vedono sempre (emettono il segnale).
   fog: {
-    territory: 12,
-    unit: 10,
-    boat: 6,
+    territory: 10,
+    unit: 9,
+    boat: 5,
     shade: false, // velo scuro sulle zone non viste (tolto: la nebbia nasconde solo i nemici)
     seenAlpha: 0.45, // già esplorato ma ora fuori vista
     unseenAlpha: 0.88, // mai visto
@@ -286,7 +278,7 @@ export const BALANCE = {
   civs: {
     republica: { unit: 'guardia', unlock: null, bonus: { ownedDefenseMult: 1.2 }, building: { settlementDefense: 6 } },
     imperium: { unit: 'legionari', unlock: null, bonus: { neutralCostMult: 0.85 }, building: { settlementGrowth: 2 } },
-    aristocrazia: { unit: 'prototipo', unlock: { wins: 3 }, bonus: { unitCostMult: 0.7, growthMult: 0.92 }, building: { fogBonus: 2, anomalyDefenseMult: 0.8 } },
+    aristocrazia: { unit: 'prototipo', unlock: { wins: 3 }, bonus: { unitCostMult: 0.7, growthMult: 0.92 }, building: { fogBonus: 3 } },
     cabal: { unit: 'infiltrati', unlock: { expeditions: 3 }, bonus: { lootMult: 1.3 }, building: { settlementLoot: 0.25 } },
   },
   // Laboratorio: ricerche (una alla volta, a tempo reale). tier = livello di laboratorio richiesto (max 3). Testi in src/data/tech.json.
@@ -316,17 +308,17 @@ export const BALANCE = {
     trincee: { branch: 'difesa', col: 0, row: 5, req: [], tier: 1, cost: { metallo: 50, benzina: 10, cibo: 20 }, timeSec: 120, mods: { ownedDefenseMult: 1.1 } },
     radar: { branch: 'difesa', col: 1, row: 5, req: ['trincee'], tier: 2, cost: { metallo: 100, benzina: 60, cibo: 20 }, timeSec: 240, mods: { fogBonus: 2 } },
     fortezze: { branch: 'difesa', col: 2, row: 5, req: ['radar'], tier: 3, cost: { metallo: 240, benzina: 60, cibo: 40 }, timeSec: 300, mods: { bunkerMult: 1.4, ownedDefenseMult: 1.1 } },
-    segnale: { branch: 'caduta', col: 0, row: 6, req: [], tier: 1, cost: { metallo: 30, benzina: 30, cibo: 30 }, timeSec: 150, mods: { anomalyDefenseMult: 0.85 } },
+    segnale: { branch: 'caduta', col: 0, row: 6, req: [], tier: 1, cost: { metallo: 30, benzina: 30, cibo: 30 }, timeSec: 150, mods: { fogBonus: 2 } },
     frammenti: { branch: 'caduta', col: 1, row: 6, req: ['segnale'], tier: 2, cost: { metallo: 90, benzina: 60, cibo: 50 }, timeSec: 240, mods: { lootMult: 1.1 } },
     prototipo: { branch: 'caduta', col: 2, row: 6, req: ['frammenti'], tier: 3, cost: { metallo: 180, benzina: 100, cibo: 80 }, timeSec: 300, mods: { unitHpMult: 1.1 } },
-    caduta: { branch: 'caduta', col: 3, row: 6, req: ['prototipo'], tier: 3, cost: { metallo: 300, benzina: 160, cibo: 120 }, timeSec: 300, mods: { anomaliesNeeded: -1 } },
+    caduta: { branch: 'caduta', col: 3, row: 6, req: ['prototipo'], tier: 3, cost: { metallo: 300, benzina: 160, cibo: 120 }, timeSec: 300, mods: { growthMult: 1.08 } },
   } as Record<string, TechDef>,
 
   camera: {
     minZoom: 0.75,
-    maxZoom: 13,
-    startZoom: 4.6, // si vedono più province attorno alla partenza
-    labelMinZoom: 3.2, // sotto questo zoom niente numeri di difesa
+    maxZoom: 22,
+    startZoom: 8, // si vedono più province attorno alla partenza
+    labelMinZoom: 5.5, // sotto questo zoom niente numeri di difesa
     dragThreshold: 8, // px schermo prima che un tap diventi trascinamento
   },
 } as const;
@@ -346,7 +338,7 @@ export interface TechDef {
   unique?: boolean;
 }
 
-export type TileType = 'terra' | 'rovine' | 'anomalia';
+export type TileType = 'terra' | 'rovine';
 export type WorkId = 'fabbrica' | 'bunker' | 'caserma';
 export interface WorkDef {
   troops: number; timeMs: number; prodAdd: number; defenseMult: number; growthTiles: number; tech: string;

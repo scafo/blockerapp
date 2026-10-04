@@ -1,7 +1,7 @@
 // Stato logico di una run: nessuna dipendenza da Phaser.
 import { BALANCE, type AbilityType, type CampaignId, type CivId, type Resource, type UnitType, type WorkId } from '../config/balance';
 import { addBag, emptyBag, scaleBag, type Bag } from './resources';
-import { NEIGHBORS, hexDistance } from '../map/hexGrid';
+import { neighbors, hexDistance } from '../map/hexGrid';
 import { UNIT_TYPES, findPath, isNaval, rps, type Unit } from './units';
 import { isCoast, seaRoute, type Boat } from './boats';
 import { DEFAULT_OPTIONS, type RunOptions } from './camp';
@@ -42,7 +42,7 @@ export type RunEvent =
   | { type: 'eliminated'; faction: number; by: number; loot: Bag };
 
 export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'timeout';
-export type VictoryReason = 'map' | 'anomalies' | 'time' | 'tutorial';
+export type VictoryReason = 'map' | 'time' | 'tutorial';
 
 export interface RunSummary {
   seed: string;
@@ -51,7 +51,6 @@ export interface RunSummary {
   timeMs: number;
   maxTiles: number;
   maxProvinces: number;
-  anomalies: number;
   backpack: Bag; // zaino a fine run
   kept: Bag; // portato a casa dopo perdite/bonus
   tutorial: boolean;
@@ -120,9 +119,6 @@ export class RunState {
   attackRatio: number = BALANCE.attack.default;
   private flowBestD = Infinity;
   private flowSteps = 0;
-  /** provincia → contiene un'anomalia */
-  readonly provAnomaly: Uint8Array;
-  private anomalyDefMult = 1;
   /** Genio: caselle fortificate (proprietario della fortificazione, −1 = nessuna). */
   private fortBy: Int8Array;
   /** Cannoniera: caselle di costa coperte dal fuoco (fazione che ne approfitta, −1 = nessuna). */
@@ -149,8 +145,6 @@ export class RunState {
     this.owner = new Int8Array(map.tiles.length).fill(NEUTRAL);
     this.provOwner = new Int8Array(map.provinces.length).fill(NEUTRAL);
     this.provVisible = new Uint8Array(map.provinces.length).fill(1);
-    this.provAnomaly = new Uint8Array(map.provinces.length);
-    for (const a of map.anomalies) this.provAnomaly[map.tiles[a]!.province] = 1;
     this.fortBy = new Int8Array(map.tiles.length).fill(-1);
     this.supportBy = new Int8Array(map.tiles.length).fill(-1);
     this.aiRng = createRng(map.seed + ':ia');
@@ -171,9 +165,7 @@ export class RunState {
     }));
     this.visible = new Uint8Array(map.tiles.length);
     this.seen = new Uint8Array(map.tiles.length);
-    for (const a of map.anomalies) this.seen[a] = 1; // il segnale si sente da lontano
     this.cooldowns = this.factions.map(() => Object.fromEntries(UNIT_TYPES.map((t) => [t, 0])) as Record<UnitType, number>);
-    this.anomalyDefMult = opts.mods.anomalyDefenseMult;
     this.aiSpawnAt = this.factions.map(() => opts.front.graceMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
     this.nextOffensiveAt = opts.front.offensiveFirstMs;
     // economia per provincia: crescita pesata dal terreno, risorsa del terreno prevalente
@@ -435,10 +427,6 @@ export class RunState {
 
   // ---------- fine run ----------
 
-  anomaliesOwned(f = PLAYER): number {
-    return this.map.anomalies.filter((i) => this.owner[i] === f).length;
-  }
-
   get mapShare(): number {
     return this.player.tiles / Math.max(1, this.map.regionSize);
   }
@@ -450,12 +438,6 @@ export class RunState {
       return;
     }
     if (this.mapShare >= BALANCE.victory.mapShare) this.end('victory', 'map');
-    else if (this.anomaliesOwned() >= this.anomaliesToWin) this.end('victory', 'anomalies');
-  }
-
-  /** Anomalie da tenere per vincere (la ricerca sulla Caduta ne toglie una). */
-  get anomaliesToWin(): number {
-    return Math.max(1, BALANCE.victory.anomalies + this.opts.mods.anomaliesNeeded);
   }
 
   retreat() {
@@ -474,7 +456,7 @@ export class RunState {
       : outcome === 'retreat' ? 1 + this.opts.retreatBonus : outcome === 'timeout' ? 1 : 1 - this.opts.eliminatedLoss;
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
-      maxTiles: this.player.maxTiles, maxProvinces: this.player.maxProvinces, anomalies: this.anomaliesOwned(), backpack: { ...bag }, kept: scaleBag(bag, k * this.opts.campaignLootMult),
+      maxTiles: this.player.maxTiles, maxProvinces: this.player.maxProvinces, backpack: { ...bag }, kept: scaleBag(bag, k * this.opts.campaignLootMult),
       tutorial: this.opts.tutorial, civ: this.opts.civ, campaign: this.opts.campaign, front: this.opts.frontIndex,
     };
   }
@@ -572,7 +554,7 @@ export class RunState {
       const c = queue[h];
       vis[c] = 1;
       if (dist[c] <= 0) continue;
-      for (const n of NEIGHBORS[c]) if (n >= 0 && dist[n] < dist[c] - 1) {
+      for (const n of neighbors(c)) if (n >= 0 && dist[n] < dist[c] - 1) {
         dist[n] = dist[c] - 1;
         queue.push(n);
       }
@@ -657,7 +639,6 @@ export class RunState {
     const tc = this.map.provinces[T].anchor;
     let best = -1, bestD = Infinity, bestCost = Infinity;
     for (const p of this.frontier(PLAYER)) {
-      if (p !== T && this.provAnomaly[p]) continue; // l'avanzata non sbatte contro le anomalie per strada
       const d = p === T ? 0 : hexDistance(this.map.provinces[p].anchor, tc), cost = this.provCost(PLAYER, p);
       if (d < bestD || (d === bestD && cost < bestCost)) {
         best = p;
@@ -718,13 +699,12 @@ export class RunState {
     if (fx.troops) p.troops = Math.max(0, p.troops + fx.troops);
     if (fx.loot) for (const [r, v] of Object.entries(fx.loot)) p.loot[r as Resource] = Math.max(0, p.loot[r as Resource] + v);
     if (fx.growth) this.growthBoost = { mult: fx.growth.mult, until: this.gameTimeMs + fx.growth.durationMs };
-    if (fx.anomalyDefense) this.anomalyDefMult *= fx.anomalyDefense;
     if (fx.timeBonusMs) this.bonusTimeMs += fx.timeBonusMs;
     if (fx.unit) {
       // pedina gratuita su una nostra casella di confine; se non c'è posto, valore in truppe
       const border = [];
       for (let i = 0; i < this.owner.length; i++) {
-        if (this.owner[i] === PLAYER && !this.unitAt(i) && NEIGHBORS[i].some((n) => n >= 0 && this.owner[n] !== PLAYER)) border.push(i);
+        if (this.owner[i] === PLAYER && !this.unitAt(i) && neighbors(i).some((n) => n >= 0 && this.owner[n] !== PLAYER)) border.push(i);
       }
       if (border.length && this.unitsOf(PLAYER).length < BALANCE.units.maxPerFaction) {
         this.deploy(PLAYER, fx.unit, border[Math.floor(this.evRng() * border.length)], true);
@@ -780,7 +760,7 @@ export class RunState {
 
   /** Casella di mare libera accanto a una costa (dove nasce una cannoniera), −1 se non c'è. */
   private seaSpawn(coast: number): number {
-    return NEIGHBORS[coast].find((n) => n >= 0 && !this.map.tiles[n] && !this.unitAt(n)) ?? -1;
+    return neighbors(coast).find((n) => n >= 0 && !this.map.tiles[n] && !this.unitAt(n)) ?? -1;
   }
 
   /** Ordina alla pedina di andare verso `to`; false se irraggiungibile. Le navi vanno sul mare accanto alla costa toccata. */
@@ -789,7 +769,7 @@ export class RunState {
       const sea = (i: number) => i >= 0 && !this.map.tiles[i];
       let dest = to;
       if (!sea(to)) {
-        const opts = NEIGHBORS[to].filter(sea);
+        const opts = neighbors(to).filter(sea);
         if (!opts.length) return false;
         dest = opts.reduce((a, b) => (hexDistance(a, u.tile) <= hexDistance(b, u.tile) ? a : b));
       }
@@ -843,7 +823,7 @@ export class RunState {
       }
       if (isNaval(u.type) || !this.map.tiles[u.tile]) {
         // le navi non conquistano: si riparano vicino a una tua costa
-        if (!u.inCombat && NEIGHBORS[u.tile].some((n) => n >= 0 && this.owner[n] === u.owner)) u.hp = Math.min(u.maxHp, u.hp + U.healPerTick);
+        if (!u.inCombat && neighbors(u.tile).some((n) => n >= 0 && this.owner[n] === u.owner)) u.hp = Math.min(u.maxHp, u.hp + U.healPerTick);
       } else if (this.owner[u.tile] !== u.owner) {
         // la pedina prende tutta la provincia in cui entra
         const p = this.provOf(u.tile);
@@ -863,14 +843,14 @@ export class RunState {
     this.supportBy.fill(-1);
     for (const u of this.units) {
       if (u.type === 'genio') {
-        for (const i of [u.tile, ...NEIGHBORS[u.tile]]) if (i >= 0 && this.owner[i] === u.owner) this.fortBy[i] = u.owner;
+        for (const i of [u.tile, ...neighbors(u.tile)]) if (i >= 0 && this.owner[i] === u.owner) this.fortBy[i] = u.owner;
       } else if (isNaval(u.type)) {
         const R = BALANCE.units.supportRange;
         const seen = new Set([u.tile]);
         let ring = [u.tile];
         for (let r = 0; r < R; r++) {
           const next: number[] = [];
-          for (const c of ring) for (const n of NEIGHBORS[c]) if (n >= 0 && !seen.has(n)) { seen.add(n); next.push(n); }
+          for (const c of ring) for (const n of neighbors(c)) if (n >= 0 && !seen.has(n)) { seen.add(n); next.push(n); }
           ring = next;
         }
         for (const i of seen) if (this.map.tiles[i]) this.supportBy[i] = u.owner;
@@ -1034,7 +1014,6 @@ export class RunState {
     let d = 0;
     for (const i of this.map.provinces[p].tiles) if (this.passable(i)) d += this.costFor(by, i);
     if (by === PLAYER) d *= this.opts.mods.attackCostMult; // dottrina d'assalto
-    if (this.provAnomaly[p]) return Math.ceil(d); // i Frammenti restano un obiettivo raggiungibile
     return Math.ceil(d * (1 + BALANCE.overextension * Math.max(0, this.factions[by].provinces - 1)));
   }
 
@@ -1057,7 +1036,7 @@ export class RunState {
     const work = this.workOf(t.province);
     // bunker: chiunque tenga la provincia (le fortezze rinforzano i tuoi)
     const bunker = work ? 1 + (BALANCE.works[work].defenseMult - 1) * (o === PLAYER ? this.opts.mods.bunkerMult : 1) : 1;
-    const base = (t.type === 'anomalia' ? Math.ceil(t.defense * this.anomalyDefMult) : t.defense) * bunker;
+    const base = t.defense * bunker;
     if (o === NEUTRAL) return Math.ceil(base);
     const f = this.factions[o];
     const garrison = Math.min((f.troops / Math.max(1, f.tiles)) * BALANCE.owned.garrison, BALANCE.owned.garrisonMax);

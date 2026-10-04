@@ -1,9 +1,10 @@
 // Carta delle province già pronta (generata da scripts/build-map.ts): confini veri, province, caselle → provincia.
-import data from '../data/worldmap.json';
+// Arriva come binario compatto in base64 (src/data/worldmap.ts) e si decodifica una volta in array tipizzati.
+import { WORLD_DATA, WORLD_META } from '../data/worldmap';
 import { BALANCE } from '../config/balance';
 
 export interface WorldChain {
-  pts: number[]; // [x0,y0,x1,y1,...] in pixel-mondo
+  pts: Float32Array; // [x0,y0,x1,y1,...] in pixel-mondo
   a: number; // provincia da un lato
   b: number; // provincia dall'altro (−1 = mare)
   closed: boolean;
@@ -22,34 +23,54 @@ let cache: WorldAsset | null = null;
 
 export function loadWorld(): WorldAsset {
   if (cache) return cache;
-  const d = data as unknown as {
-    scale: number; cols: number; rows: number; names: string[];
-    provinces: { c: number; r: number[][] }[]; chains: { a: number; b: number; z: number; d: number[] }[]; tiles: number[]; terrain: number[];
-  };
   const { cols, rows } = BALANCE.map;
-  if (d.cols !== cols || d.rows !== rows) throw new Error('worldmap.json non corrisponde alla griglia: npx vite-node scripts/build-map.ts');
-  const chains = d.chains.map((c) => {
-    const pts = new Array<number>(c.d.length);
-    let x = 0, y = 0;
-    for (let k = 0; k < c.d.length; k += 2) {
-      x += c.d[k];
-      y += c.d[k + 1];
-      pts[k] = x / d.scale;
-      pts[k + 1] = y / d.scale;
-    }
-    return { pts, a: c.a, b: c.b, closed: c.z === 1 };
-  });
-  const tileProv = new Int16Array(cols * rows);
-  for (let k = 0, i = 0; k < d.tiles.length; k += 2) tileProv.fill(d.tiles[k], i, (i += d.tiles[k + 1]));
-  const tileTerrain = new Int8Array(cols * rows);
-  for (let k = 0, i = 0; k < d.terrain.length; k += 2) tileTerrain.fill(d.terrain[k], i, (i += d.terrain[k + 1]));
-  cache = {
-    names: d.names,
-    provCountry: Int16Array.from(d.provinces.map((p) => p.c)),
-    provRings: d.provinces.map((p) => p.r),
-    chains,
-    tileProv,
-    tileTerrain,
+  const M = WORLD_META;
+  if (M.cols !== cols || M.rows !== rows) throw new Error('la carta non corrisponde alla griglia: npm run build:map');
+  const bin = atob(WORLD_DATA);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  let p = 0;
+  const u = () => {
+    let n = 0, m = 1, b: number;
+    do { b = buf[p++]; n += (b & 127) * m; m *= 128; } while (b & 128);
+    return n;
   };
+  const s = () => { const n = u(); return n % 2 ? -(n + 1) / 2 : n / 2; };
+  const nProv = u();
+  const provCountry = new Int16Array(nProv);
+  const provRings: number[][][] = [];
+  for (let k = 0; k < nProv; k++) {
+    provCountry[k] = s();
+    const rings: number[][] = [];
+    for (let r = u(); r > 0; r--) {
+      const ring: number[] = [];
+      for (let n = u(); n > 0; n--) ring.push(s());
+      rings.push(ring);
+    }
+    provRings.push(rings);
+  }
+  const chains: WorldChain[] = [];
+  for (let k = u(); k > 0; k--) {
+    const a = u(), b = s(), closed = u() === 1, n = u();
+    const pts = new Float32Array(n * 2);
+    let x = 0, y = 0;
+    for (let j = 0; j < n; j++) {
+      x += s();
+      y += s();
+      pts[2 * j] = x / M.scale;
+      pts[2 * j + 1] = y / M.scale;
+    }
+    chains.push({ pts, a, b, closed });
+  }
+  const runs = <T extends Int16Array | Int8Array>(out: T) => {
+    for (let k = u(), i = 0; k > 0; k--) {
+      const v = s();
+      out.fill(v, i, (i += u()));
+    }
+    return out;
+  };
+  const tileProv = runs(new Int16Array(cols * rows));
+  const tileTerrain = runs(new Int8Array(cols * rows));
+  cache = { names: M.names, provCountry, provRings, chains, tileProv, tileTerrain };
   return cache;
 }

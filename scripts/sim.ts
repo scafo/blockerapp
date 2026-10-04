@@ -90,5 +90,5 @@ for (let r = 0; r < runs; r++) {
   const t = Math.round(st.gameTimeMs / 1000);
   const sum = st.summary();
   const kept = sum.kept.metallo + sum.kept.benzina + sum.kept.cibo;
-  console.log(`run ${r}: ${st.over ?? 'vivo'}${sum.reason ? '/' + sum.reason : ''} a ${t}s, anomalie ${sum.anomalies}, porta a casa ${kept}, primo attacco subito ${firstContact < 0 ? '-' : Math.round(firstContact / 1000) + 's'} | ${marks.join(' ')} | province ogni 2 min ${snaps.join('  ')}`);
+  console.log(`run ${r}: ${st.over ?? 'vivo'}${sum.reason ? '/' + sum.reason : ''} a ${t}s, porta a casa ${kept}, primo attacco subito ${firstContact < 0 ? '-' : Math.round(firstContact / 1000) + 's'} | ${marks.join(' ')} | province ogni 2 min ${snaps.join('  ')}`);
 }

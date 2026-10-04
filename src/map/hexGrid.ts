@@ -29,16 +29,21 @@ export function lonLat(i: number): [number, number] {
 const EVEN: [number, number][] = [[0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, 0]];
 const ODD: [number, number][] = [[1, 1], [0, 1], [-1, 0], [0, -1], [1, -1], [1, 0]];
 
-/** Vicini per lato (−1 se fuori griglia). */
+/** Vicini per lato (−1 se fuori griglia), calcolati al volo: una tabella per mezzo milione di caselle peserebbe decine di MB. */
 export function neighborsBySide(i: number): number[] {
-  const c = colOf(i), r = rowOf(i);
-  return ((r & 1) ? ODD : EVEN).map(([dc, dr]) => {
-    const nc = c + dc, nr = r + dr;
-    return nc < 0 || nc >= cols || nr < 0 || nr >= rows ? -1 : idx(nc, nr);
-  });
+  const c = i % cols, r = (i - c) / cols, D = (r & 1) ? ODD : EVEN;
+  const out = new Array<number>(6);
+  for (let k = 0; k < 6; k++) {
+    const nc = c + D[k][0], nr = r + D[k][1];
+    out[k] = nc < 0 || nc >= cols || nr < 0 || nr >= rows ? -1 : nr * cols + nc;
+  }
+  return out;
 }
 
-export const NEIGHBORS: number[][] = Array.from({ length: cols * rows }, (_, i) => neighborsBySide(i));
+export const neighbors = neighborsBySide;
+
+/** Caselle della griglia (terra e mare). */
+export const CELLS = cols * rows;
 
 export function corners(x: number, y: number, size: number = S): { x: number; y: number }[] {
   const out = [];

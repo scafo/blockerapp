@@ -7,10 +7,10 @@ import { loadPrefs, loadProfile, saveProfile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
 import { PALETTE } from '../config/palette';
 import { generateMap, type RunMap } from '../map/generate';
-import { NEIGHBORS, WORLD_H, WORLD_W, center, corners, pixelToIndex } from '../map/hexGrid';
+import { neighbors, WORLD_H, WORLD_W, center, corners, pixelToIndex } from '../map/hexGrid';
 import { buildShapes, provinceAtPoint, type MapShapes } from '../map/provinceShapes';
 import { loadWorld } from '../map/worldAsset';
-import { ProvinceLayer } from '../render/ProvinceLayer';
+import { TerritoryLayer, fillProvince, type TerritoryFill } from '../render/TerritoryLayer';
 import { NEUTRAL, PLAYER, RunState, WORKS } from '../game/RunState';
 import { WORK_NAME, drawWorkIcon } from '../ui/workIcons';
 import { FACTION_INFO, assignFactions } from '../game/factions';
@@ -36,14 +36,19 @@ export class RunScene extends Phaser.Scene {
   map!: RunMap;
   /** forme smussate delle province (bordi, sagome) */
   shapes!: MapShapes;
-  private ownLayer!: ProvinceLayer;
+  private territory!: TerritoryLayer;
+  private frontOk = new Map<number, boolean>(); // province attaccabili → abbordabili
+  private landColor = new Int32Array(0); // tono di ogni provincia sulla carta
+  private relief!: Phaser.GameObjects.RenderTexture;
+  private glow!: Phaser.GameObjects.RenderTexture; // acque basse a bassa risoluzione (resta per lo strato vettoriale)
+  private seaGfx!: Phaser.GameObjects.Graphics;
+  private landMode = false; // da vicino la terra la disegna lo strato vettoriale (nitida), da lontano basta la carta cotta
   private borderGfx!: Phaser.GameObjects.Graphics;
   private borderKey = '';
   private chainBox: Float32Array = new Float32Array(0);
   private ruinTiles: number[] = [];
   private workTimer = 0;
-  private frontImgs = new Map<number, Phaser.GameObjects.Image>();
-  private planImgs = new Map<number, Phaser.GameObjects.Image>();
+  private planImgs = new Map<number, Phaser.GameObjects.Graphics>();
   /** Etichette per l'interfaccia (spazio schermo, sempre nitide). */
   nationLabels: NationLabel[] = [];
   frontLabels: WorldLabel[] = [];
@@ -128,23 +133,25 @@ export class RunScene extends Phaser.Scene {
     });
     const before = this.children.list.length;
     this.drawSea();
+    this.drawCoastGlow();
     this.drawLand();
     this.bakeStatic(this.children.list.slice(before));
     this.drawRelief();
-    this.ownLayer?.destroy(this);
-    this.ownLayer = new ProvinceLayer(this, this.shapes.provinces, LOW_END ? 1.2 : 1.8, D.owned);
+    this.seaGfx = this.make.graphics({}, false);
+    this.territory?.destroy();
+    this.territory = new TerritoryLayer(this, this.shapes.provinces, D.owned, Math.min(1, 2 / DPR));
+    this.frontOk = new Map();
     this.borderGfx = this.add.graphics().setDepth(D.borders);
     this.borderKey = '';
-    this.frontImgs = new Map();
     this.planImgs = new Map();
-    // nebbia sopra i colori delle fazioni ma sotto anomalie, tempesta e pedine
+    // nebbia sopra i colori delle fazioni ma sotto pedine e segni
     this.fogVersion = -1;
     this.namesShown = true;
     this.fogRT = this.add.renderTexture(0, 0, Math.ceil(WORLD_W * FOG_RES), Math.ceil(WORLD_H * FOG_RES)).setOrigin(0).setScale(1 / FOG_RES)
       .setVisible(opts.fog);
     this.fogBrush = this.make.graphics({}, false);
     this.boatSprites = new Map();
-    this.drawAnomalies();
+    this.drawNationNames();
     this.flowMarker = this.add.graphics().setDepth(D.units).setVisible(false);
     this.flowMarker.lineStyle(2.5, 0xffffff, 1).strokeCircle(0, 0, S * 0.9).lineStyle(1.5, 0xffffff, 0.8).strokeCircle(0, 0, S * 0.45);
     this.tweens.add({ targets: this.flowMarker, scale: { from: 0.8, to: 1.25 }, duration: 380, yoyo: true, repeat: -1 });
@@ -190,10 +197,6 @@ export class RunScene extends Phaser.Scene {
         if (e.by === PLAYER) {
           if (e.p !== this.tapFxTile && pops++ < 8) this.popFx(e.p);
           this.hud.tutorialSignal('conquer');
-        }
-        if (this.state.provAnomaly[e.p] && e.by !== NEUTRAL && (e.by === PLAYER || e.from === PLAYER)) {
-          if (e.by === PLAYER) this.anomalyFx(this.map.anomalies.find((a) => this.map.tiles[a]!.province === e.p) ?? e.i);
-          this.hud.onAnomaly(this.state.anomaliesOwned(), e.by === PLAYER);
         }
         if (e.from === PLAYER && e.by !== NEUTRAL && time - this.lastHitFx > 250) {
           this.lastHitFx = time;
@@ -268,6 +271,15 @@ export class RunScene extends Phaser.Scene {
       if (this.state.provWorkAt.some((t) => t > 0)) this.borderKey = ''; // avanzamento dei cantieri
     }
     this.redrawBorders();
+    const zc = this.cameras.main.zoom / UI();
+    const landMode = zc >= 2.2; // da qui in su la carta cotta si vedrebbe sgranata
+    if (landMode !== this.landMode) {
+      this.landMode = landMode;
+      this.relief.setVisible(!landMode);
+      this.territory.invalidate();
+    }
+    this.territory.update(time, zc < 2.8 ? 4 : zc < 5.2 ? 2 : 1, (a, b, c, d) => this.territoryFills(a, b, c, d),
+      { before: (...a) => this.drawSeaInto(...a), mid: (...a) => this.drawReliefInto(...a) });
     this.syncPlan();
     this.nameTimer -= delta;
     if (this.nameTimer <= 0) {
@@ -349,14 +361,32 @@ export class RunScene extends Phaser.Scene {
     for (let lon = -180; lon <= 180; lon += 15) g.lineBetween(this.lonX(lon), 0, this.lonX(lon), WORLD_H);
     for (let lat = -45; lat <= 75; lat += 15) if (lat <= latMax && lat >= latMin) g.lineBetween(0, this.latY(lat), WORLD_W, this.latY(lat));
     g.lineStyle(0.6, MP.reticolo, 1).lineBetween(0, this.latY(0), WORLD_W, this.latY(0)); // equatore
-    // acque basse: alone largo e morbido lungo le coste
-    for (const [w, a] of [[7, 0.16], [3.5, 0.3]] as const) {
-      g.lineStyle(w, MP.mareCosta, a);
-      for (const c of this.shapes.chains) if (c.a < 0 || c.b < 0) this.strokeChain(g, c.pts, c.closed);
-    }
   }
 
-  private strokeChain(g: Phaser.GameObjects.Graphics, pts: number[], closed: boolean, step = 1) {
+  /**
+   * Acque basse: alone morbido lungo le coste, disegnato in una texture a bassa risoluzione e poi ingrandito (sfuma da
+   * solo). Tratti larghi disegnati direttamente avrebbero il bordo esterno seghettato.
+   */
+  private drawCoastGlow() {
+    const R = 0.4, MP = PALETTE.mappa;
+    const mixC = (a: number, b: number, t: number) => {
+      const ch = (s: number) => Math.round(((a >> s) & 255) * (1 - t) + ((b >> s) & 255) * t) << s;
+      return ch(16) | ch(8) | ch(0);
+    };
+    this.glow?.destroy();
+    const rt = (this.glow = this.make.renderTexture({ x: 0, y: 0, width: Math.ceil(WORLD_W * R) + 2, height: Math.ceil(WORLD_H * R) + 2 }, false)
+      .setOrigin(0).setScale(1 / R));
+    const g = this.make.graphics({}, false).setScale(R);
+    for (const [w, t] of [[9, 0.06], [6.5, 0.14], [4.2, 0.24], [2.2, 0.36]] as const) {
+      g.lineStyle(w, mixC(MP.fondo, MP.mareCosta, t), 1);
+      for (const c of this.shapes.chains) if (c.a < 0 || c.b < 0) this.strokeChain(g, c.pts, c.closed, 2);
+    }
+    rt.draw(g);
+    g.destroy();
+    this.add.image(0, 0, rt.texture).setOrigin(0).setScale(1 / R); // copia per la carta cotta (che poi la distrugge)
+  }
+
+  private strokeChain(g: Phaser.GameObjects.Graphics, pts: ArrayLike<number>, closed: boolean, step = 1) {
     const out: Phaser.Types.Math.Vector2Like[] = [];
     for (let j = 0; j < pts.length; j += 2 * step) out.push({ x: pts[j], y: pts[j + 1] });
     if (!closed && (pts.length / 2 - 1) % step) out.push({ x: pts[pts.length - 2], y: pts[pts.length - 1] });
@@ -370,6 +400,7 @@ export class RunScene extends Phaser.Scene {
   private drawLand() {
     const g = this.add.graphics();
     const MP = PALETTE.mappa, provs = this.map.provinces, tiles = this.map.tiles;
+    this.landColor = new Int32Array(provs.length).fill(MP.fondo);
     // colori delle nazioni: greedy sul grafo dei confini
     const tone = new Map<number, number>();
     const nb = new Map<number, Set<number>>();
@@ -390,7 +421,7 @@ export class RunScene extends Phaser.Scene {
       const ch = (s: number) => Math.round(((a >> s) & 255) * (1 - t) + ((b >> s) & 255) * t) << s;
       return ch(16) | ch(8) | ch(0);
     };
-    const pts = (r: number[]) => {
+    const pts = (r: ArrayLike<number>) => {
       const out: Phaser.Types.Math.Vector2Like[] = [];
       for (let j = 0; j < r.length; j += 2) out.push({ x: r[j], y: r[j + 1] });
       return out;
@@ -409,6 +440,7 @@ export class RunScene extends Phaser.Scene {
         color = mix(color, 0x66745a, frac('colline') * 0.16);
         color = jitter > 0 ? mix(color, 0xffffff, jitter) : mix(color, 0x000000, -jitter);
       }
+      if (r.id >= 0) this.landColor[r.id] = color;
       for (const part of r.parts) {
         g.fillStyle(color, 1).lineStyle(1, color, 1).fillPoints(pts(part.outer), true).strokePoints(pts(part.outer), true, true); // niente fessure tra vicine
         for (const h of part.holes) g.fillStyle(MP.fondo, 1).fillPoints(pts(h), true); // le enclavi arrivano dopo, sopra
@@ -422,21 +454,33 @@ export class RunScene extends Phaser.Scene {
    * Sotto i colori delle fazioni: sopra il territorio parlano i simboli del terreno.
    */
   private drawRelief() {
-    const R = 0.5; // pixel di texture per pixel-mondo
-    const rt = this.add.renderTexture(0, 0, Math.ceil(WORLD_W * R), Math.ceil(WORLD_H * R)).setOrigin(0).setScale(1 / R).setDepth(0.5);
+    const R = 0.75; // pixel di texture per pixel-mondo
+    const rt = (this.relief = this.add.renderTexture(0, 0, Math.ceil(WORLD_W * R), Math.ceil(WORLD_H * R)).setOrigin(0).setScale(1 / R).setDepth(0.5));
     const g = this.make.graphics({}, false);
+    // niente rilievo a ridosso del mare: le macchie finirebbero sull'acqua
+    const tiles = this.map.tiles, coast = new Uint8Array(tiles.length);
+    let ring = this.map.land.filter((i) => neighbors(i).some((n) => n < 0 || !tiles[n]));
+    for (const i of ring) coast[i] = 1;
+    for (let d = 2; d <= 2; d++) {
+      const next: number[] = [];
+      for (const i of ring) for (const n of neighbors(i)) if (n >= 0 && tiles[n] && !coast[n]) { coast[n] = d; next.push(n); }
+      ring = next;
+    }
+    // macchie sfumate (tre cerchi concentrici): sovrapposte tra caselle vicine fanno un rilievo morbido, non un mosaico
+    const blob = (x: number, y: number, r: number, color: number, a: number) => {
+      for (const k of [1, 0.66, 0.33]) g.fillStyle(color, a / 3).fillCircle(x * R, y * R, r * k * R);
+    };
     for (const i of this.map.land) {
-      const t = this.map.tiles[i]!.terrain;
-      if (t === 'pianura') continue;
+      const t = tiles[i]!.terrain;
+      if (t === 'pianura' || coast[i]) continue;
       const { x, y } = center(i);
-      // macchie larghe e tenui: si sovrappongono tra caselle vicine e sfumano invece di fare un mosaico
       if (t === 'deserto') {
-        g.fillStyle(0xe8cf95, 0.045).fillCircle(x * R, y * R, S * 2.2 * R);
+        blob(x, y, S * 2.2, 0xe8cf95, 0.07);
         continue;
       }
       const k = t === 'montagne' ? 1 : 0.45;
-      g.fillStyle(0xe4ebf2, 0.05 * k).fillCircle((x - S * 0.6) * R, (y - S * 0.65) * R, S * 2.4 * R);
-      g.fillStyle(0x000000, 0.065 * k).fillCircle((x + S * 0.65) * R, (y + S * 0.7) * R, S * 2.2 * R);
+      blob(x - S * 0.6, y - S * 0.65, S * 2.4, 0xe4ebf2, 0.08 * k);
+      blob(x + S * 0.65, y + S * 0.7, S * 2.2, 0x000000, 0.1 * k);
     }
     rt.draw(g);
     g.destroy();
@@ -454,13 +498,60 @@ export class RunScene extends Phaser.Scene {
   }
 
   private redrawOwned() {
-    const own = this.state.provOwner, tone = this.ownTone;
-    for (let p = 0; p < own.length; p++) {
-      const o = own[p];
-      const hidden = o !== PLAYER && !this.state.seesProv(p);
-      this.ownLayer.set(p, o === NEUTRAL || hidden ? null : tone[o], 1);
-    }
+    this.territory.invalidate();
     this.borderKey = ''; // confini da ridisegnare
+  }
+
+  /** Cosa colorare nel riquadro: territorio delle potenze (i nemici nella nebbia no) e velo chiaro sul fronte. */
+  private territoryFills(x0: number, y0: number, x1: number, y1: number): TerritoryFill[] {
+    const own = this.state.provOwner, tone = this.ownTone, shapes = this.shapes.provinces, out: TerritoryFill[] = [];
+    for (let p = 0; p < own.length; p++) {
+      const s = shapes[p];
+      if (!s.parts.length || s.x1 < x0 || s.x0 > x1 || s.y1 < y0 || s.y0 > y1) continue;
+      if (this.landMode) out.push({ p, color: this.landColor[p], alpha: 1, layer: 0 });
+      const o = own[p];
+      if (o === NEUTRAL || (o !== PLAYER && !this.state.seesProv(p))) continue;
+      out.push({ p, color: tone[o], alpha: 1, layer: 1 });
+    }
+    for (const [p, ok] of this.frontOk) {
+      const s = shapes[p];
+      if (s.x1 < x0 || s.x0 > x1 || s.y1 < y0 || s.y0 > y1) continue;
+      out.push({ p, color: 0xffffff, alpha: ok ? 0.2 : 0.07, layer: 1 });
+    }
+    return out;
+  }
+
+  /** Da vicino il mare lo disegna lo strato vettoriale: copre la carta cotta, che ai bordi delle coste si vedrebbe sgranata. */
+  private drawSeaInto(rt: Phaser.GameObjects.RenderTexture, x0: number, y0: number, w: number, h: number, z: number) {
+    if (!this.landMode) return;
+    const MP = PALETTE.mappa, g = this.seaGfx.clear().setPosition(-x0 * z, -y0 * z).setScale(z);
+    g.fillStyle(MP.fondo, 1).fillRect(x0, y0, w, h);
+    rt.draw(g);
+    g.clear();
+    const gl = this.glow, s = gl.scaleX;
+    gl.setScale(s * z);
+    rt.draw(gl, -x0 * z, -y0 * z);
+    gl.setScale(s);
+    // reticolo sottile (un pixel) sopra le acque basse
+    const lw = 1.2 / z, { latMax, latMin } = BALANCE.map;
+    g.lineStyle(lw, MP.reticolo, 1);
+    for (let lon = -180; lon <= 180; lon += 15) { const x = this.lonX(lon); if (x >= x0 && x <= x0 + w) g.lineBetween(x, y0, x, y0 + h); }
+    for (let lat = -45; lat <= 75; lat += 15) {
+      if (lat > latMax || lat < latMin) continue;
+      const y = this.latY(lat);
+      if (y >= y0 && y <= y0 + h) g.lineStyle(lat === 0 ? lw * 1.7 : lw, MP.reticolo, 1).lineBetween(x0, y, x0 + w, y);
+    }
+    rt.draw(g);
+    g.clear();
+  }
+
+  /** Il rilievo dentro lo strato vettoriale, tra la terra e il territorio. */
+  private drawReliefInto(rt: Phaser.GameObjects.RenderTexture, x0: number, y0: number, _w: number, _h: number, z: number) {
+    if (!this.landMode) return;
+    const r = this.relief, s = r.scaleX;
+    r.setVisible(true).setScale(s * z);
+    rt.draw(r, -x0 * z, -y0 * z);
+    r.setScale(s).setVisible(false);
   }
 
   /**
@@ -477,7 +568,7 @@ export class RunScene extends Phaser.Scene {
     const seen = (p: number) => (p < 0 ? NEUTRAL : own[p] !== PLAYER && !this.state.seesProv(p) ? NEUTRAL : own[p]);
     const z = cam.zoom / UI(); // zoom in punti CSS
     const px = 1 / z; // un punto sullo schermo, in pixel-mondo
-    const step = z < 1.6 ? 4 : z < 3 ? 2 : 1; // da lontano meno punti
+    const step = z < 2.8 ? 4 : z < 5.2 ? 2 : 1; // da lontano meno punti
     const box = this.chainBox, m = 4;
     const inView = (k: number) => !(box[k * 4 + 2] < v.x - m || box[k * 4] > v.right + m || box[k * 4 + 3] < v.y - m || box[k * 4 + 1] > v.bottom + m);
     // carta politica: province sottili (solo da vicino), nazioni chiare, coste nette
@@ -485,7 +576,7 @@ export class RunScene extends Phaser.Scene {
       if (!inView(k)) return;
       const pa = c.a >= 0 ? provs[c.a] : null, pb = c.b >= 0 ? provs[c.b] : null;
       if (pa && pb && pa.country === pb.country) {
-        if (z < 2.1) return;
+        if (z < 3.6) return;
         g.lineStyle(1.1 * px, MP.provincia, 0.7);
       } else if (pa && pb) g.lineStyle(1.6 * px, MP.confine, 0.55);
       else g.lineStyle(1.3 * px, MP.costa, 0.7);
@@ -495,14 +586,22 @@ export class RunScene extends Phaser.Scene {
     this.drawCities(g, v, px);
     this.drawWorks(g, v, px);
     // confini tra potenze, sopra
-    const w = 2.2 * px;
+    const w = 2 * px;
+    const edges: { k: number; o: number }[] = [];
     this.shapes.chains.forEach((c, k) => {
       const oa = seen(c.a), ob = seen(c.b);
       if (oa === ob || !inView(k)) return;
-      const o = oa === PLAYER || ob === PLAYER ? PLAYER : oa !== NEUTRAL ? oa : ob;
-      g.lineStyle(o === PLAYER ? w * 1.25 : w, FACTION_INFO[o].border, 1);
-      this.strokeChain(g, c.pts, c.closed, step);
+      edges.push({ k, o: oa === PLAYER || ob === PLAYER ? PLAYER : oa !== NEUTRAL ? oa : ob });
     });
+    // prima un'ombra scura larga, poi la linea chiara: contorno netto e leggibile su mare, terra e altri colori
+    for (const { k, o } of edges) {
+      g.lineStyle((o === PLAYER ? 5 : 4) * px, 0x05090f, 0.55);
+      this.strokeChain(g, this.shapes.chains[k].pts, this.shapes.chains[k].closed, step);
+    }
+    for (const { k, o } of edges) {
+      g.lineStyle(o === PLAYER ? w * 1.3 : w, FACTION_INFO[o].border, 1);
+      this.strokeChain(g, this.shapes.chains[k].pts, this.shapes.chains[k].closed, step);
+    }
   }
 
   /** Simbolo + nome di ogni fazione nel punto più interno del suo territorio, più grande se l'impero cresce. */
@@ -512,14 +611,14 @@ export class RunScene extends Phaser.Scene {
     const queue: number[] = [];
     for (let i = 0; i < own.length; i++) {
       if (own[i] === NEUTRAL) continue;
-      if (NEIGHBORS[i].some((n) => n < 0 || own[n] !== own[i])) {
+      if (neighbors(i).some((n) => n < 0 || own[n] !== own[i])) {
         dist[i] = 0;
         queue.push(i);
       }
     }
     for (let h = 0; h < queue.length; h++) {
       const c = queue[h];
-      for (const n of NEIGHBORS[c]) {
+      for (const n of neighbors(c)) {
         if (n >= 0 && dist[n] < 0 && own[n] === own[c]) {
           dist[n] = dist[c] + 1;
           queue.push(n);
@@ -549,17 +648,8 @@ export class RunScene extends Phaser.Scene {
     const key = ok.map((v) => (v ? 1 : 0)).join('') + front.join(',');
     if (!force && key === this.lastAffordable) return;
     this.lastAffordable = key;
-    const keep = new Set(front);
-    for (const [p, img] of this.frontImgs) if (!keep.has(p)) { img.destroy(); this.frontImgs.delete(p); }
-    front.forEach((p, k) => {
-      let img = this.frontImgs.get(p);
-      if (!img) {
-        const g = this.ownLayer.ghost(this, p, 0xffffff, 0, D.front);
-        if (!g) return;
-        this.frontImgs.set(p, (img = g));
-      }
-      img.setAlpha(ok[k] ? 0.2 : 0.06);
-    });
+    this.frontOk = new Map(front.map((p, k) => [p, ok[k]]));
+    this.territory.invalidate();
     this.updateLabels();
   }
 
@@ -584,8 +674,8 @@ export class RunScene extends Phaser.Scene {
     for (const [p, img] of this.planImgs) if (!keep.has(p)) { img.destroy(); this.planImgs.delete(p); }
     for (const p of plan) {
       if (this.planImgs.has(p)) continue;
-      const img = this.ownLayer.ghost(this, p, PALETTE.radioattivo, 0.42, D.front);
-      if (!img) continue;
+      const img = this.add.graphics().setDepth(D.front).setAlpha(0.42).fillStyle(PALETTE.radioattivo, 1);
+      fillProvince(img, this.shapes.provinces[p]);
       this.tweens.add({ targets: img, alpha: 0.18, duration: 700, yoyo: true, repeat: -1 });
       this.planImgs.set(p, img);
     }
@@ -759,9 +849,8 @@ export class RunScene extends Phaser.Scene {
     this.state.retreat();
   }
 
-  // ---------- anomalie e tempesta ----------
+  // ---------- nomi ----------
 
-  /** Anomalie: anelli di segnale che pulsano, sopra il colore del proprietario. */
   /** Nomi delle nazioni: li disegna l'interfaccia in giallo terminale (vedi MapLabels). */
   private drawNationNames() {
     this.nationLabels = this.map.nations.filter((n) => n.size >= BALANCE.provinces.nameMinTiles).map((n) => {
@@ -772,7 +861,7 @@ export class RunScene extends Phaser.Scene {
 
   /** Simboli del terreno da vicino: picchi sulle montagne, archi sulle colline (a scacchiera, per non affollare). */
   private drawTerrainGlyphs(g: Phaser.GameObjects.Graphics, v: Phaser.Geom.Rectangle, px: number, z: number) {
-    if (z < 2.9) return;
+    if (z < 4.4) return;
     const { cols, rows } = BALANCE.map;
     const r0 = Math.max(0, Math.floor((v.y - 2 * S) / (1.5 * S))), r1 = Math.min(rows - 1, Math.ceil((v.bottom + 2 * S) / (1.5 * S)));
     const hw = Math.sqrt(3) * S;
@@ -820,7 +909,7 @@ export class RunScene extends Phaser.Scene {
   private drawCities(g: Phaser.GameObjects.Graphics, v: Phaser.Geom.Rectangle, px: number) {
     const MP = PALETTE.mappa, z = 1 / px;
     const inV = (x: number, y: number) => x > v.x - 8 && x < v.right + 8 && y > v.y - 8 && y < v.bottom + 8;
-    if (z >= 3.4) {
+    if (z >= 5.9) {
       g.fillStyle(MP.segno, 0.55);
       for (const i of this.ruinTiles) {
         const { x, y } = center(i);
@@ -840,30 +929,16 @@ export class RunScene extends Phaser.Scene {
           star.push({ x: x + r * Math.cos(a), y: y + r * Math.sin(a) });
         }
         g.fillStyle(MP.capitale, 1).fillPoints(star, true).lineStyle(1 * px, 0x000000, 0.6).strokePoints(star, true, true);
-      } else if (z >= 2.4) {
+      } else if (z >= 4.2) {
         g.fillStyle(0x000000, 0.5).fillCircle(x, y, 3 * px).fillStyle(MP.segno, 0.95).fillCircle(x, y, 2 * px);
       }
     }
   }
 
-  /** Anomalie: frammenti della Caduta, anelli di luce fredda che pulsano sopra il colore del proprietario. */
-  private drawAnomalies() {
-    this.drawNationNames();
-    const g = this.add.graphics().setDepth(D.marks);
-    for (const i of this.map.anomalies) {
-      const { x, y } = center(i);
-      g.lineStyle(0.9, PALETTE.mappa.segnale, 1).strokeCircle(x, y, S * 0.45).strokeCircle(x, y, S * 0.85);
-      g.fillStyle(0xffffff, 1).fillCircle(x, y, 1.1);
-      const pulse = this.add.graphics({ x, y }).setDepth(D.marks);
-      pulse.lineStyle(1, PALETTE.mappa.segnale, 1).strokeCircle(0, 0, S * 0.8);
-      this.tweens.add({ targets: pulse, scale: { from: 0.6, to: 2.4 }, alpha: { from: 0.9, to: 0 }, duration: 1800, repeat: -1 });
-    }
-  }
-
   /** Lampo su tutta la sagoma della provincia. */
   private flashProvince(p: number, color: number, from: number, ms: number) {
-    const g = this.ownLayer.ghost(this, p, color, from, D.fx);
-    if (!g) return;
+    const g = this.add.graphics().setDepth(D.fx).setAlpha(from).fillStyle(color, 1);
+    fillProvince(g, this.shapes.provinces[p]);
     this.tweens.add({ targets: g, alpha: 0, duration: ms, ease: 'Quad.easeOut', onComplete: () => g.destroy() });
   }
 
@@ -1053,20 +1128,6 @@ export class RunScene extends Phaser.Scene {
     this.flashProvince(p, 0xffffff, 0.5, 360);
   }
 
-  /** Anomalia presa: onda del segnale, scossone, particelle radioattive. */
-  private anomalyFx(i: number) {
-    const { x, y } = center(i);
-    for (let k = 0; k < 3; k++) {
-      const ring = this.add.graphics({ x, y }).setDepth(9);
-      ring.lineStyle(3, PALETTE.mappa.segnale, 1).strokeCircle(0, 0, S);
-      this.tweens.add({ targets: ring, scale: 6, alpha: 0, delay: k * 140, duration: 900, ease: 'Quad.easeOut', onComplete: () => ring.destroy() });
-    }
-    this.burst.setParticleTint(PALETTE.mappa.segnale);
-    this.burst.explode(30, x, y);
-    this.cameras.main.shake(260, 0.006);
-    buzz([30, 40, 60]);
-  }
-
   /** Una nostra provincia è caduta: lampo rosso. */
   private lostFx(p: number, by: number) {
     const { x, y } = center(this.map.provinces[p].anchor);
@@ -1119,7 +1180,7 @@ export class RunScene extends Phaser.Scene {
     const i = pixelToIndex(x, y);
     if (i < 0) return i;
     // la griglia è solo approssimata: decide la sagoma vera della provincia toccata
-    const near = [i, ...NEIGHBORS[i].filter((n) => n >= 0)];
+    const near = [i, ...neighbors(i).filter((n) => n >= 0)];
     const cand = [...new Set(near.map((n) => this.state.provOf(n)).filter((p) => p >= 0))];
     const p = provinceAtPoint(this.shapes, cand, x, y);
     if (p < 0 || this.state.provOf(i) === p) return i;

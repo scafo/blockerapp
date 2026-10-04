@@ -20,7 +20,7 @@ const TITLES: Record<RunSummary['outcome'], string> = {
   timeout: 'FINE DELLE OPERAZIONI',
 };
 
-const REASONS = { map: 'Impero sul 60% della regione', anomalies: '3 Frammenti in mano tua', time: 'Più territorio di tutti a fine campagna', tutorial: 'Il primo pezzo di mondo è tuo' };
+const REASONS = { map: 'Impero sul 60% della regione', time: 'Più territorio di tutti a fine campagna', tutorial: 'Il primo pezzo di mondo è tuo' };
 
 /** Schermata finale stile manifesto: esito, bollettino comando, bottino portato a casa, rivincita. */
 export class ResultScene extends Phaser.Scene {
@@ -82,8 +82,8 @@ export class ResultScene extends Phaser.Scene {
     const sec = Math.floor(sum.timeMs / 1000);
     const time = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
     let y = P ? bulletin.y + bulletin.height + 22 : y0 + 136;
-    this.add.text(cx, y, P ? `PROVINCE MAX ${sum.maxProvinces}\nTEMPO ${time} · FRAMMENTI ${sum.anomalies}`
-      : `PROVINCE MAX ${sum.maxProvinces}   ·   TEMPO ${time}   ·   FRAMMENTI ${sum.anomalies}`, textStyle(13, ink)).setOrigin(0.5).setAlign('center');
+    this.add.text(cx, y, P ? `PROVINCE MAX ${sum.maxProvinces}\nTEMPO ${time}`
+      : `PROVINCE MAX ${sum.maxProvinces}   ·   TEMPO ${time}`, textStyle(13, ink)).setOrigin(0.5).setAlign('center');
 
     // bottino: portato a casa (e quanto zaino c'era, se è cambiato: bonus vittoria o perdita, Deposito incluso)
     const had = bagTotal(sum.backpack), kept = bagTotal(sum.kept);

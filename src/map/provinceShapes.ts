@@ -1,4 +1,4 @@
-// Forme delle province dalla carta pronta (src/data/worldmap.json, generata da scripts/build-map.ts):
+// Forme delle province dalla carta pronta (src/data/worldmap.ts, generata da scripts/build-map.ts):
 // coste e confini veri (Natural Earth 1:50M), province come anelli di tratti di confine condivisi tra vicine.
 import type { WorldAsset, WorldChain } from './worldAsset';
 
@@ -6,8 +6,8 @@ import type { WorldAsset, WorldChain } from './worldAsset';
 export type Chain = WorldChain;
 
 export interface ShapePart {
-  outer: number[]; // anello esterno (punti piatti)
-  holes: number[][];
+  outer: Float32Array; // anello esterno (punti piatti)
+  holes: Float32Array[];
 }
 
 export interface RegionShape {
@@ -24,7 +24,7 @@ export interface MapShapes {
   chainsOf: number[][];
 }
 
-const ringArea = (p: number[]) => {
+const ringArea = (p: ArrayLike<number>) => {
   let a = 0;
   for (let k = 0, n = p.length / 2; k < n; k++) {
     const j = (k + 1) % n;
@@ -33,7 +33,7 @@ const ringArea = (p: number[]) => {
   return Math.abs(a / 2);
 };
 
-function inRing(r: number[], x: number, y: number): boolean {
+function inRing(r: ArrayLike<number>, x: number, y: number): boolean {
   let inside = false;
   for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) {
     const xi = r[i], yi = r[i + 1], xj = r[j], yj = r[j + 1];
@@ -58,7 +58,7 @@ export function buildShapes(world: WorldAsset): MapShapes {
       }
     }
     if (out.length > 4 && out[0] === out[out.length - 2] && out[1] === out[out.length - 1]) out.length -= 2;
-    return out;
+    return Float32Array.from(out);
   };
   const provinces = world.provRings.map((rings, id): RegionShape => {
     const rs = rings.map(ringPts).filter((r) => r.length >= 6).map((r) => ({ r, a: ringArea(r) })).sort((u, v) => v.a - u.a);
