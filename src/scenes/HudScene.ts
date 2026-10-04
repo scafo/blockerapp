@@ -42,7 +42,9 @@ export class HudScene extends Phaser.Scene {
   private resTexts: Phaser.GameObjects.Text[] = [];
   private resLabel!: Phaser.GameObjects.Text;
   private pauseBtn!: Button;
-  private pausePanel: Phaser.GameObjects.Container | null = null;
+  /** Pausa strategica: cornice + cartello, la mappa resta comandabile. */
+  private pauseUi: Phaser.GameObjects.Container | null = null;
+  private pauseFrame!: Phaser.GameObjects.Graphics;
   private stormText!: Phaser.GameObjects.Text;
   private seed!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
@@ -56,7 +58,6 @@ export class HudScene extends Phaser.Scene {
   private retreatArmed: Phaser.Time.TimerEvent | null = null;
   private cards: UnitCard[] = [];
   private mapLabels!: MapLabels;
-  private scan?: Phaser.GameObjects.TileSprite;
   private abilityCards: AbilityCard[] = [];
   private shownTroops = -1;
   private ended = false;
@@ -83,15 +84,8 @@ export class HudScene extends Phaser.Scene {
 
   create() {
     uiCamera(this);
-    // etichette della mappa nitide (spazio schermo) e righe di scansione da monitor sopra la mappa
+    // etichette della mappa nitide (spazio schermo)
     this.mapLabels = new MapLabels(this);
-    if (!this.textures.exists('scan')) {
-      const sg = this.make.graphics({}, false).fillStyle(0x000000, 1).fillRect(0, 2, 4, 1);
-      sg.generateTexture('scan', 4, 3);
-      sg.destroy();
-    }
-    const { width: vw, height: vh } = view(this);
-    this.scan = this.add.tileSprite(0, 0, vw, vh, 'scan').setOrigin(0).setAlpha(0.14).setDepth(-20); // sotto le etichette
     this.shownTroops = -1;
     this.nextBannerAt = 0;
     this.aliveKey = '';
@@ -101,7 +95,7 @@ export class HudScene extends Phaser.Scene {
 
     // pannello sinistro: truppe, territorio/obiettivi, zaino, tempesta
     // (le posizioni le decide layout(): verticale e orizzontale hanno disposizioni diverse)
-    this.leftPanel = this.add.rectangle(PAD, PAD, LEFT_W, LEFT_H, PALETTE.inchiostro, 0.88).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
+    this.leftPanel = this.add.rectangle(PAD, PAD, LEFT_W, LEFT_H, PALETTE.inchiostro, 0.84).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
     this.troopsLbl = this.add.text(0, 0, 'TRUPPE', textStyle(11, PALETTE.ocra));
     this.troops = this.add.text(0, 0, '0', textStyle(28, PALETTE.carta));
     this.rate = this.add.text(0, 0, '', textStyle(12, PALETTE.radioattivo));
@@ -114,12 +108,12 @@ export class HudScene extends Phaser.Scene {
 
     // pannello destro: fazioni
     this.rightPanel = this.add.rectangle(0, PAD, RIGHT_W, FACTION_INFO.length * ROW_H + 10, PALETTE.inchiostro, 0.88)
-      .setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
+      .setOrigin(0).setStrokeStyle(1, PALETTE.linea);
     this.symbols = this.add.graphics();
     this.rows = FACTION_INFO.map(() => this.add.text(0, 0, '', textStyle(12, PALETTE.carta)).setOrigin(0, 0.5));
 
     this.seed = this.add.text(0, 0, '', textStyle(11, PALETTE.ocra, false)).setOrigin(1, 1);
-    this.hint = this.add.text(0, 0, 'Tocca una casella evidenziata per conquistarla', textStyle(14, PALETTE.carta))
+    this.hint = this.add.text(0, 0, 'Tocca una provincia evidenziata per conquistarla', textStyle(14, PALETTE.carta))
       .setOrigin(0.5, 0).setAlign('center').setBackgroundColor(hex(PALETTE.inchiostro)).setPadding(10, 6, 10, 6);
 
     // comandi: carte in basso a sinistra; ritirata e velocità in basso a destra
@@ -135,7 +129,11 @@ export class HudScene extends Phaser.Scene {
     });
     this.retreatBtn = new Button(this, 'RITIRATA', 112, 44, () => this.onRetreat());
     this.pauseBtn = new Button(this, '❚❚', 56, 44, () => this.togglePause());
-    this.pausePanel = null;
+    this.pauseUi = null;
+    this.pauseFrame = this.add.graphics().setDepth(39).setVisible(false);
+    // PC: barra spaziatrice (o P) = pausa strategica, come in HOI4
+    this.input.keyboard?.on('keydown-SPACE', () => this.togglePause());
+    this.input.keyboard?.on('keydown-P', () => this.togglePause());
     // le due leve alla OpenFront: forza d'attacco e soldati/lavoratori (non nella run guidata)
     this.attackBtn = this.workBtn = null;
     if (!this.run.state.opts.tutorial) {
@@ -234,7 +232,6 @@ export class HudScene extends Phaser.Scene {
 
   private layout() {
     const { width, height, portrait } = view(this);
-    this.scan?.setSize(width, height);
     this.portrait = portrait;
     const P = this.leftPanel;
     if (portrait) {
@@ -282,10 +279,14 @@ export class HudScene extends Phaser.Scene {
       this.hint.setPosition(PAD + barW / 2, PAD + BAR_H + 8).setWordWrapWidth(Math.max(220, barW - 40));
     }
     // la cornice disegnata del rettangolo segue la nuova misura
-    P.setStrokeStyle(2, PALETTE.ocra);
-    this.rightPanel.setStrokeStyle(2, PALETTE.ocra);
+    P.setStrokeStyle(1, PALETTE.linea);
+    this.rightPanel.setStrokeStyle(1, PALETTE.linea);
     this.rate.setPosition(this.troops.x + this.troops.width + 10, this.troops.y + 10);
     this.fps?.setPosition(PAD, this.topBottom + 6);
+    if (this.pauseFrame?.visible) {
+      this.drawPauseFrame();
+      this.pauseUi?.setPosition(width / 2, this.topBottom + 10);
+    }
     this.aliveKey = ''; // forza il ridisegno dei simboli
     this.cards.forEach((c, k) => {
       c.baseY = height - PAD - CARD_H;
@@ -330,8 +331,8 @@ export class HudScene extends Phaser.Scene {
     }
     this.rate.setText(`+${st.troopsPerSecond.toFixed(1)}/s`);
     const share = Math.round(st.mapShare * 100);
-    const goal = `${share}%/${BALANCE.victory.mapShare * 100}%`, anom = `anomalie ${st.anomaliesOwned()}/${st.anomaliesToWin}`;
-    this.stats.setText(`${st.tilesOwned} caselle · ${goal}\n${anom}`);
+    const goal = `${share}%/${BALANCE.victory.mapShare * 100}%`, anom = `frammenti ${st.anomaliesOwned()}/${st.anomaliesToWin}`;
+    this.stats.setText(`${st.player.provinces} ${st.player.provinces === 1 ? 'provincia' : 'province'} · ${goal}\n${anom}`);
     RESOURCES.forEach((r, k) => {
       const t = this.resTexts[k], v = String(st.backpack[r]);
       if (t.text !== v) {
@@ -340,7 +341,7 @@ export class HudScene extends Phaser.Scene {
       }
     });
     if (st.opts.tutorial) {
-      this.stormText.setText(`prima missione: ${BALANCE.tutorial.goalTiles} caselle`).setColor(hex(PALETTE.radioattivo));
+      this.stormText.setText(`prima missione: ${BALANCE.tutorial.goalProvinces} province`).setColor(hex(PALETTE.radioattivo));
     } else if (st.stormIn > 0) {
       this.stormText.setText(`tempesta tra ${mmss(st.stormIn)}`).setColor(st.stormIn <= BALANCE.storm.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
     } else {
@@ -363,7 +364,7 @@ export class HudScene extends Phaser.Scene {
     }
     st.factions.forEach((f, k) => {
       const r = this.rows[k];
-      r.setText(f.alive ? `${FACTION_INFO[k].short} ${f.tiles}` : `${FACTION_INFO[k].short} ✝`).setAlpha(f.alive ? 1 : 0.4);
+      r.setText(f.alive ? `${FACTION_INFO[k].short} ${f.provinces}` : `${FACTION_INFO[k].short} ✝`).setAlpha(f.alive ? 1 : 0.4);
     });
     const sel = this.run.selectedCard;
     for (const c of this.cards) {
@@ -379,17 +380,12 @@ export class HudScene extends Phaser.Scene {
   }
 
   /** Provincia tutta tua: stendardo con truppe e bottino. */
-  onProvinceDone(nation: string, troops: number, loot: Bag) {
-    const bag = RESOURCES.filter((r) => loot[r]).map((r) => `+${loot[r]} ${RESOURCE_INFO[r].name.toLowerCase()}`).join(' · ');
-    this.banner(`PROVINCIA PRESA${nation ? ` · ${nation.toUpperCase()}` : ''}`, PALETTE.ocra, `+${troops} truppe${bag ? ` · ${bag}` : ''}`);
-  }
-
   /** Offensiva nemica: preavviso, inizio, esito. */
   onOffensive(faction: number, phase: 'warn' | 'start' | 'end', lost = 0) {
     const who = FACTION_INFO[faction]?.name.toUpperCase() ?? 'IL NEMICO';
     if (phase === 'warn') this.toast(`⚠ ${who} PREPARA UN'OFFENSIVA\nrinforza il confine (genio, truppe in cassa)`, PALETTE.allerta);
     else if (phase === 'start') this.banner(`OFFENSIVA ${who}`, PALETTE.ko, 'attaccano il tuo confine');
-    else this.toast(lost ? `OFFENSIVA FINITA · perse ${lost} caselle` : 'OFFENSIVA RESPINTA', lost > 10 ? PALETTE.ko : PALETTE.ocra);
+    else this.toast(lost ? `OFFENSIVA FINITA · perso il ${Math.round((lost / Math.max(1, lost + this.run.state.player.tiles)) * 100)}% del territorio` : 'OFFENSIVA RESPINTA', lost > 40 ? PALETTE.ko : PALETTE.ocra);
   }
 
   onEliminated(faction: number, by: number, loot: Bag) {
@@ -431,23 +427,22 @@ export class HudScene extends Phaser.Scene {
   }
 
   /** Città presa: provincia annessa (toast) o capitale caduta (cartello). Le IA si annunciano solo per le capitali. */
-  onProvince(by: number, count: number, capital: boolean, nation: string, bonus: number) {
+  onProvince(by: number, capital: boolean, nation: string, bonus: number) {
     if (by === PLAYER) {
       if (capital) this.banner(`${nation.toUpperCase()} CADE`, PALETTE.ocra, `capitale presa${bonus ? ` · +${bonus} truppe` : ''}`);
-      else if (count) this.toast(`PROVINCIA ANNESSA${nation ? ` · ${nation}` : ''}\n+${count} caselle si arrendono`, PALETTE.radioattivo);
     } else if (capital && by >= 0) {
       this.toast(`${FACTION_INFO[by].short} PRENDONO LA CAPITALE: ${nation.toUpperCase()}`, PALETTE.ocra);
     }
   }
 
   onAnomaly(count: number, gained: boolean) {
-    if (gained) this.banner(`ANOMALIA ${count}/${this.run.state.anomaliesToWin}`, PALETTE.radioattivo, 'il segnale è tuo');
-    else this.toast(`ANOMALIA PERSA · ${count}/${this.run.state.anomaliesToWin}`, PALETTE.ko);
+    if (gained) this.banner(`FRAMMENTO ${count}/${this.run.state.anomaliesToWin}`, PALETTE.radioattivo, 'il segnale è tuo');
+    else this.toast(`FRAMMENTO PERSO · ${count}/${this.run.state.anomaliesToWin}`, PALETTE.ko);
   }
 
-  onMilestone(tiles: number) {
-    const names: Record<number, string> = { 25: 'avamposto', 50: 'contea', 100: 'regno', 200: 'impero', 400: 'leggenda' };
-    this.banner(`${tiles} CASELLE`, PALETTE.ocra, names[tiles] ?? '');
+  onMilestone(n: number) {
+    const names: Record<number, string> = { 8: 'testa di ponte', 15: 'dominio regionale', 30: 'potenza continentale', 60: 'egemonia', 120: 'il mondo trattiene il fiato' };
+    this.banner(`${n} PROVINCE`, PALETTE.ocra, names[n] ?? '');
   }
 
   /** Cartello grande e breve al centro: per i momenti epici. */
@@ -510,41 +505,55 @@ export class HudScene extends Phaser.Scene {
   }
 
   /** true se il punto (schermo) cade su un elemento dell'HUD. */
-  /** PAUSA: il tempo si ferma, la mappa non risponde; si riprende o ci si ritira. */
+  /**
+   * PAUSA STRATEGICA (alla HOI4): il tempo si ferma ma si comanda lo stesso. Tocchi e trascinamenti sulla mappa
+   * preparano il piano (province in coda), pedine, abilità e navi prendono ordini; tutto parte alla ripresa.
+   */
   togglePause() {
     const st = this.run.state;
-    if (this.ended || st.over) return;
-    if (this.pausePanel) {
-      this.pausePanel.destroy();
-      this.pausePanel = null;
-      st.paused = false;
-      this.pauseBtn.setLabel('❚❚').setOn(false);
+    if (this.ended || st.over || st.pendingEvent) return;
+    st.paused = !st.paused;
+    this.pauseBtn.setLabel(st.paused ? '▶' : '❚❚').setOn(st.paused);
+    this.pauseUi?.destroy();
+    this.pauseUi = null;
+    this.pauseFrame.setVisible(st.paused);
+    if (!st.paused) {
+      if (st.plan.length) this.toast(`PIANO IN ESECUZIONE · ${st.plan.length} province`, PALETTE.radioattivo);
       return;
     }
-    st.paused = true;
-    this.pauseBtn.setLabel('▶').setOn(true);
+    this.hint.setVisible(false);
+    const { width } = view(this);
+    const title = this.add.text(0, 0, '❚❚  PAUSA STRATEGICA', textStyle(17, PALETTE.ocra)).setOrigin(0.5, 0);
+    const sub = this.add.text(0, 26, 'il tempo è fermo · tocca le province per il piano · muovi le pedine', textStyle(11, PALETTE.carta, false))
+      .setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(Math.min(460, width - 40));
+    const w = Math.max(title.width, sub.width) + 28;
+    const bg = this.add.rectangle(0, -8, w, sub.y + sub.height + 16, PALETTE.inchiostro, 0.88).setOrigin(0.5, 0).setStrokeStyle(1, PALETTE.ocra);
+    this.pauseUi = this.add.container(width / 2, this.topBottom + 10, [bg, title, sub]).setDepth(40);
+    this.tweens.add({ targets: title, alpha: 0.55, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    this.drawPauseFrame();
+  }
+
+  /** Cornice dorata attorno allo schermo: si vede subito che il tempo è fermo. */
+  private drawPauseFrame() {
     const { width, height } = view(this);
-    const W = Math.min(360, width - 32), H = 196, x0 = (width - W) / 2, y0 = (height - H) / 2;
-    const shade = this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.6).setOrigin(0).setInteractive();
-    const box = this.add.rectangle(x0, y0, W, H, 0x020a06).setOrigin(0).setStrokeStyle(1, PALETTE.ocra);
-    const title = this.add.text(width / 2, y0 + 18, 'CAMPAGNA IN PAUSA', textStyle(20, PALETTE.ocra)).setOrigin(0.5, 0);
-    const info = this.add.text(width / 2, y0 + 56, `tempo ${mmss(st.gameTimeMs)} · ${st.player.tiles} caselle`, textStyle(12, PALETTE.carta, false)).setOrigin(0.5, 0);
-    const resume = new Button(this, 'RIPRENDI ▶', W - 40, 44, () => this.togglePause());
-    resume.setPosition(x0 + 20, y0 + 86);
-    const quit = new Button(this, 'RITIRATA (tieni il bottino)', W - 40, 40, () => {
-      this.togglePause();
-      this.run.ritirata();
-    }, 12);
-    quit.setPosition(x0 + 20, y0 + 140);
-    this.pausePanel = this.add.container(0, 0, [shade, box, title, info, resume, quit]).setDepth(70);
+    const g = this.pauseFrame.clear();
+    g.lineStyle(3, PALETTE.ocra, 0.85).strokeRect(1.5, 1.5, width - 3, height - 3);
+    const L = 26;
+    g.lineStyle(5, PALETTE.ocra, 1);
+    for (const [cx, cy, dx, dy] of [[0, 0, 1, 1], [width, 0, -1, 1], [0, height, 1, -1], [width, height, -1, -1]]) {
+      g.lineBetween(cx, cy + dy * 2, cx + dx * L, cy + dy * 2).lineBetween(cx + dx * 2, cy, cx + dx * 2, cy + dy * L);
+    }
   }
 
   hitUi(x: number, y: number, layoutOnly = false): boolean {
     if (!layoutOnly && (this.ended || this.eventCard)) return true;
     if (layoutOnly && y > this.hint.y - 4 && y < this.hint.y + 60 && Math.abs(x - this.hint.x) < 200) return true; // etichetta della guida
-    const inRect = (r: Phaser.GameObjects.Rectangle) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
+    const inRect = (r: Phaser.GameObjects.Rectangle, ox = 0, oy = 0) => {
+      const rx = ox + r.x - r.width * r.originX, ry = oy + r.y - r.height * r.originY;
+      return x >= rx && x <= rx + r.width && y >= ry && y <= ry + r.height;
+    };
     if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
-    if (!layoutOnly && this.pausePanel) return true;
+    if (this.pauseUi && inRect(this.pauseUi.list[0] as Phaser.GameObjects.Rectangle, this.pauseUi.x, this.pauseUi.y)) return true;
     const btns = [this.speedBtn, this.pauseBtn, this.retreatBtn, ...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn].filter((b) => b !== null);
     return btns.some((b) => b.contains(x, y));
   }

@@ -5,7 +5,7 @@ import { BALANCE } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
 import { FACTION_INFO } from '../game/factions';
 import { UI, view } from '../ui/screen';
-import { FONT, textStyle } from '../ui/style';
+import { FONT, FONT_TITLE, textStyle } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
 
 export interface WorldLabel { x: number; y: number; text: string; color: number }
@@ -33,12 +33,12 @@ export class MapLabels {
     this.tags = FACTION_INFO.map((f) => {
       const g = scene.add.graphics();
       drawSymbol(g, f.symbol, 0, -12, 6, f.fill, PALETTE.mappa.fondo);
-      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: hex(f.border), resolution: UI(), backgroundColor: '#020409dd', padding: { x: 4, y: 2 } }).setOrigin(0.5, 0);
+      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: hex(f.border), resolution: UI(), backgroundColor: '#0b1118dd', padding: { x: 4, y: 2 } }).setOrigin(0.5, 0);
       const c = scene.add.container(0, 0, [g, t]).setVisible(false);
       this.layer.add(c);
       return c;
     });
-    this.status = scene.add.text(0, 0, '', textStyle(11, 0x9fb6ff, false)).setOrigin(0.5, 1);
+    this.status = scene.add.text(0, 0, '', textStyle(11, PALETTE.tenue, false)).setOrigin(0.5, 1);
     this.layer.add(this.status);
   }
 
@@ -55,7 +55,7 @@ export class MapLabels {
     const zoom = cam.zoom / UI();
     const inView = (sx: number, sy: number, m = 40) => sx > -m && sx < width + m && sy > -m && sy < height + m;
 
-    // nomi delle nazioni: solo da lontano (vista strategica), gialli come sui terminali
+    // nomi delle nazioni: solo da lontano (vista strategica), spaziati come sulle carte di stato maggiore
     const showNames = zoom < BALANCE.provinces.namesMaxZoom;
     let n = 0;
     if (showNames) {
@@ -64,7 +64,10 @@ export class MapLabels {
         if (!inView(sx, sy)) continue;
         let t = this.names[n];
         if (!t) {
-          t = this.scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: hex(PALETTE.mappa.nome), resolution: UI() }).setOrigin(0.5);
+          t = this.scene.add.text(0, 0, '', {
+            fontFamily: FONT_TITLE, fontSize: '13px', fontStyle: '600', color: hex(PALETTE.mappa.nome), resolution: UI(),
+            stroke: hex(PALETTE.inchiostro), strokeThickness: 3,
+          }).setOrigin(0.5).setLetterSpacing(3).setAlpha(0.8);
           this.layer.add(t);
           this.names.push(t);
         }

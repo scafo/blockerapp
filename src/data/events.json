@@ -1,62 +1,215 @@
 [
   {
-    "id": "mercato", "rare": false,
-    "text": "Un intermediario della Cabal offre razioni sigillate in cambio di 30 uomini. Non dice per cosa gli servono.",
-    "left": { "label": "Rifiuta", "effects": {}, "result": "L'intermediario sorride e prende nota. Ci rivedremo." },
-    "right": { "label": "Accetta", "effects": { "troops": -30, "loot": { "cibo": 15 } }, "result": "Le razioni sono buone. Degli uomini non si sa più nulla." }
+    "id": "mercato",
+    "rare": false,
+    "text": "Un emissario del Consiglio Ombra offre razioni sigillate in cambio di 30 uomini. Sul contratto non c'è scritto per cosa.",
+    "left": {
+      "label": "Rifiuta",
+      "effects": {},
+      "result": "L'emissario sorride e prende nota. Ci rivedremo."
+    },
+    "right": {
+      "label": "Accetta",
+      "effects": {
+        "troops": -30,
+        "loot": {
+          "cibo": 15
+        }
+      },
+      "result": "Le razioni sono buone. Degli uomini non si sa più nulla."
+    }
   },
   {
-    "id": "disertori", "rare": false,
-    "text": "Un reparto dell'Imperium abbandona le sue linee e chiede asilo. Portano le loro armi.",
-    "left": { "label": "Respingi", "effects": {}, "result": "Tornano indietro. L'Imperium non perdona i disertori." },
-    "right": { "label": "Accogli", "effects": { "troops": 25 }, "chance": 0.7, "fail": { "troops": 25, "loot": { "metallo": -10 } }, "result": "Nuove reclute, addestrate e disciplinate.", "failResult": "Nuove reclute. E 10 metallo spariti dal magazzino del reparto." }
+    "id": "disertori",
+    "rare": false,
+    "text": "Un reparto dell'Imperium diserta dopo aver visto cadere un Alato vicino alle sue trincee. Chiedono asilo e portano le armi.",
+    "left": {
+      "label": "Respingi",
+      "effects": {},
+      "result": "Tornano indietro. L'Imperium non perdona i disertori."
+    },
+    "right": {
+      "label": "Accogli",
+      "effects": {
+        "troops": 25
+      },
+      "chance": 0.7,
+      "fail": {
+        "troops": 25,
+        "loot": {
+          "metallo": -10
+        }
+      },
+      "result": "Nuove reclute, addestrate e silenziose.",
+      "failResult": "Nuove reclute. E 10 metallo spariti dal magazzino del reparto."
+    }
   },
   {
-    "id": "trasmettitore", "rare": false,
-    "text": "In un bunker c'è un trasmettitore ancora acceso. Ripete un messaggio di mobilitazione di prima della Caduta.",
-    "left": { "label": "Smontalo", "effects": { "loot": { "metallo": 20 } }, "result": "Componenti preziosi. Il messaggio tace." },
-    "right": { "label": "Rilancia il segnale", "effects": { "growth": { "mult": 1.5, "durationMs": 30000 } }, "result": "Volontari arrivano da tutta la regione. Per un po'." }
+    "id": "trasmettitore",
+    "rare": false,
+    "text": "In un bunker della Concordia una radio a valvole è ancora accesa. Ripete un appello alla pace registrato prima della Caduta.",
+    "left": {
+      "label": "Smontala",
+      "effects": {
+        "loot": {
+          "metallo": 20
+        }
+      },
+      "result": "Valvole e rame. L'appello tace."
+    },
+    "right": {
+      "label": "Ritrasmetti",
+      "effects": {
+        "growth": {
+          "mult": 1.5,
+          "durationMs": 30000
+        }
+      },
+      "result": "Qualcuno ci crede ancora. Arrivano volontari, per un po'."
+    }
   },
   {
-    "id": "convoglio", "rare": false,
-    "text": "Un convoglio di benzina dell'Aristocrazia attraversa il nostro territorio senza autorizzazione.",
-    "left": { "label": "Lascialo passare", "effects": { "troops": 15 }, "result": "In segno di riconoscenza lasciano una scorta armata." },
-    "right": { "label": "Requisisci", "effects": { "troops": -10, "loot": { "benzina": 12 } }, "result": "La benzina è nostra. L'Aristocrazia se ne ricorderà." }
+    "id": "convoglio",
+    "rare": false,
+    "text": "Un convoglio delle Grandi Casate attraversa il nostro territorio. Benzina, e casse col sigillo di un'accademia.",
+    "left": {
+      "label": "Lascialo passare",
+      "effects": {
+        "troops": 15
+      },
+      "result": "In segno di riconoscenza lasciano una scorta armata."
+    },
+    "right": {
+      "label": "Requisisci",
+      "effects": {
+        "troops": -10,
+        "loot": {
+          "benzina": 12
+        }
+      },
+      "result": "La benzina è nostra. Le Casate se ne ricorderanno."
+    }
   },
   {
-    "id": "razioni", "rare": false,
-    "text": "I magazzini propongono di distribuire le razioni sperimentali trovate in un laboratorio.",
-    "left": { "label": "Conserva", "effects": { "loot": { "cibo": 5 } }, "result": "Le razioni restano in deposito. Etichettate, per sicurezza." },
-    "right": { "label": "Distribuisci", "effects": { "troops": 40 }, "chance": 0.5, "fail": { "troops": -20 }, "result": "Le truppe non si stancano più. Nessuno chiede perché.", "failResult": "Metà del reparto in infermeria. Il laboratorio non risponde." }
+    "id": "razioni",
+    "rare": false,
+    "text": "Il servizio sanitario propone un siero ricavato dalla polvere dei Frammenti. Nessuno l'ha ancora provato su un reparto intero.",
+    "left": {
+      "label": "Conserva",
+      "effects": {
+        "loot": {
+          "cibo": 5
+        }
+      },
+      "result": "Le fiale restano in deposito. Etichettate, per sicurezza."
+    },
+    "right": {
+      "label": "Distribuisci",
+      "effects": {
+        "troops": 40
+      },
+      "chance": 0.5,
+      "fail": {
+        "troops": -20
+      },
+      "result": "Le truppe non dormono più. Nessuno chiede perché.",
+      "failResult": "Metà del reparto in quarantena. La pelle si è fatta fredda e lucida."
+    }
   },
   {
-    "id": "nebbia", "rare": false,
-    "text": "Una nebbia densa scende sulla linea del fronte. I sensori registrano movimenti che nessuno vede.",
-    "left": { "label": "Mantieni le posizioni", "effects": { "troops": 15 }, "result": "La nebbia passa. Le posizioni reggono." },
-    "right": { "label": "Avanza", "effects": { "unit": "ricognitori" }, "result": "Dalla nebbia esce una squadra di ricognitori. Senza insegne, ma con i nostri codici." }
+    "id": "nebbia",
+    "rare": false,
+    "text": "Una brina viola scende sul fronte. Le sentinelle giurano di aver visto ali tra la nebbia.",
+    "left": {
+      "label": "Tieni le posizioni",
+      "effects": {
+        "troops": 15
+      },
+      "result": "La brina si scioglie. Le posizioni reggono."
+    },
+    "right": {
+      "label": "Avanza nella brina",
+      "effects": {
+        "unit": "ricognitori"
+      },
+      "result": "Dalla brina esce una squadra di ricognitori. Senza insegne, ma con i nostri codici."
+    }
   },
   {
-    "id": "ingegnere", "rare": false,
-    "text": "Un ingegnere della Republica chiede protezione. In cambio offre di rimettere in funzione i nostri mezzi.",
-    "left": { "label": "Rifiuta", "effects": {}, "result": "Riparte verso nord. Qualcun altro lo accoglierà." },
-    "right": { "label": "Proteggilo", "effects": { "unit": "artiglieria" }, "result": "Un pezzo d'artiglieria torna operativo in una notte." }
+    "id": "ingegnere",
+    "rare": false,
+    "text": "Un ingegnere del Senato è in fuga dalla sua stessa capitale. In cambio di protezione offre di rimettere in funzione i nostri pezzi.",
+    "left": {
+      "label": "Rifiuta",
+      "effects": {},
+      "result": "Riparte verso nord. Qualcun altro lo accoglierà."
+    },
+    "right": {
+      "label": "Proteggilo",
+      "effects": {
+        "unit": "artiglieria"
+      },
+      "result": "Un pezzo d'artiglieria torna operativo in una notte."
+    }
   },
   {
-    "id": "frequenza", "rare": true,
-    "text": "Su una frequenza morta una voce ripete coordinate: \"La Caduta non è stata un incidente. È stata un test.\"",
-    "left": { "label": "Ignora", "effects": { "troops": 20 }, "result": "Il Comando archivia il messaggio. Le truppe restano concentrate." },
-    "right": { "label": "Segui le coordinate", "effects": { "anomalyDefense": 0.6 }, "result": "Le coordinate portano alle anomalie. Il loro segnale, di colpo, si indebolisce." }
+    "id": "frequenza",
+    "rare": true,
+    "text": "Sulla frequenza della Caduta una voce di donna conta alla rovescia. Poi dice: «La Prova non è finita.»",
+    "left": {
+      "label": "Ignora",
+      "effects": {
+        "troops": 20
+      },
+      "result": "Il Comando archivia il messaggio. Le truppe restano concentrate."
+    },
+    "right": {
+      "label": "Segui il conto",
+      "effects": {
+        "anomalyDefense": 0.6
+      },
+      "result": "Il conteggio porta ai Frammenti. Il loro segnale, di colpo, vacilla."
+    }
   },
   {
-    "id": "archivio", "rare": true,
-    "text": "In un archivio sepolto trovate i registri di un progetto segreto. Datati pochi giorni prima della Caduta.",
-    "left": { "label": "Distruggili", "effects": { "troops": 30 }, "result": "Certe cose è meglio non saperle. Il morale sale." },
-    "right": { "label": "Studiali", "effects": { "loot": { "benzina": 10 } }, "result": "Tra i registri, una mappa di depositi. E un nome: la nuova tecnologia esisteva già." }
+    "id": "archivio",
+    "rare": true,
+    "text": "Nell'archivio della Concordia trovate schede perforate di un progetto: «Annunciazione». Datate un anno prima della Caduta.",
+    "left": {
+      "label": "Bruciale",
+      "effects": {
+        "troops": 30
+      },
+      "result": "Certe cose è meglio non saperle. Il morale sale."
+    },
+    "right": {
+      "label": "Decifrale",
+      "effects": {
+        "loot": {
+          "benzina": 10
+        }
+      },
+      "result": "Tra le schede, una mappa di depositi. E una frase battuta a macchina: «Li abbiamo chiamati noi.»"
+    }
   },
   {
-    "id": "cartografo", "rare": true,
-    "text": "Un cartografo dei satelliti offre mappe dei fronti della tempesta. Vuole metallo, non promesse.",
-    "left": { "label": "Lascia stare", "effects": {}, "result": "Il cartografo sparisce con le sue mappe." },
-    "right": { "label": "Compra (15 metallo)", "effects": { "loot": { "metallo": -15 }, "stormDelayMs": 60000 }, "result": "Le mappe sono precise. La tempesta ci raggiungerà un minuto più tardi." }
+    "id": "cartografo",
+    "rare": true,
+    "text": "Un pilota di dirigibile ha fotografato il fronte della tempesta dall'alto. Vuole metallo, non promesse.",
+    "left": {
+      "label": "Lascia stare",
+      "effects": {},
+      "result": "Il dirigibile riprende quota con le sue lastre."
+    },
+    "right": {
+      "label": "Compra (15 metallo)",
+      "effects": {
+        "loot": {
+          "metallo": -15
+        },
+        "stormDelayMs": 60000
+      },
+      "result": "Le lastre sono nitide. La tempesta ci raggiungerà un minuto più tardi."
+    }
   }
 ]

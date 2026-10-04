@@ -24,16 +24,16 @@ for (let r = 0; r < runs; r++) {
     tapAcc += tapsPerSec / 10;
     while (tapAcc >= 1) {
       tapAcc--;
-      // giocatore "medio": attacca la casella più debole che può permettersi
-      const f = st.frontier(PLAYER).filter((i) => st.troops > st.defenseOf(i));
-      if (f.length) st.tryConquer(f.reduce((a, b) => (st.defenseOf(a) <= st.defenseOf(b) ? a : b)));
+      // giocatore "medio": attacca la provincia più debole che può permettersi
+      const f = st.frontier(PLAYER).filter((p) => st.troops > st.provCost(PLAYER, p));
+      if (f.length) st.attackProvince(PLAYER, f.reduce((a, b) => (st.provCost(PLAYER, a) <= st.provCost(PLAYER, b) ? a : b)));
     }
     // giocatore "da OpenFront": se le truppe superano il punto ottimale lancia un'avanzata verso il nemico/neutro più vicino
-    if (useFlow && ms % 1000 === 0 && st.flowTarget === null && st.troops > 40 + st.tilesOwned * 0.4) { // caselle piccole: soglia in superficie
+    if (useFlow && ms % 1000 === 0 && st.flowTarget === null && st.troops > 120 + st.tilesOwned * 0.3) {
       const front = st.frontier(PLAYER);
       if (front.length) {
-        const f0 = front[Math.floor((ms / 1000) % front.length)];
-        const far = st.map.land.filter((i) => st.passable(i) && st.owner[i] !== PLAYER && hexDistance(i, f0) === 10);
+        const f0 = st.map.provinces[front[Math.floor((ms / 1000) % front.length)]].anchor;
+        const far = st.map.land.filter((i) => st.passable(i) && st.owner[i] !== PLAYER && hexDistance(i, f0) === 14);
         if (far.length) st.startFlow(far[0]);
       }
     }
@@ -58,10 +58,10 @@ for (let r = 0; r < runs; r++) {
       }
     }
     for (const e of st.drainEvents()) if (e.type === 'conquer' && e.from === PLAYER && firstContact < 0) firstContact = ms;
-    if (ms % 60_000 === 0) snaps.push(st.factions.map((f) => (f.alive ? f.tiles : '✝')).join('/'));
+    if (ms % 60_000 === 0) snaps.push(st.factions.map((f) => (f.alive ? f.provinces : '✝')).join('/'));
   }
   const t = Math.round(st.gameTimeMs / 1000);
   const sum = st.summary();
   const kept = sum.kept.metallo + sum.kept.benzina + sum.kept.cibo;
-  console.log(`run ${r}: ${st.over ?? 'vivo'}${sum.reason ? '/' + sum.reason : ''} a ${t}s, anomalie ${sum.anomalies}, porta a casa ${kept}, primo attacco subito ${firstContact < 0 ? '-' : Math.round(firstContact / 1000) + 's'} | caselle per minuto ${snaps.join('  ')}`);
+  console.log(`run ${r}: ${st.over ?? 'vivo'}${sum.reason ? '/' + sum.reason : ''} a ${t}s, anomalie ${sum.anomalies}, porta a casa ${kept}, primo attacco subito ${firstContact < 0 ? '-' : Math.round(firstContact / 1000) + 's'} | province per minuto ${snaps.join('  ')}`);
 }

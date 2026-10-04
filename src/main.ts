@@ -4,11 +4,12 @@ import { PALETTE } from './config/palette';
 import { BootScene } from './scenes/BootScene';
 import { CampScene } from './scenes/CampScene';
 import { HudScene } from './scenes/HudScene';
+import { LoadScene } from './scenes/LoadScene';
 import { ResultScene } from './scenes/ResultScene';
 import { RunScene } from './scenes/RunScene';
 import { DPR } from './ui/screen';
-import monoUrl from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2';
-import monoBoldUrl from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff2';
+import bodyUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-500-normal.woff2';
+import bodyBoldUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-700-normal.woff2';
 import titleUrl from '@fontsource/oswald/files/oswald-latin-600-normal.woff2';
 
 analytics.init();
@@ -27,8 +28,8 @@ let fontsReady = false;
 async function loadFonts() {
   try {
     const faces = [
-      new FontFace('JetBrains Mono', `url(${monoUrl})`, { weight: '500' }),
-      new FontFace('JetBrains Mono', `url(${monoBoldUrl})`, { weight: '700' }),
+      new FontFace('Barlow Semi Condensed', `url(${bodyUrl})`, { weight: '500' }),
+      new FontFace('Barlow Semi Condensed', `url(${bodyBoldUrl})`, { weight: '700' }),
       new FontFace('Oswald', `url(${titleUrl})`, { weight: '600' }),
     ];
     for (const f of await Promise.all(faces.map((x) => x.load()))) document.fonts.add(f);
@@ -49,7 +50,7 @@ function boot() {
     scale: { mode: Phaser.Scale.NONE, width: w, height: h, zoom: 1 / DPR },
     input: { activePointers: 3 },
     render: { antialias: true },
-    scene: [BootScene, CampScene, RunScene, HudScene, ResultScene],
+    scene: [BootScene, CampScene, RunScene, HudScene, ResultScene, LoadScene],
   });
   // debug/test: accesso al gioco dalla console
   (window as unknown as { __game: Phaser.Game }).__game = game;

@@ -1,22 +1,22 @@
 {
   "victory": [
-    "Rapporto al Comando: la regione è sotto controllo. Le altre potenze hanno ricevuto il messaggio.",
-    "Dominio confermato. Sugli schermi del Comando la mappa ha un solo colore, per ora.",
-    "Il segnale delle anomalie risponde ai nostri codici. Nessuno sa ancora cosa stia chiedendo in cambio."
+    "Rapporto al Comando: la regione risponde ai nostri codici. Le altre potenze hanno ricevuto il messaggio.",
+    "Dominio confermato. Sulla carta del Comando la regione ha un solo colore. Per ora.",
+    "I Frammenti tacciono quando li teniamo noi. Nessuno sa ancora cosa ci chiederanno in cambio."
   ],
   "retreat": [
-    "Ritirata eseguita secondo protocollo. Il bottino è al sicuro nel Deposito.",
-    "Le squadre rientrano. Il Comando registra la campagna come interrotta, non persa.",
-    "Ripiegamento completato. La regione resta contesa: ci torneremo con mezzi migliori."
+    "Ripiegamento eseguito secondo protocollo. Il bottino è al sicuro nel Deposito.",
+    "Le colonne rientrano. Il Comando registra la campagna come interrotta, non persa.",
+    "La regione resta contesa. Ci torneremo quando il cielo sarà più quieto."
   ],
   "eliminated": [
-    "Collegamento perso con il fronte. Parte del bottino è ora nelle mani di un'altra potenza.",
-    "La campagna è fallita. Il Comando chiede un rapporto; nessuno è rimasto a scriverlo.",
-    "Le linee sono cadute. Il nemico conta il nostro equipaggiamento."
+    "Collegamento perso con il fronte. Parte del bottino è ora nei depositi di un'altra potenza.",
+    "Le linee sono cadute. Il nemico conta il nostro equipaggiamento.",
+    "Ultima trasmissione dal fronte: solo rumore, e un canto che nessuno riconosce."
   ],
   "storm": [
-    "La tempesta ha chiuso la regione. Restano solo le coordinate di quello che avevamo.",
+    "La tempesta ha chiuso la regione. Restano le coordinate di ciò che avevamo.",
     "Dopo la Caduta il cielo non aspetta nessuno. Oggi non ha aspettato noi.",
-    "Fine delle trasmissioni dalla regione. La tempesta decide chi resta."
+    "La cenere viola copre tutto. La Prova continua senza di noi."
   ]
 }

@@ -18,7 +18,7 @@ export class UnitCard extends Phaser.GameObjects.Container {
 
   constructor(scene: Phaser.Scene, readonly type: UnitType, onClick: () => void, costValue: number = BALANCE.units[type].cost) {
     super(scene, 0, 0);
-    this.bg = scene.add.rectangle(0, 0, CARD_W, CARD_H, PALETTE.inchiostro, 0.92).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
+    this.bg = scene.add.rectangle(0, 0, CARD_W, CARD_H, PALETTE.pannello, 0.94).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
     const icon = scene.add.graphics();
     drawUnitIcon(icon, type, CARD_W / 2, 22, 12, PALETTE.carta);
     const name = scene.add.text(CARD_W / 2, 44, unitInfo(type).short, textStyle(10, PALETTE.carta)).setOrigin(0.5);
@@ -37,7 +37,7 @@ export class UnitCard extends Phaser.GameObjects.Container {
     this.setAlpha(usable && cooldown === 0 ? 1 : 0.5);
     if (selected !== this.selected) {
       this.selected = selected;
-      this.bg.setStrokeStyle(selected ? 3 : 2, selected ? PALETTE.radioattivo : PALETTE.ocra);
+      this.bg.setStrokeStyle(selected ? 2 : 1, selected ? PALETTE.ocra : PALETTE.linea);
       this.scene.tweens.add({ targets: this, y: this.baseY - (selected ? 8 : 0), duration: 120 });
     }
   }
@@ -56,7 +56,7 @@ export class AbilityCard extends Phaser.GameObjects.Container {
 
   constructor(scene: Phaser.Scene, readonly ability: AbilityType, onClick: () => void) {
     super(scene, 0, 0);
-    this.bg = scene.add.rectangle(0, 0, CARD_W, CARD_H, PALETTE.inchiostro, 0.92).setOrigin(0).setStrokeStyle(2, PALETTE.radioattivo);
+    this.bg = scene.add.rectangle(0, 0, CARD_W, CARD_H, PALETTE.pannello, 0.94).setOrigin(0).setStrokeStyle(1, PALETTE.radioattivo);
     const icon = scene.add.graphics();
     drawAbilityIcon(icon, ability, CARD_W / 2, 22, 12, PALETTE.radioattivo);
     const info = (buildingText as unknown as { abilita: Record<AbilityType, { short: string }> }).abilita[ability];
@@ -74,7 +74,7 @@ export class AbilityCard extends Phaser.GameObjects.Container {
     this.setAlpha(cooldown === 0 ? 1 : 0.55);
     if (selected !== this.selected) {
       this.selected = selected;
-      this.bg.setStrokeStyle(selected ? 3 : 2, selected ? PALETTE.ok : PALETTE.radioattivo);
+      this.bg.setStrokeStyle(selected ? 2 : 1, selected ? PALETTE.ok : PALETTE.radioattivo);
       this.scene.tweens.add({ targets: this, y: this.baseY - (selected ? 8 : 0), duration: 120 });
     }
   }

@@ -13,15 +13,20 @@ Progressione con **campagne** di durata selezionabile (più lunghe = più risors
 Formula: si impara come Territorial, si torna come in Clash, si ragiona come in HOI4, si paga come in Polytopia.
 
 ## Lore
-Mondo alternativo dopo un cataclisma, **la Caduta**. Le potenze mondiali si contendono il dominio del mondo dopo la scoperta di
-**una nuova tecnologia**. Chi riuscirà a dominare il mondo? Il mistero della Caduta si svela poco alla volta (eventi rari, poi Laboratorio).
-Tono: misterioso, freddo, tecnologico, tensione da potere e dominio (rapporti operativi, intercettazioni). Niente ironia da cartone.
+Universo parallelo, militarmente vago, tra gli anni '40 e '70 (radio a valvole, telex, schede perforate, dirigibili, corazzate).
+Prima c'era **la Concordia**: un secolo di pace. Poi **la Caduta** (Anno Zero): dal cielo scesero figure alate e luminose (gli Alati);
+dove caddero la terra "gelò e cambiò" e scoppiò **la Corruzione** (viola, fredda). Restano i **Frammenti** (le anomalie sulla mappa),
+che emettono **il Segnale** e danno **il Lume**, la luce fredda: la nuova tecnologia. Le potenze se la contendono per dominare il mondo.
+La Caduta non fu una punizione ma **una Prova** prima di un evento celeste, **l'Avvento**: il Segnale è un conto alla rovescia.
+Chi riuscirà a dominare il mondo? Il mistero si svela poco alla volta (eventi rari, archivio del Laboratorio, schermate di caricamento).
+Temi ricorrenti: angeli, luce fredda, corruzione, classi dirigenti. Tono: freddo ma intenso, rapporti operativi e intercettazioni.
+Niente ironia da cartone. Enfasi sulle **classi dirigenti** e sulla divisione politica delle potenze (testi in `src/data/civs.json`).
 
 ## Civiltà (sistemi politici, non nazioni)
-- **Imperium** — ordine e dominio
-- **Republica** — senato e stabilità
-- **Aristocrazia** — cultura, tecnologia e degrado
-- **Cabal** — lavori nell'ombra ed economia
+- **Imperium** — ordine e dominio · impero militare, classe dirigente: lo Stato Maggiore (il Trono e i generali)
+- **Republica** — senato e stabilità · repubblica senatoria, classe dirigente: il Senato (senatori e alti funzionari)
+- **Aristocrazia** — cultura, tecnologia e degrado · oligarchia delle Casate, classe dirigente: le Grandi Casate (nobiltà e accademie)
+- **Cabal** — lavori nell'ombra ed economia · consiglio occulto, classe dirigente: il Consiglio Ombra (banchieri e servizi)
 Ognuna: 1 bonus, 1 unità unica, 1 edificio unico, una regione di partenza. Diverse, mai più forti. MVP: il giocatore è la Republica,
 le altre tre sono le IA.
 
@@ -42,11 +47,14 @@ Ricognizione aerea, Bombardamento (abilità) → unità unica per ogni civiltà.
 Timer brevi all'inizio, lunghi dopo. **I timer non bloccano mai le campagne.**
 
 ## Estetica (Figma, "Estetica" e "Loading screens")
-Notte, centri di comando, radar e terminali verdi, mappe a griglia luminosa tipo heatmap, operazioni speciali con visori notturni,
-toppe/insegne di reparto, tipografia luminosa. Leggibilità prima di tutto: colori fazione forti + simboli (daltonismo).
+Notte, centri di comando, radar, operazioni speciali, toppe/insegne di reparto. **Non troppo retrò** (Nico): niente effetto monitor/CRT,
+niente scanline, niente verde terminale. Stile moderno da sala operativa: blu notte e acciaio, oro pallido per gli accenti, font
+Barlow Semi Condensed + Oswald. Immagini drammatiche del Figma per le potenze e i caricamenti. Leggibilità prima di tutto: colori fazione
+forti + simboli (daltonismo).
 
 ## Run (campagna sulla mappa)
-- Mappa del mondo a esagoni, riconoscibile ma alterata (seed), divisa in nazioni reali e province con città.
+- Mappa del mondo divisa in nazioni reali e **province vere alla Call of War** (forme irregolari, la provincia è l'unità di conquista),
+  riconoscibile ma alterata (seed). Pausa strategica alla HOI4: il tempo si ferma, gli ordini no.
 - Truppe generiche (pool) che crescono col territorio; tap/avanzata per conquistare; unità come pedine.
 - Eventi a carta con 2 scelte ~ogni 90 s. Fine: tempesta che restringe la mappa (~8 min). Ritirata = tieni il bottino; eliminato = perdi il 70%.
 - Vittoria: 60% della regione / 3 anomalie / più territorio all'arrivo della tempesta.
@@ -99,6 +107,24 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   (`textSize` in `src/ui/style.ts`), pixel allineati sulle camere di interfaccia, canvas a misura CSS esatta; testi della mappa disegnati nello spazio dello schermo (`src/render/MapLabels.ts`),
   sempre nitidi a ogni zoom; mappa statica in texture a tasselli 2,6× (1,6× sui dispositivi deboli).
 
+- **Province alla Call of War** (ultima richiesta di Nico: "mappa più grande e vere caselle territoriali", meno retrò): la provincia
+  è l'unità di conquista. Griglia esagonale **invisibile** 280×140 (hexSize 5) solo per forme, pedine, navi, nebbia e tempesta;
+  ~870 province da ~16 caselle in tutte le nazioni (staterelli e isole = 1 provincia senza città, 18 province corrotte non attraversabili).
+  `RunState.provOwner` + `frontier()` per province (adiacenze in `Province.neighbors`); costo = somma delle difese delle caselle
+  (`provCost`); attacco, avanzata (una provincia ogni `flow.stepMs`), IA, pedine (entrano = prendono la provincia), navi, bombardamento:
+  tutto per provincia. Premio alla prima presa (`provinceReward`), capitale = truppe. Traguardi, run guidata e HUD contano province.
+  Forme: `src/map/provinceShapes.ts` (lati di confine tra regioni → catene tra incroci, rumore morbido + levigatura + Chaikin,
+  condivise tra vicini: niente fessure). Disegno: carta statica (mare, coste, toni per nazione, bordi) in texture a tasselli; colori delle
+  fazioni = sagome bianche in atlante tinte (`src/render/ProvinceLayer.ts`); confini tra potenze = linee a spessore costante solo
+  nell'inquadratura. Bilanciamento (`sim.ts 1 8 0 1`): giocatore attivo 7/8 vittorie in 2,5–4 min (difesa casella 6/3/12, Frammento 160, crescita 0,08, IA `actChance` 0,12).
+- **Pausa strategica (HOI4)**: ❚❚ o SPAZIO/P. Tempo fermo, mappa comandabile: tocchi e trascinamenti mettono province nel **piano**
+  (`RunState.plan`, evidenziate), pedine/abilità/navi prendono ordini; alla ripresa il piano parte (attacco o avanzata, in ordine).
+  Toccare il proprio territorio = alt (ferma avanzata e piano). Cornice dorata + cartello "PAUSA STRATEGICA".
+- **Caricamenti e immagini** (`src/scenes/LoadScene.ts`, `src/data/loading.json`, `src/ui/images.ts`): immagini del Figma in
+  `src/assets/img/` (moodboard segnaposto, da sostituire con illustrazioni definitive). Schermata a tutto schermo con viraggio freddo,
+  titolo + citazione dall'archivio + fonte, telex di stato e consiglio; copre l'avvio di HQ e campagne (la scena parte sotto).
+  Le potenze hanno la loro immagine: scelta potenza (classe dirigente, regime, dottrina, storia), testata della preparazione,
+  sfondo dell'HQ e della schermata finale.
 - **Sistemi dal Figma** (numeri in `balance.ts`: `campaigns`, `progression`, `civs`, `tech`, `camp.radarFogBonus`; testi in `src/data/civs.json`,
   `tech.json`, `buildings.json`; logica in `src/game/civs.ts`, `tech.ts`, `mods.ts`, `camp.ts`):
   **Campagne** breve 5 min ×0,8 risorse / standard 8 min / lunga 12 min ×1,4 (si sceglie dopo la run guidata).
@@ -167,10 +193,10 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   tocca la pedina → tocca una casella → ci va casella per casella conquistando (perde hp = difesa × captureCost).
   Fanteria > Raider > Artiglieria (gittata 2) > Fanteria. Si curano sul proprio territorio. Ogni IA ha un'unità preferita
   (icona nel pannello fazioni). Testi in `src/data/units.json`, numeri in `balance.ts` (`units`, `aiUnits`).
-- **Stile schermo di comando** (richiesta di Nico, riferimento: mappa al fosforo su monitor): fondo scuro, reticolo geografico ogni 10°
+- (SUPERATO dallo stile moderno sopra) **Stile schermo di comando** (riferimento: mappa al fosforo su monitor): fondo scuro, reticolo geografico ogni 10°
   con coordinate e scala in km, esagoni con reticolo sottile, **coste e confini nazionali veri** (Natural Earth 110m, linee al fosforo con alone)
   sopra la griglia, province come linee sottili, nomi delle nazioni spaziati, niente ombre/contorni sui testi. Territorio = colore fazione
   semitrasparente + bordo chiaro. Colori in `src/config/palette.ts` (chiavi vecchie, valori nuovi); accampamento in versione notturna.
-- **Griglia fine** (Nico: "mooolti più territori"): 200×100 esagoni (~6100 di terra, ~420 province da ~12 caselle; prima 120×60, ~170).
+- (SUPERATO dalle province alla Call of War) **Griglia fine** (Nico: "mooolti più territori"): 200×100 esagoni (~6100 di terra, ~420 province da ~12 caselle; prima 120×60, ~170).
   Numeri riscalati in `balance.ts` per tenere lo stesso ritmo in superficie (partenza a 2 anelli, avanzata 65 ms, IA, distanze, bottino per casella);
   `sim.ts` 2 tocchi/s: 4 vittorie su 6 come prima.

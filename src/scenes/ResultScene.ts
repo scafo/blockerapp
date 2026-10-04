@@ -9,6 +9,7 @@ import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
 import { uiCamera, view } from '../ui/screen';
+import { civImage, coverImage, fade } from '../ui/images';
 
 const TITLES: Record<RunSummary['outcome'], string> = {
   victory: 'VITTORIA',
@@ -17,7 +18,7 @@ const TITLES: Record<RunSummary['outcome'], string> = {
   storm: 'TRAVOLTO DALLA TEMPESTA',
 };
 
-const REASONS = { map: 'Impero sul 60% della regione', anomalies: '3 anomalie in mano tua', storm: 'Più territorio alla fine della tempesta', tutorial: 'Il primo pezzo di mondo è tuo' };
+const REASONS = { map: 'Impero sul 60% della regione', anomalies: '3 Frammenti in mano tua', storm: 'Più territorio alla fine della tempesta', tutorial: 'Il primo pezzo di mondo è tuo' };
 
 /** Schermata finale stile manifesto: esito, bollettino comando, bottino portato a casa, rivincita. */
 export class ResultScene extends Phaser.Scene {
@@ -40,15 +41,22 @@ export class ResultScene extends Phaser.Scene {
 
     const { width, height, portrait: P } = view(this);
     this.cameras.main.setBackgroundColor(PALETTE.inchiostro);
+    // fondo: la potenza in vittoria, un'immagine dell'archivio della Caduta negli altri casi
+    const bg = sum.outcome === 'victory' ? civImage(sum.civ) : { retreat: 'load-nave', eliminated: 'load-croce', storm: 'load-ghiaccio' }[sum.outcome];
+    const img = coverImage(this, bg, 0, 0, width, height, 0.4).setTint(0x9fb4cc).setAlpha(0.7);
+    this.tweens.add({ targets: img, alpha: 0.5, duration: 4000, yoyo: true, repeat: -1 });
+    this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.45).setOrigin(0);
+    fade(this, 0, height * 0.5, width, height * 0.5, PALETTE.inchiostro, 0, 0.8);
     // verticale: scheda alta con tutto in colonna; orizzontale: scheda larga
     const W = Math.min(600, width - 32), H = P ? Math.min(520, height - 24) : Math.min(340, height - 24);
     const x0 = (width - W) / 2, y0 = (height - H) / 2;
-    this.add.rectangle(x0, y0, W, H, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
+    this.add.rectangle(x0, y0, W, H, PALETTE.inchiostro, 0.84).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
+    this.add.rectangle(x0, y0, W, 3, PALETTE.ocra).setOrigin(0);
     const cx = width / 2;
     const ink = PALETTE.carta; // testo chiaro sul pannello scuro
 
-    this.add.text(x0 + 16, y0 + 12, `RAPPORTO OPERATIVO N° ${profile.runs} · ${sum.civ.toUpperCase()} · ${sum.campaign.toUpperCase()}`, textStyle(11, PALETTE.ruggine));
-    this.add.text(x0 + W - 16, y0 + 12, `mappa #${sum.seed}`, textStyle(11, PALETTE.ruggine, false)).setOrigin(1, 0);
+    this.add.text(x0 + 16, y0 + 12, `RAPPORTO OPERATIVO N° ${profile.runs} · ${sum.civ.toUpperCase()} · ${sum.campaign.toUpperCase()}`, textStyle(11, PALETTE.ocra));
+    this.add.text(x0 + W - 16, y0 + 12, `mappa #${sum.seed}`, textStyle(11, PALETTE.tenue, false)).setOrigin(1, 0);
     const color = sum.outcome === 'victory' ? PALETTE.ocra : sum.outcome === 'retreat' ? ink : PALETTE.ruggine;
     const title = this.add.text(cx, y0 + 50, TITLES[sum.outcome], textStyle(P ? 26 : 34, color)).setOrigin(0.5)
       .setAlign('center').setWordWrapWidth(W - 24);
@@ -61,15 +69,15 @@ export class ResultScene extends Phaser.Scene {
     const sec = Math.floor(sum.timeMs / 1000);
     const time = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
     let y = P ? bulletin.y + bulletin.height + 22 : y0 + 136;
-    this.add.text(cx, y, P ? `TERRITORIO MAX ${sum.maxTiles}\nTEMPO ${time} · ANOMALIE ${sum.anomalies}`
-      : `TERRITORIO MAX ${sum.maxTiles}   ·   TEMPO ${time}   ·   ANOMALIE ${sum.anomalies}`, textStyle(13, ink)).setOrigin(0.5).setAlign('center');
+    this.add.text(cx, y, P ? `PROVINCE MAX ${sum.maxProvinces}\nTEMPO ${time} · FRAMMENTI ${sum.anomalies}`
+      : `PROVINCE MAX ${sum.maxProvinces}   ·   TEMPO ${time}   ·   FRAMMENTI ${sum.anomalies}`, textStyle(13, ink)).setOrigin(0.5).setAlign('center');
 
     // bottino: portato a casa (e quanto zaino c'era, se è cambiato: bonus vittoria o perdita, Deposito incluso)
     const had = bagTotal(sum.backpack), kept = bagTotal(sum.kept);
     const pct = had ? Math.round((kept / had - 1) * 100) : 0;
     const delta = pct > 0 ? `+${pct}% vittoria` : pct < 0 ? `${pct}% perso` : '';
     y += P ? 46 : 26;
-    this.add.text(cx, y, `BOTTINO PORTATO A CASA${delta ? `  (${delta})` : ''}`, textStyle(11, PALETTE.ruggine)).setOrigin(0.5);
+    this.add.text(cx, y, `BOTTINO PORTATO A CASA${delta ? `  (${delta})` : ''}`, textStyle(11, PALETTE.ocra)).setOrigin(0.5);
     const g = this.add.graphics();
     RESOURCES.forEach((r, k) => {
       // verticale: una risorsa per riga; orizzontale: tre colonne
@@ -90,7 +98,7 @@ export class ResultScene extends Phaser.Scene {
     const bw1 = P ? W - 32 : 250, bw2 = P ? W - 32 : 170;
     const again = new Button(this, 'RIVINCITA STESSA MAPPA', bw1, 46, () => {
       analytics.design(['run', 'rivincita', sum.outcome]); // % rivincita dopo una sconfitta
-      this.scene.start('Run', { seed: sum.seed });
+      this.scene.start('Load', { next: 'Run', data: { seed: sum.seed } });
     });
     const fresh = new Button(this, 'ACCAMPAMENTO', bw2, 46, () => this.scene.start('Camp'));
     if (P) {

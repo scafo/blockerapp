@@ -65,19 +65,19 @@ export class TutorialGuide {
 
     switch (this.step) {
       case 'tap': {
-        const front = st.frontier(PLAYER).filter((i) => st.troops > st.defenseOf(i));
-        const i = front.sort((a, b) => st.defenseOf(a) - st.defenseOf(b))[0];
-        return i === undefined ? this.show(null, 'ASPETTA LE TRUPPE') : this.show(this.api.tileToScreen(i), 'TOCCA');
+        const front = st.frontier(PLAYER).filter((p) => st.troops > st.provCost(PLAYER, p));
+        const p = front.sort((a, b) => st.provCost(PLAYER, a) - st.provCost(PLAYER, b))[0];
+        return p === undefined ? this.show(null, 'ASPETTA LE TRUPPE') : this.show(this.api.tileToScreen(st.map.provinces[p].anchor), 'TOCCA UNA PROVINCIA');
       }
       case 'troops':
         return this.show(this.api.troopsPos(), 'LE TRUPPE CRESCONO\nCOL TERRITORIO', true);
       case 'flow': {
         if (this.flowTarget < 0 || st.owner[this.flowTarget] === PLAYER) this.flowTarget = this.pickFar(st);
-        return this.show(this.flowTarget >= 0 ? this.api.tileToScreen(this.flowTarget) : null, 'TOCCA LONTANO:\nIL CONFINE AVANZA DA SOLO');
+        return this.show(this.flowTarget >= 0 ? this.api.tileToScreen(this.flowTarget) : null, 'TOCCA LONTANO:\nIL FRONTE AVANZA DA SOLO');
       }
       case 'paint': {
         const front = st.frontier(PLAYER);
-        return this.show(front.length ? this.api.tileToScreen(front[0]) : null, 'OPPURE TRASCINA\nDAL TUO TERRITORIO');
+        return this.show(front.length ? this.api.tileToScreen(st.map.provinces[front[0]].anchor) : null, 'OPPURE TRASCINA\nDAL TUO TERRITORIO');
       }
       case 'unit': {
         const cost = BALANCE.units.fanteria.cost;
@@ -94,13 +94,13 @@ export class TutorialGuide {
         return this.show(this.flowTarget >= 0 ? this.api.tileToScreen(this.flowTarget) : null, 'POI TOCCA LA META');
       }
       case 'goal':
-        return this.show(null, `OBIETTIVO: ${BALANCE.tutorial.goalTiles} CASELLE · ${st.tilesOwned}/${BALANCE.tutorial.goalTiles}`);
+        return this.show(null, `OBIETTIVO: ${BALANCE.tutorial.goalProvinces} PROVINCE · ${st.player.provinces}/${BALANCE.tutorial.goalProvinces}`);
     }
   }
 
-  /** Casella neutra lontana qualche passo dal confine, visibile a schermo. */
+  /** Casella neutra a un paio di province dal fronte, visibile a schermo. */
   private pickFar(st: RunState): number {
-    const front = st.frontier(PLAYER);
+    const front = st.frontier(PLAYER).map((p) => st.map.provinces[p].anchor);
     const { width, height } = view(this.scene);
     let best = -1, bestScore = Infinity;
     for (let i = 0; i < st.owner.length; i++) {
@@ -109,7 +109,7 @@ export class TutorialGuide {
       if (p.x < 40 || p.x > width - 40 || p.y < 40 || p.y > height - 40 || this.api.blocked(p.x, p.y)) continue;
       let d = Infinity;
       for (const f of front) d = Math.min(d, hexDistance(f, i));
-      const score = Math.abs(d - 5);
+      const score = Math.abs(d - 9);
       if (score < bestScore) {
         bestScore = score;
         best = i;

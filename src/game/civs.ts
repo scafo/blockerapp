@@ -10,6 +10,10 @@ export interface CivInfo {
   id: CivId;
   name: string;
   motto: string;
+  regime: string; // forma di governo
+  classe: string; // classe dirigente
+  dottrina: string;
+  lore: string;
   bonus: string;
   building: string;
   buildingText: string;

@@ -2,22 +2,21 @@
 
 export const BALANCE = {
   map: {
-    cols: 200, // griglia fine: molti più territori
-    rows: 100,
+    cols: 280, // griglia fine (invisibile): serve a disegnare le province e a muovere pedine e navi
+    rows: 140,
     latMax: 84,
     latMin: -58, // niente Antartide
-    hexSize: 6, // raggio esagono in pixel-mondo
-    toxicClusters: 30,
-    toxicClusterSize: [3, 14] as [number, number],
-    ruinsCount: 190,
+    hexSize: 5, // raggio esagono in pixel-mondo
+    toxicProvinces: 18, // province corrotte dalla Caduta: non si attraversano
+    ruinsCount: 360,
     desertLatBand: [12, 35] as [number, number], // |lat| in gradi
     desertChance: 0.7, // probabilità deserto dentro la fascia
     desertSprinkle: 0.04, // probabilità deserto fuori fascia
-    minStartRegion: 800, // caselle minime della regione di partenza (ci stanno 4 fazioni)
+    minStartRegion: 1600, // caselle minime della regione di partenza (ci stanno 4 fazioni)
   },
   tick: {
     ms: 500,
-    troopsPerTile: 0.1, // troops += tiles * troopsPerTile (crescita originale, senza tetto)
+    troopsPerTile: 0.08, // troops += tiles * troopsPerTile (crescita lineare, senza tetto)
   },
   // Insediamenti: le rovine possedute contano come caselle in più per la crescita e si difendono meglio.
   settlements: {
@@ -37,54 +36,53 @@ export const BALANCE = {
     default: 0.5,
   },
   start: {
-    troops: 65,
-    radius: 2, // anello di caselle iniziali attorno alla partenza
+    troops: 120, // si parte con la provincia della partenza: la prima conquista è subito
   },
   defense: {
-    terra: 6,
+    terra: 6, // una provincia (~16 caselle) costa la somma delle sue caselle
     deserto: 3,
     rovine: 12,
-    anomalia: 22,
+    anomalia: 160, // la provincia con l'anomalia costa circa il doppio
     variance: 0.3, // ± percentuale casuale per casella
   },
   // Caselle possedute: difesa = base * mult + min(truppe/caselle * garrison, garrisonMax)
   owned: {
     defenseMult: 1,
     garrison: 0.5,
-    garrisonMax: 12, // niente fortezze imbattibili accumulando truppe
+    garrisonMax: 8, // niente fortezze imbattibili accumulando truppe
     settlementDefense: 6, // gli insediamenti (rovine possedute) si difendono meglio
   },
   ai: {
     count: 3,
     startTroops: 55,
     growthMult: 1.15, // rispetto alla crescita del giocatore (con il 15% di lavoratori = 0,85 in truppe, come prima)
-    actChance: 0.6, // probabilità di agire a ogni tick
+    actChance: 0.12, // probabilità di agire a ogni tick (una provincia per azione)
     attacksPerAct: 1, // caselle piccole: più caselle per azione (stesso ritmo di prima in superficie)
     reserve: 1.25, // attacca solo se truppe > difesa * reserve
-    playerBias: 0.7, // le caselle del giocatore "sembrano" più deboli: ce l'hanno con te
+    playerBias: 0.9, // le province del giocatore "sembrano" un po' più deboli
     graceMs: 60_000, // tempo di gioco prima che le IA attacchino il giocatore
-    startDistance: [15, 33] as [number, number], // passi esagonali dal giocatore
-    minDistanceBetween: 12, // passi esagonali tra fazioni IA
+    startDistance: [21, 46] as [number, number], // passi esagonali dal giocatore
+    minDistanceBetween: 17, // passi esagonali tra fazioni IA
     releaseLootShare: 0.5, // quota di bottino rilasciata quando eliminata
     workers: 0.15, // anche le IA mandano gente a lavorare: più bottino da rubare
   },
   // Pedine: costano truppe del pool, si muovono casella per casella e conquistano dove passano.
   units: {
-    fanteria: { cost: 60, hp: 60, attack: 6, range: 1, moveMs: 600, captureCost: 0.4 },
-    ricognitori: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 300, captureCost: 0.5 },
-    artiglieria: { cost: 70, hp: 30, attack: 9, range: 3, moveMs: 900, captureCost: 0.8 },
+    fanteria: { cost: 60, hp: 60, attack: 6, range: 1, moveMs: 430, captureCost: 0.4 },
+    ricognitori: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 215, captureCost: 0.5 },
+    artiglieria: { cost: 70, hp: 30, attack: 9, range: 3, moveMs: 650, captureCost: 0.8 },
     // secondo gruppo dell'Arsenale
-    corazzati: { cost: 90, hp: 110, attack: 9, range: 1, moveMs: 450, captureCost: 0.25 }, // travolgono fanteria e ricognitori
-    genio: { cost: 50, hp: 50, attack: 4, range: 1, moveMs: 700, captureCost: 0.3 }, // fortifica le caselle attorno, ferma i corazzati
-    cannoniera: { cost: 85, hp: 70, attack: 8, range: 3, moveMs: 350, captureCost: 0 }, // nave: copre le coste
+    corazzati: { cost: 90, hp: 110, attack: 9, range: 1, moveMs: 320, captureCost: 0.25 }, // travolgono fanteria e ricognitori
+    genio: { cost: 50, hp: 50, attack: 4, range: 1, moveMs: 500, captureCost: 0.3 }, // fortifica le caselle attorno, ferma i corazzati
+    cannoniera: { cost: 85, hp: 70, attack: 8, range: 3, moveMs: 250, captureCost: 0 }, // nave: copre le coste
     // unità uniche delle civiltà (arsenale liv. 6)
-    legionari: { cost: 80, hp: 90, attack: 7, range: 1, moveMs: 650, captureCost: 0.35 }, // Imperium
-    guardia: { cost: 55, hp: 75, attack: 6, range: 1, moveMs: 600, captureCost: 0.3 }, // Republica
-    prototipo: { cost: 75, hp: 28, attack: 11, range: 4, moveMs: 1000, captureCost: 0.8 }, // Aristocrazia
-    infiltrati: { cost: 40, hp: 32, attack: 7, range: 1, moveMs: 260, captureCost: 0.2 }, // Cabal
+    legionari: { cost: 80, hp: 90, attack: 7, range: 1, moveMs: 470, captureCost: 0.35 }, // Imperium
+    guardia: { cost: 55, hp: 75, attack: 6, range: 1, moveMs: 430, captureCost: 0.3 }, // Republica
+    prototipo: { cost: 75, hp: 28, attack: 11, range: 4, moveMs: 720, captureCost: 0.8 }, // Aristocrazia
+    infiltrati: { cost: 40, hp: 32, attack: 7, range: 1, moveMs: 190, captureCost: 0.2 }, // Cabal
     deckSize: 4, // in campagna porti 4 truppe delle sbloccate (il mazzo, come in Clash)
     fortifyDefense: 8, // genio: difesa in più sulle sue caselle e su quelle accanto
-    supportRange: 2, // cannoniera: caselle di costa coperte dal fuoco
+    supportRange: 3, // cannoniera: caselle di costa coperte dal fuoco
     supportCostMult: 0.7, // costo per prendere una casella coperta dalla cannoniera
     strong: 1.75, // moltiplicatore danno contro l'unità che batti
     weak: 0.5, // moltiplicatore danno contro l'unità che ti batte
@@ -95,8 +93,8 @@ export const BALANCE = {
   },
   // Abilità a ricarica (Arsenale liv. 5): non sono unità
   abilities: {
-    ricognizione: { cooldownMs: 40_000, radius: 7, durationMs: 15_000 }, // ricognizione aerea: svela la zona
-    bombardamento: { cooldownMs: 60_000, radius: 1, unitRadius: 2, delayMs: 1200, unitDamage: 40, troopsPerTile: 10 }, // le caselle nemiche tornano neutrali
+    ricognizione: { cooldownMs: 40_000, radius: 10, durationMs: 15_000 }, // ricognizione aerea: svela la zona
+    bombardamento: { cooldownMs: 60_000, radius: 1, unitRadius: 3, delayMs: 1200, unitDamage: 40, troopsPerTile: 3 }, // la provincia nemica colpita torna neutrale
   },
   aiUnits: {
     dominant: ['', 'ricognitori', 'artiglieria', 'fanteria'], // unità preferita per fazione (indice = fazione)
@@ -118,8 +116,8 @@ export const BALANCE = {
   // Anomalie: caselle-segnale molto difese. Tenerne `victory.anomalies` = vittoria.
   anomalies: {
     count: 5,
-    distance: [13, 47] as [number, number], // passi esagonali dalla partenza del giocatore
-    minApart: 10,
+    distance: [18, 66] as [number, number], // passi esagonali dalla partenza del giocatore
+    minApart: 14,
   },
   victory: {
     mapShare: 0.6, // quota della regione di partenza (terra attraversabile)
@@ -131,59 +129,59 @@ export const BALANCE = {
     startMs: 480_000, // 8 min di gioco
     warnMs: 60_000, // avviso + cerchio finale visibile prima dell'arrivo
     durationMs: 90_000, // tempo per chiudersi fino a finalRadius
-    finalRadius: 5,
+    finalRadius: 7,
     unitDamage: 6, // hp per tick alle pedine nella cenere
   },
   // Avanzata: tocchi una casella lontana e il confine "cola" verso di lei, una casella ogni stepMs.
   // Provincia completa (tutte le sue caselle tue): ricompensa una volta per provincia e per fazione
-  provinceReward: { troopsPerTile: 0.6, lootPerTile: 0.2 }, // bottino diviso metà metallo, un quarto benzina e cibo
+  provinceReward: { troopsPerTile: 0.3, lootPerTile: 0.2 }, // bottino diviso metà metallo, un quarto benzina e cibo
   // Offensive nemiche: un'IA confinante concentra gli attacchi su di te per un po', con preavviso
   offensive: {
     firstMs: 100_000, everyMs: 60_000, jitterMs: 15_000, warnMs: 6_000, durationMs: 25_000,
-    attacksPerAct: 5, playerBias: 0.15, troopsBonus: 40, troopsPerTile: 0.8,
+    attacksPerAct: 2, playerBias: 0.15, troopsBonus: 40, troopsPerTile: 0.8,
   },
   flow: {
-    stepMs: 65,
+    stepMs: 320, // una provincia alla volta
     reserve: 5, // truppe che l'avanzata lascia sempre in cassa
-    giveUpSteps: 3, // si ferma se si allontana dal bersaglio di tanti passi (es. mare in mezzo)
+    giveUpSteps: 9, // si ferma se si allontana dal bersaglio di tanti passi esagonali (es. mare in mezzo)
   },
   // Nazioni e province (alla Call of War): ogni nazione reale è divisa in province con una città.
   // Prendi la città → le caselle neutrali della provincia si arrendono. La capitale dà truppe a chi la prende.
   provinces: {
-    size: 12, // caselle per provincia (circa)
+    size: 16, // caselle per provincia (circa)
     cityDefenseMult: 2, // difesa città = base × mult + bonus
     cityDefenseBonus: 6,
     capitalDefenseBonus: 8,
     capitalTroops: 110, // a chi prende una capitale (la prima volta)
     aiCityAttraction: 0.6, // le città sembrano più deboli all'IA: le cerca
-    nameMinTiles: 20, // nomi delle nazioni solo per le più grandi
-    minTilesForCity: 6, // staterelli più piccoli: niente città né capitale (meno simboli sulla mappa)
-    namesMaxZoom: 2.6, // sopra questo zoom (vista tattica) i nomi delle nazioni spariscono
+    nameMinTiles: 40, // nomi delle nazioni solo per le più grandi
+    minTilesForCity: 8, // staterelli più piccoli: una provincia sola, senza città
+    namesMaxZoom: 2.0, // sopra questo zoom (vista tattica) i nomi delle nazioni spariscono
   },
   // Navi: tocchi una costa che non raggiungi via terra; la nave parte dalla tua costa più vicina con la forza d'attacco.
   boats: {
-    stepMs: 130, // tempo per attraversare una casella di mare
-    maxSea: 50, // caselle di mare massime per una traversata
+    stepMs: 95, // tempo per attraversare una casella di mare
+    maxSea: 70, // caselle di mare massime per una traversata
     maxInFlight: 3,
     minTroops: 10,
   },
   // Nebbia di guerra: vedi solo vicino a territorio, pedine e navi. Le anomalie si vedono sempre (emettono il segnale).
   fog: {
-    territory: 6,
-    unit: 5,
-    boat: 3,
+    territory: 8,
+    unit: 7,
+    boat: 4,
     shade: false, // velo scuro sulle zone non viste (tolto: la nebbia nasconde solo i nemici)
     seenAlpha: 0.45, // già esplorato ma ora fuori vista
     unseenAlpha: 0.88, // mai visto
   },
-  // Prima run guidata: 1 sola IA che non attacca, niente tempesta né eventi, si vince con goalTiles caselle.
+  // Prima run guidata: 1 sola IA che non attacca, niente tempesta né eventi, si vince con goalProvinces province.
   tutorial: {
     aiCount: 1,
-    goalTiles: 110,
+    goalProvinces: 7, // province da tenere per vincere la run guidata
     aiGrowthMult: 0.5,
   },
   // Traguardi di territorio che meritano un cartello
-  milestones: [60, 125, 250, 500, 1000],
+  milestones: [8, 15, 30, 60, 120], // province
   // Eventi stile Reigns (servono la Radio): una carta con 2 scelte, la run è in pausa mentre è aperta.
   events: {
     firstMs: 45_000,
@@ -256,7 +254,7 @@ export const BALANCE = {
     resultDelayMs: 1200, // pausa prima della schermata finale
   },
   // effetti grafici della mappa (Figma: heatmap luminosa). bloom = bagliore su tutta la mappa (spento sui telefoni deboli)
-  fx: { bloom: { blur: 1, strength: 1.15, steps: 3 } as { blur: number; strength: number; steps: number } | null },
+  fx: { bloom: null as { blur: number; strength: number; steps: number } | null }, // niente bagliore da monitor
   speeds: [1, 2, 4],
   // Campagne a durata scelta (Figma: "campagne di durata più lunga portano più risorse")
   campaigns: {
@@ -295,8 +293,8 @@ export const BALANCE = {
   camera: {
     minZoom: 0.5,
     maxZoom: 5.5,
-    startZoom: 3.2, // mappa più grande sullo schermo
-    labelMinZoom: 2.3, // sotto questo zoom niente numeri di difesa
+    startZoom: 2.3, // si vedono più province attorno alla partenza
+    labelMinZoom: 1.5, // sotto questo zoom niente numeri di difesa
     dragThreshold: 8, // px schermo prima che un tap diventi trascinamento
   },
 } as const;

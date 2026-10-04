@@ -20,12 +20,14 @@ export interface Faction {
   loot: Bag; // per il giocatore è lo zaino della run
   alive: boolean;
   settlements: number; // rovine possedute
+  provinces: number; // province possedute
+  maxProvinces: number;
   workers: number; // quota di lavoratori (0..1)
   lootAcc: Record<Resource, number>; // frazioni di risorse prodotte dai lavoratori
 }
 
 export type RunEvent =
-  | { type: 'conquer'; by: number; from: number; i: number; cost: number; loot: number; lootType: Resource; unit?: number }
+  | { type: 'conquer'; by: number; from: number; p: number; i: number; cost: number; loot: number; lootType: Resource; unit?: number }
   | { type: 'storm'; phase: 'warn' | 'start' }
   | { type: 'event'; event: GameEvent }
   | { type: 'flowEnd'; reason: 'reached' | 'blocked' | 'budget' }
@@ -46,6 +48,7 @@ export interface RunSummary {
   reason?: VictoryReason;
   timeMs: number;
   maxTiles: number;
+  maxProvinces: number;
   anomalies: number;
   backpack: Bag; // zaino a fine run
   kept: Bag; // portato a casa dopo perdite/bonus
@@ -71,6 +74,8 @@ export class RunState {
   private stormMaxR = 0;
   private stormPhase: 'none' | 'warn' | 'active' = 'none';
   private stormDelayMs = 0;
+  /** caselle già inghiottite per provincia */
+  private provStormed: Int16Array;
   // eventi
   pendingEvent: GameEvent | null = null;
   private nextEventAt: number = BALANCE.events.firstMs;
@@ -79,14 +84,18 @@ export class RunState {
   private growthBoost = { mult: 1, until: 0 };
   // avanzata automatica del giocatore
   flowTarget: number | null = null;
-  /** Avanzata alla Call of War: si conquista tutta la provincia toccata, poi ci si ferma. */
-  flowProvince = -1;
-  /** Pausa (tasto PAUSA): il tempo di gioco si ferma. */
+  /** Pausa strategica (alla HOI4): il tempo si ferma, gli ordini si possono dare lo stesso. */
   paused = false;
+  /** Piano preparato in pausa: province da prendere in quest'ordine appena il tempo riparte. */
+  plan: number[] = [];
   /** Offensiva nemica in corso o annunciata. */
   offensive: { faction: number; phase: 'warn' | 'on'; until: number; lostAtStart: number } | null = null;
   private nextOffensiveAt: number = BALANCE.offensive.firstMs;
   private provincesDone = new Set<string>(); // "fazione:provincia" già premiate
+  /** Proprietario di ogni provincia (tutte le sue caselle attraversabili hanno lo stesso). */
+  readonly provOwner: Int8Array;
+  /** Provincia visibile al giocatore (almeno una casella in vista). */
+  readonly provVisible: Uint8Array;
   private flowAcc = 0;
   private flowBudget = 0;
   // navi in viaggio
@@ -100,6 +109,9 @@ export class RunState {
   /** quota delle truppe che un'avanzata può spendere */
   attackRatio: number = BALANCE.attack.default;
   private flowBestD = Infinity;
+  private flowSteps = 0;
+  /** provincia → contiene un'anomalia */
+  readonly provAnomaly: Uint8Array;
   private anomalyDefMult = 1;
   /** Genio: caselle fortificate (proprietario della fortificazione, −1 = nessuna). */
   private fortBy: Int8Array;
@@ -117,6 +129,7 @@ export class RunState {
   /** Eventi da mostrare; la scena li consuma con drainEvents(). */
   private events: RunEvent[] = [];
   private tickAcc = 0;
+  /** fazione → province attaccabili (confinanti, non sue) */
   private frontierCache = new Map<number, number[]>();
   private aiRng: Rng;
   private capitalsTaken = new Set<number>();
@@ -124,6 +137,11 @@ export class RunState {
 
   constructor(readonly map: RunMap, readonly opts: RunOptions = DEFAULT_OPTIONS) {
     this.owner = new Int8Array(map.tiles.length).fill(NEUTRAL);
+    this.provOwner = new Int8Array(map.provinces.length).fill(NEUTRAL);
+    this.provVisible = new Uint8Array(map.provinces.length).fill(1);
+    this.provStormed = new Int16Array(map.provinces.length);
+    this.provAnomaly = new Uint8Array(map.provinces.length);
+    for (const a of map.anomalies) this.provAnomaly[map.tiles[a]!.province] = 1;
     this.fortBy = new Int8Array(map.tiles.length).fill(-1);
     this.supportBy = new Int8Array(map.tiles.length).fill(-1);
     this.aiRng = createRng(map.seed + ':ia');
@@ -137,6 +155,8 @@ export class RunState {
       loot: emptyBag(),
       alive: true,
       settlements: 0,
+      provinces: 0,
+      maxProvinces: 0,
       workers: id === PLAYER ? (opts.tutorial ? 0 : BALANCE.workers.default) : BALANCE.ai.workers,
       lootAcc: emptyBag(),
     }));
@@ -163,18 +183,8 @@ export class RunState {
     this.cooldowns = this.factions.map(() => Object.fromEntries(UNIT_TYPES.map((t) => [t, 0])) as Record<UnitType, number>);
     this.anomalyDefMult = opts.mods.anomalyDefenseMult;
     this.aiSpawnAt = this.factions.map(() => BALANCE.ai.graceMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
-    map.starts.forEach((s, f) => {
-      this.claim(f, s);
-      // anelli attorno alla partenza (start.radius)
-      let ring = [s];
-      for (let r = 0; r < BALANCE.start.radius; r++) {
-        const next: number[] = [];
-        for (const c of ring) for (const n of NEIGHBORS[c]) {
-          if (n >= 0 && this.passable(n) && this.owner[n] === NEUTRAL) { this.claim(f, n); next.push(n); }
-        }
-        ring = next;
-      }
-    });
+    // si parte con la provincia della propria partenza
+    map.starts.forEach((s, f) => this.claimProvince(f, this.provOf(s)));
   }
 
   /** Da chiamare dopo il costruttore (la scena lo fa): nebbia pronta dal primo fotogramma. */
@@ -243,6 +253,7 @@ export class RunState {
     }
     this.moveBoats(dt);
     this.abilitiesTick();
+    if (this.flowTarget === null && this.plan.length) this.nextPlan();
     if (this.flowTarget !== null) {
       this.flowAcc += dt;
       const stepMs = BALANCE.flow.stepMs / this.opts.mods.flowSpeedMult;
@@ -321,12 +332,18 @@ export class RunState {
     for (let i = 0; i < this.stormed.length; i++) {
       if (this.stormed[i] || !this.map.tiles[i] || this.stormDist[i] <= r) continue;
       this.stormed[i] = 1;
+      const p = this.provOf(i);
+      this.provStormed[p]++;
       const o = this.owner[i];
       if (o === NEUTRAL) continue;
       this.owner[i] = NEUTRAL;
       this.factions[o].tiles--;
+      if (!this.provPassable(p) && this.provOwner[p] === o) {
+        this.provOwner[p] = NEUTRAL; // provincia inghiottita tutta
+        this.factions[o].provinces--;
+      }
       this.frontierCache.clear();
-      this.events.push({ type: 'conquer', by: NEUTRAL, from: o, i, cost: 0, loot: 0, lootType: 'metallo' });
+      this.events.push({ type: 'conquer', by: NEUTRAL, from: o, p, i, cost: 0, loot: 0, lootType: 'metallo' });
       if (this.factions[o].tiles <= 0 && this.factions[o].alive) this.eliminate(o, NEUTRAL);
     }
     for (const u of this.units) if (this.stormed[u.tile]) u.hp -= S.unitDamage;
@@ -352,7 +369,7 @@ export class RunState {
   private checkVictory() {
     if (this.over) return;
     if (this.opts.tutorial) {
-      if (this.player.tiles >= BALANCE.tutorial.goalTiles) this.end('victory', 'tutorial');
+      if (this.player.provinces >= BALANCE.tutorial.goalProvinces) this.end('victory', 'tutorial');
       return;
     }
     if (this.mapShare >= BALANCE.victory.mapShare) this.end('victory', 'map');
@@ -380,7 +397,7 @@ export class RunState {
       : outcome === 'retreat' ? 1 + this.opts.retreatBonus : 1 - this.opts.eliminatedLoss;
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
-      maxTiles: this.player.maxTiles, anomalies: this.anomaliesOwned(), backpack: { ...bag }, kept: scaleBag(bag, k * this.opts.campaignLootMult),
+      maxTiles: this.player.maxTiles, maxProvinces: this.player.maxProvinces, anomalies: this.anomaliesOwned(), backpack: { ...bag }, kept: scaleBag(bag, k * this.opts.campaignLootMult),
       tutorial: this.opts.tutorial, civ: this.opts.civ, campaign: this.opts.campaign,
     };
   }
@@ -443,12 +460,13 @@ export class RunState {
       this.events.push({ type: 'boat', phase: 'landed', boat: b });
       return;
     }
-    const cost = this.passable(t) ? this.defenseOf(t) : Infinity;
+    const p = this.provOf(t);
+    const cost = this.passable(t) && this.provPassable(p) ? this.provCost(b.owner, p) : Infinity;
     if (!f.alive || b.troops <= cost) {
       this.events.push({ type: 'boat', phase: 'lost', boat: b });
       return;
     }
-    this.transfer(b.owner, t, cost);
+    this.transferProvince(b.owner, p, cost);
     f.troops += b.troops - cost;
     this.events.push({ type: 'boat', phase: 'landed', boat: b });
   }
@@ -488,7 +506,11 @@ export class RunState {
       }
       if (vis[i]) this.seen[i] = 1;
     }
-    if (changed) this.fogVersion++;
+    if (!changed) return;
+    // una provincia si vede se se ne vede almeno una casella
+    this.provVisible.fill(0);
+    for (const i of this.map.land) if (vis[i]) this.provVisible[this.provOf(i)] = 1;
+    this.fogVersion++;
   }
 
   /** La casella è visibile al giocatore? (senza nebbia: sempre) */
@@ -496,63 +518,83 @@ export class RunState {
     return !this.opts.fog || this.visible[i] === 1;
   }
 
+  seesProv(p: number): boolean {
+    return !this.opts.fog || this.provVisible[p] === 1;
+  }
+
   // ---------- avanzata ----------
 
-  /** Avanzata verso `target`: il confine conquista da solo le caselle più vicine al bersaglio. */
+  /** Avanzata verso la provincia di `target`: il fronte prende da solo una provincia alla volta, verso il bersaglio. */
   startFlow(target: number): boolean {
-    if (!this.passable(target) || this.owner[target] === PLAYER) return false;
+    const T = this.provOf(target);
+    if (T < 0 || !this.provPassable(T) || this.provOwner[T] === PLAYER) return false;
     let own = -1;
     for (let i = 0; i < this.owner.length && own < 0; i++) if (this.owner[i] === PLAYER) own = i;
     if (own < 0 || !findPath(own, target, (i) => this.passable(i)).length) return false;
-    this.flowTarget = target;
-    this.flowProvince = this.map.tiles[target]!.province;
+    this.flowTarget = T;
     this.flowAcc = BALANCE.flow.stepMs; // primo passo subito
     this.flowBestD = Infinity;
+    this.flowSteps = 0;
     this.flowBudget = this.troops * (this.opts.tutorial ? 1 : this.attackRatio); // forza d'attacco
     return true;
+  }
+
+  /** Aggiunge o toglie una provincia dal piano; true se ora c'è. */
+  togglePlan(p: number): boolean {
+    const k = this.plan.indexOf(p);
+    if (k >= 0) {
+      this.plan.splice(k, 1);
+      return false;
+    }
+    this.plan.push(p);
+    return true;
+  }
+
+  /** Prossimo passo del piano: attacco diretto se confina, altrimenti avanzata verso la provincia. */
+  private nextPlan() {
+    while (this.plan.length) {
+      const p = this.plan[0];
+      if (this.provOwner[p] === PLAYER || !this.provPassable(p)) { this.plan.shift(); continue; }
+      if (this.isFrontierProv(p) && this.troops > this.provCost(PLAYER, p)) {
+        this.attackProvince(PLAYER, p);
+        this.plan.shift();
+        continue;
+      }
+      if (!this.startFlow(this.map.provinces[p].anchor)) { this.plan.shift(); continue; }
+      return;
+    }
   }
 
   stopFlow(reason: 'reached' | 'blocked' | 'budget' = 'blocked') {
     if (this.flowTarget === null) return;
     this.flowTarget = null;
-    this.flowProvince = -1;
     this.events.push({ type: 'flowEnd', reason });
   }
 
-  /** Caselle della provincia ancora da prendere con l'avanzata: le anomalie no, quelle si attaccano apposta. */
-  private provinceRest(p: number): number[] {
-    const prov = this.map.provinces[p];
-    if (!prov) return [];
-    return prov.tiles.filter((i) => this.owner[i] !== PLAYER && this.passable(i) && this.map.tiles[i]!.type !== 'anomalia');
-  }
-
   private flowStep() {
-    let t = this.flowTarget!;
-    const P = this.flowProvince;
-    // raggiunto il bersaglio: se la provincia non è finita si prosegue sulle sue caselle rimaste
-    if (this.owner[t] === PLAYER || !this.passable(t)) {
-      const rest = P >= 0 ? this.provinceRest(P) : [];
-      if (!rest.length) return this.stopFlow(this.owner[t] === PLAYER ? 'reached' : 'blocked');
-      t = this.flowTarget = rest[0];
-    }
-    let best = -1, bestD = Infinity, bestDef = Infinity;
-    const inProv = (i: number) => P >= 0 && this.map.tiles[i]!.province === P && (this.map.tiles[i]!.type !== 'anomalia' || i === t);
-    for (const i of this.frontier(PLAYER)) {
-      if (this.map.tiles[i]!.type === 'anomalia' && i !== t) continue; // l'avanzata non sbatte contro le anomalie per strada
-      // dentro la provincia bersaglio si va per difesa più bassa; fuori, verso il bersaglio
-      const d = inProv(i) ? 0 : hexDistance(i, t), def = this.costFor(PLAYER, i);
-      if (d < bestD || (d === bestD && def < bestDef)) {
-        best = i;
+    const T = this.flowTarget!;
+    if (this.provOwner[T] === PLAYER) return this.stopFlow('reached');
+    if (!this.provPassable(T)) return this.stopFlow('blocked');
+    const tc = this.map.provinces[T].anchor;
+    let best = -1, bestD = Infinity, bestCost = Infinity;
+    for (const p of this.frontier(PLAYER)) {
+      if (p !== T && this.provAnomaly[p]) continue; // l'avanzata non sbatte contro le anomalie per strada
+      const d = p === T ? 0 : hexDistance(this.map.provinces[p].anchor, tc), cost = this.provCost(PLAYER, p);
+      if (d < bestD || (d === bestD && cost < bestCost)) {
+        best = p;
         bestD = d;
-        bestDef = def;
+        bestCost = cost;
       }
     }
     if (best < 0 || (bestD > 0 && bestD > this.flowBestD + BALANCE.flow.giveUpSteps)) return this.stopFlow('blocked');
-    if (bestDef > this.flowBudget) return this.stopFlow('budget'); // forza d'attacco esaurita
-    if (this.troops - bestDef <= BALANCE.flow.reserve) return; // aspetta rinforzi, il bersaglio resta
+    if (this.flowSteps > 0 && bestCost > this.flowBudget) return this.stopFlow('budget'); // forza d'attacco esaurita
+    if (this.troops - bestCost <= BALANCE.flow.reserve) return; // aspetta rinforzi, il bersaglio resta
     this.flowBestD = Math.min(this.flowBestD, bestD);
-    if (this.attack(PLAYER, best).ok) this.flowBudget -= bestDef;
-    if (P >= 0 && this.owner[t] === PLAYER && !this.provinceRest(P).length) this.stopFlow('reached'); // provincia presa tutta
+    if (this.attackProvince(PLAYER, best).ok) {
+      this.flowBudget -= bestCost;
+      this.flowSteps++;
+    }
+    if (this.provOwner[T] === PLAYER) this.stopFlow('reached');
   }
 
   // ---------- eventi ----------
@@ -721,8 +763,10 @@ export class RunState {
         // le navi non conquistano: si riparano vicino a una tua costa
         if (!u.inCombat && NEIGHBORS[u.tile].some((n) => n >= 0 && this.owner[n] === u.owner)) u.hp = Math.min(u.maxHp, u.hp + U.healPerTick);
       } else if (this.owner[u.tile] !== u.owner && !this.stormed[u.tile]) {
-        u.hp -= this.defenseOf(u.tile) * stats.captureCost;
-        if (u.hp > 0) this.transfer(u.owner, u.tile, 0, u.id);
+        // la pedina prende tutta la provincia in cui entra
+        const p = this.provOf(u.tile);
+        u.hp -= this.provDefense(p) * stats.captureCost;
+        if (u.hp > 0) this.transferProvince(u.owner, p, 0, u.id);
       } else if (!u.inCombat) {
         u.hp = Math.min(u.maxHp, u.hp + U.healPerTick);
       }
@@ -782,20 +826,23 @@ export class RunState {
     const B = BALANCE.abilities.bombardamento;
     for (const s of this.strikes.filter((x) => x.at <= this.gameTimeMs)) {
       let hits = 0;
-      for (let i = 0; i < this.owner.length; i++) {
-        if (!this.map.tiles[i]) continue;
-        const d = hexDistance(i, s.tile);
-        const o = this.owner[i];
-        if (d <= B.radius && o !== NEUTRAL && o !== PLAYER) {
-          // la casella nemica torna neutrale, il nemico perde il presidio
-          const f = this.factions[o];
-          f.tiles--;
-          f.troops = Math.max(0, f.troops - B.troopsPerTile);
+      // la provincia nemica colpita torna neutrale, il nemico perde il presidio
+      const p = this.provOf(s.tile);
+      const o = p >= 0 ? this.provOwner[p] : NEUTRAL;
+      if (o !== NEUTRAL && o !== PLAYER) {
+        const f = this.factions[o];
+        for (const i of this.map.provinces[p].tiles) {
+          if (this.owner[i] !== o) continue;
           this.owner[i] = NEUTRAL;
-          this.frontierCache.clear();
+          f.tiles--;
           hits++;
-          if (f.tiles <= 0) this.eliminate(o, PLAYER);
         }
+        f.troops = Math.max(0, f.troops - B.troopsPerTile * hits);
+        f.provinces--;
+        this.provOwner[p] = NEUTRAL;
+        this.frontierCache.clear();
+        this.events.push({ type: 'conquer', by: NEUTRAL, from: o, p, i: this.map.provinces[p].anchor, cost: 0, loot: 0, lootType: 'metallo' });
+        if (f.tiles <= 0) this.eliminate(o, PLAYER);
       }
       for (const u of this.units) if (u.owner !== PLAYER && hexDistance(u.tile, s.tile) <= B.unitRadius) { u.hp -= B.unitDamage; hits++; }
       this.removeDead();
@@ -858,23 +905,53 @@ export class RunState {
     return best;
   }
 
-  /** IA: attacca la casella vicina più debole, se se lo può permettere. */
+  /** IA: attacca la provincia vicina più debole, se se lo può permettere. */
   private aiAttack(f: Faction): boolean {
-    let best = -1, bestScore = Infinity;
+    let best = -1, bestScore = Infinity, bestCost = 0;
     const grace = this.opts.tutorial || this.gameTimeMs < BALANCE.ai.graceMs;
-    for (const i of this.frontier(f.id)) {
-      if (grace && this.owner[i] === PLAYER) continue;
-      const city = this.map.tiles[i]!.city ? BALANCE.provinces.aiCityAttraction : 1; // le città valgono una provincia
-      const assault = this.offensive?.phase === 'on' && this.offensive.faction === f.id;
-      const bias = this.owner[i] === PLAYER ? (assault ? BALANCE.offensive.playerBias : BALANCE.ai.playerBias) : 1;
-      const score = this.defenseOf(i) * bias * city;
+    const assault = this.offensive?.phase === 'on' && this.offensive.faction === f.id;
+    for (const p of this.frontier(f.id)) {
+      const o = this.provOwner[p];
+      if (grace && o === PLAYER) continue;
+      const prov = this.map.provinces[p];
+      const capital = prov.city >= 0 && this.map.tiles[prov.city]!.capital ? BALANCE.provinces.aiCityAttraction : 1; // le capitali attirano
+      const bias = o === PLAYER ? (assault ? BALANCE.offensive.playerBias : BALANCE.ai.playerBias) : 1;
+      const cost = this.provCost(f.id, p);
+      const score = cost * bias * capital;
       if (score < bestScore || (score === bestScore && this.aiRng() < 0.5)) {
-        best = i;
+        best = p;
         bestScore = score;
+        bestCost = cost;
       }
     }
-    if (best < 0 || f.troops <= this.defenseOf(best) * BALANCE.ai.reserve) return false;
-    return this.attack(f.id, best).ok;
+    if (best < 0 || f.troops <= bestCost * BALANCE.ai.reserve) return false;
+    return this.attackProvince(f.id, best).ok;
+  }
+
+  /** Provincia di una casella (−1 = mare). */
+  provOf(i: number): number {
+    return i >= 0 ? this.map.tiles[i]?.province ?? -1 : -1;
+  }
+
+  /** Si può entrare nella provincia? (non corrotta e non tutta inghiottita dalla tempesta) */
+  provPassable(p: number): boolean {
+    if (p < 0) return false;
+    const prov = this.map.provinces[p];
+    return !prov.toxic && this.provStormed[p] < prov.tiles.length;
+  }
+
+  /** Difesa della provincia: somma delle sue caselle (città, insediamenti, presidio compresi). */
+  provDefense(p: number): number {
+    let d = 0;
+    for (const i of this.map.provinces[p].tiles) if (this.passable(i)) d += this.defenseOf(i);
+    return d;
+  }
+
+  /** Truppe che `by` spende per prendere la provincia. */
+  provCost(by: number, p: number): number {
+    let d = 0;
+    for (const i of this.map.provinces[p].tiles) if (this.passable(i)) d += this.costFor(by, i);
+    return d;
   }
 
   passable(i: number): boolean {
@@ -903,71 +980,102 @@ export class RunState {
     return Math.ceil((base * BALANCE.owned.defenseMult + garrison + settlement + fort) * (mine ? this.opts.mods.ownedDefenseMult : 1));
   }
 
+  /** La casella sta in una provincia attaccabile da `f`? */
   isFrontier(i: number, f = PLAYER): boolean {
-    if (!this.passable(i) || this.owner[i] === f) return false;
-    return NEIGHBORS[i].some((n) => n >= 0 && this.owner[n] === f);
+    return this.isFrontierProv(this.provOf(i), f);
   }
 
-  /** Caselle attaccabili adiacenti al territorio della fazione. */
+  isFrontierProv(p: number, f = PLAYER): boolean {
+    if (!this.provPassable(p) || this.provOwner[p] === f) return false;
+    return this.map.provinces[p].neighbors.some((q) => this.provOwner[q] === f);
+  }
+
+  /** Province attaccabili: confinanti con il territorio della fazione. */
   frontier(f = PLAYER): number[] {
     const cached = this.frontierCache.get(f);
     if (cached) return cached;
     const set = new Set<number>();
-    for (let i = 0; i < this.owner.length; i++) {
-      if (this.owner[i] !== f) continue;
-      for (const n of NEIGHBORS[i]) if (n >= 0 && this.isFrontier(n, f)) set.add(n);
-    }
+    this.map.provinces.forEach((prov, p) => {
+      if (this.provOwner[p] !== f) return;
+      for (const q of prov.neighbors) if (this.provOwner[q] !== f && this.provPassable(q)) set.add(q);
+    });
     const out = [...set];
     this.frontierCache.set(f, out);
     return out;
   }
 
   tryConquer(i: number): ConquerResult {
-    return this.attack(PLAYER, i);
+    return this.attackProvince(PLAYER, this.provOf(i));
   }
 
   attack(by: number, i: number): ConquerResult {
-    const tile = this.map.tiles[i];
-    if (!tile || !this.passable(i)) return { ok: false, reason: 'impassable' };
-    if (this.owner[i] === by) return { ok: false, reason: 'owned' };
-    if (!this.isFrontier(i, by)) return { ok: false, reason: 'not-adjacent' };
-    const cost = this.costFor(by, i);
+    return this.attackProvince(by, this.provOf(i));
+  }
+
+  attackProvince(by: number, p: number): ConquerResult {
+    if (!this.provPassable(p)) return { ok: false, reason: 'impassable' };
+    if (this.provOwner[p] === by) return { ok: false, reason: 'owned' };
+    if (!this.isFrontierProv(p, by)) return { ok: false, reason: 'not-adjacent' };
+    const cost = this.provCost(by, p);
     const att = this.factions[by];
     if (att.troops <= cost) return { ok: false, reason: 'troops', need: cost };
-
     att.troops -= cost;
-    const loot = this.transfer(by, i, cost);
-    return { ok: true, tile, cost, loot, lootType: tile.lootType };
+    const { loot, lootType } = this.transferProvince(by, p, cost);
+    return { ok: true, tile: this.map.tiles[this.map.provinces[p].anchor]!, cost, loot, lootType };
   }
 
-  /** Passa la casella a `by` (il costo è già stato pagato); ritorna il bottino raccolto. */
-  private transfer(by: number, i: number, cost: number, unit?: number): number {
-    const tile = this.map.tiles[i]!;
-    const from = this.owner[i];
+  /** Passa la provincia a `by` (il costo è già stato pagato): bottino delle rovine, premio, capitale. */
+  private transferProvince(by: number, p: number, cost: number, unit?: number): { loot: number; lootType: Resource } {
+    const prov = this.map.provinces[p];
+    const from = this.provOwner[p];
+    const f = this.factions[by];
     if (from !== NEUTRAL) {
       const def = this.factions[from];
-      const garrison = this.defenseOf(i) - tile.defense * BALANCE.owned.defenseMult;
+      let garrison = 0;
+      for (const i of prov.tiles) if (this.passable(i) && this.owner[i] === from) garrison += this.defenseOf(i) - this.map.tiles[i]!.defense * BALANCE.owned.defenseMult;
       def.troops = Math.max(0, def.troops - garrison); // perde il presidio
-      def.tiles--;
+      def.provinces--;
     }
-    const loot = this.lootFor(by, tile.loot);
-    this.factions[by].loot[tile.lootType] += loot;
-    tile.loot = 0;
-    this.claim(by, i);
-    this.events.push({ type: 'conquer', by, from, i, cost, loot, lootType: tile.lootType, unit });
-    this.checkProvinceDone(by, tile.province);
-    if (tile.city) this.surrender(by, tile);
+    const bag = emptyBag();
+    for (const i of prov.tiles) {
+      if (!this.passable(i)) continue;
+      const t = this.map.tiles[i]!;
+      if (this.owner[i] !== NEUTRAL) this.factions[this.owner[i]].tiles--;
+      if (t.loot) {
+        bag[t.lootType] += this.lootFor(by, t.loot);
+        t.loot = 0;
+      }
+      this.owner[i] = by;
+      f.tiles++;
+    }
+    this.provOwner[p] = by;
+    f.provinces++;
+    f.maxProvinces = Math.max(f.maxProvinces, f.provinces);
+    f.maxTiles = Math.max(f.maxTiles, f.tiles);
+    this.frontierCache.clear();
+    f.loot = addBag(f.loot, bag);
+    const loot = bag.metallo + bag.benzina + bag.cibo;
+    const lootType = (Object.keys(bag) as Resource[]).reduce((a, b) => (bag[b] > bag[a] ? b : a), 'metallo');
+    this.events.push({ type: 'conquer', by, from, p, i: prov.anchor, cost, loot, lootType, unit });
+    this.provinceReward(by, p);
+    if (prov.city >= 0 && this.map.tiles[prov.city]!.capital && !this.capitalsTaken.has(prov.city)) {
+      // capitale: truppe a chi la prende per primo
+      this.capitalsTaken.add(prov.city);
+      const bonus = Math.round(BALANCE.provinces.capitalTroops * (by === PLAYER ? this.opts.mods.capitalTroopsMult : 1));
+      f.troops += bonus;
+      const nation = this.map.nations.find((n) => n.id === prov.country)?.name ?? '';
+      this.events.push({ type: 'province', by, province: p, count: prov.tiles.length, capital: true, nation, bonus });
+    }
     if (from !== NEUTRAL && this.factions[from].tiles <= 0) this.eliminate(from, by);
-    return loot;
+    return { loot, lootType };
   }
 
-  /** Provincia tutta tua: truppe e bottino, una volta per provincia (il "picco" alla Clash). */
-  private checkProvinceDone(by: number, p: number) {
+  /** Prima volta che una fazione prende questa provincia: truppe e bottino (il "picco" alla Clash). */
+  private provinceReward(by: number, p: number) {
     const prov = this.map.provinces[p];
-    if (!prov || this.opts.tutorial) return;
+    if (this.opts.tutorial) return;
     const key = `${by}:${p}`;
     if (this.provincesDone.has(key)) return;
-    if (prov.tiles.some((i) => this.owner[i] !== by && this.passable(i))) return;
     this.provincesDone.add(key);
     const R = BALANCE.provinceReward, n = prov.tiles.length;
     const f = this.factions[by];
@@ -978,6 +1086,21 @@ export class RunState {
     for (const r of Object.keys(loot) as Resource[]) f.loot[r] += loot[r];
     const nation = this.map.nations.find((x) => x.id === prov.country)?.name ?? '';
     this.events.push({ type: 'provinceDone', by, province: p, nation, troops, loot });
+  }
+
+  /** Provincia assegnata senza combattere (partenza). */
+  private claimProvince(f: number, p: number) {
+    const fac = this.factions[f];
+    for (const i of this.map.provinces[p].tiles) {
+      if (!this.passable(i) || this.owner[i] !== NEUTRAL) continue;
+      this.owner[i] = f;
+      fac.tiles++;
+    }
+    this.provOwner[p] = f;
+    fac.provinces++;
+    fac.maxProvinces = Math.max(fac.maxProvinces, fac.provinces);
+    fac.maxTiles = Math.max(fac.maxTiles, fac.tiles);
+    this.frontierCache.clear();
   }
 
   // ---------- offensive nemiche ----------
@@ -1003,7 +1126,7 @@ export class RunState {
     }
     if (o || this.gameTimeMs < this.nextOffensiveAt) return;
     // solo chi confina con te
-    const near = this.factions.filter((f) => f.id !== PLAYER && f.alive && this.frontier(f.id).some((i) => this.owner[i] === PLAYER));
+    const near = this.factions.filter((f) => f.id !== PLAYER && f.alive && this.frontier(f.id).some((p) => this.provOwner[p] === PLAYER));
     if (!near.length) { this.nextOffensiveAt = this.gameTimeMs + 10_000; return; }
     const f = near[Math.floor(this.aiRng() * near.length)];
     this.offensive = { faction: f.id, phase: 'warn', until: this.gameTimeMs + O.warnMs, lostAtStart: 0 };
@@ -1012,33 +1135,6 @@ export class RunState {
 
   private lootFor(by: number, n: number): number {
     return by === PLAYER ? Math.round(n * this.opts.mods.lootMult) : n;
-  }
-
-  /** Città presa: le caselle neutrali della sua provincia si arrendono; la capitale (la prima volta) dà truppe. */
-  private surrender(by: number, city: Tile) {
-    const prov = this.map.provinces[city.province];
-    if (!prov) return;
-    const f = this.factions[by];
-    let count = 0;
-    for (const j of prov.tiles) {
-      const t = this.map.tiles[j]!;
-      // le anomalie non si arrendono: vanno prese a mano
-      if (j === city.i || this.owner[j] !== NEUTRAL || !this.passable(j) || t.type === 'anomalia') continue;
-      const loot = this.lootFor(by, t.loot);
-      f.loot[t.lootType] += loot; // il bottino delle rovine della provincia va a chi la prende
-      t.loot = 0;
-      this.claim(by, j);
-      this.events.push({ type: 'conquer', by, from: NEUTRAL, i: j, cost: 0, loot, lootType: t.lootType });
-      count++;
-    }
-    let bonus = 0;
-    if (city.capital && !this.capitalsTaken.has(city.i)) {
-      this.capitalsTaken.add(city.i);
-      bonus = Math.round(BALANCE.provinces.capitalTroops * (by === PLAYER ? this.opts.mods.capitalTroopsMult : 1));
-      f.troops += bonus;
-    }
-    const nation = this.map.nations.find((n) => n.id === prov.country)?.name ?? '';
-    this.events.push({ type: 'province', by, province: city.province, count, capital: city.capital, nation, bonus });
   }
 
   private eliminate(f: number, by: number) {
@@ -1053,11 +1149,4 @@ export class RunState {
     if (f === PLAYER) this.end(by === NEUTRAL ? 'storm' : 'eliminated');
   }
 
-  private claim(f: number, i: number) {
-    this.owner[i] = f;
-    const fac = this.factions[f];
-    fac.tiles++;
-    fac.maxTiles = Math.max(fac.maxTiles, fac.tiles);
-    this.frontierCache.clear();
-  }
 }
