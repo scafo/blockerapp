@@ -69,6 +69,14 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 ## Note del developer (stato e comandi)
 
+- **Gameplay (ultimo giro)**: tocco lontano = **avanzata su tutta la provincia** toccata (alla Call of War: si ferma quando la provincia è
+  tua; le anomalie vanno attaccate apposta). **Provincia completa** = +truppe e bottino una volta (`provinceReward`) con stendardo e lampo.
+  **Offensive nemiche** (`offensive`): ogni ~60 s un'IA confinante annuncia un assalto (6 s di preavviso), poi per 25 s concentra gli
+  attacchi su di te con rinforzi: momento di tensione in cui servono genio e truppe in cassa. IA +15% crescita. `sim.ts`: giocatore
+  attivo 6/6 vittorie (3–9 min), meno attivo 5/6. **PAUSA** in campagna (tempo fermo, riprendi o ritirata).
+- **Interfaccia su PC**: tutto si ingrandisce con lo schermo (`uiScale` in `src/ui/screen.ts`, 1–1,75×, base ~900×500 punti); bottino in
+  grande e colorato nella campagna e nell'HQ.
+
 - **Armi (Arsenale a 6 livelli, Figma "Truppe")**: Fanteria → Ricognitori → Artiglieria → Corazzati + Genio → Cannoniera (nave: si schiera
   da una tua costa, si muove sul mare, copre le coste −30% costo) → abilità a ricarica Ricognizione aerea (svela una zona 15 s) e
   Bombardamento (caselle nemiche tornano neutrali, unità −40 vita) → unità unica della civiltà. Genio: +8 difesa sulle tue caselle attorno.

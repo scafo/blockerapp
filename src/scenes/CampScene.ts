@@ -68,7 +68,7 @@ export class CampScene extends Phaser.Scene {
     this.portrait = height > width;
 
     // planimetria: area utile tra la scorta in alto e i comandi in basso
-    this.plan = this.portrait ? { x: PAD, y: 150, w: width - 2 * PAD, h: height - 150 - 150 } : { x: PAD, y: 84, w: width - 2 * PAD, h: height - 84 - 76 };
+    this.plan = this.portrait ? { x: PAD, y: 164, w: width - 2 * PAD, h: height - 164 - 150 } : { x: PAD, y: 96, w: width - 2 * PAD, h: height - 96 - 76 };
     this.k = this.portrait ? Math.min(this.plan.w / 400, 1.2) : Math.min(this.plan.w / 820, this.plan.h / 230, 1.6);
     const frac: Record<MapSpot, [number, number]> = this.portrait
       ? { comando: [0.5, 0.42], laboratorio: [0.27, 0.13], radar: [0.73, 0.13], arsenale: [0.27, 0.7], deposito: [0.73, 0.7], spedizione: [0.5, 0.93] }
@@ -207,7 +207,7 @@ export class CampScene extends Phaser.Scene {
     }
     this.add.text(b.x + cut + 12, ay - 14, `ALLOGGI ${n} · CAMPAGNE ${this.profile.runs}`, textStyle(10, PALETTE.ocra, false)).setAlpha(0.9);
     // intestazione con l'ora (aggiornata in update)
-    this.clock = this.add.text(b.x + b.w / 2, b.y - 14, '', textStyle(10, PALETTE.ocra, false)).setOrigin(0.5, 0.5);
+    this.clock = this.add.text(b.x + b.w - 30, b.y - 14, '', textStyle(10, PALETTE.ocra, false)).setOrigin(1, 0.5);
   }
 
   private makeSpot(id: MapSpot, x: number, y: number) {
@@ -333,13 +333,14 @@ export class CampScene extends Phaser.Scene {
     const { width, height } = view(this);
     // scorta in alto a sinistra
     const P = this.portrait;
-    const panelW = P ? width - 2 * PAD : 240, panelY = P ? PAD + 52 : PAD, step = P ? (panelW - 20) / 3 : 76;
-    this.add.rectangle(PAD, panelY, panelW, 56, PALETTE.inchiostro, 0.9).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
-    this.add.text(PAD + 10, panelY + 6, 'SCORTA DELL\'ACCAMPAMENTO', textStyle(10, PALETTE.ocra));
+    // scorta: risorse grandi, ognuna nel suo colore
+    const panelW = P ? width - 2 * PAD : 330, panelY = P ? PAD + 52 : PAD, step = P ? (panelW - 20) / 3 : 104;
+    this.add.rectangle(PAD, panelY, panelW, 66, PALETTE.inchiostro, 0.9).setOrigin(0).setStrokeStyle(2, PALETTE.ocra);
+    this.add.text(PAD + 10, panelY + 6, 'SCORTA DEL DEPOSITO', textStyle(10, PALETTE.ocra));
     const ig = this.add.graphics();
     this.stashTexts = RESOURCES.map((r, i) => {
-      drawResourceIcon(ig, r, PAD + 18 + i * step, panelY + 36, 6);
-      return this.add.text(PAD + 30 + i * step, panelY + 36, '0', textStyle(15, PALETTE.carta)).setOrigin(0, 0.5);
+      drawResourceIcon(ig, r, PAD + 22 + i * step, panelY + 42, 10);
+      return this.add.text(PAD + 38 + i * step, panelY + 42, '0', textStyle(22, RESOURCE_INFO[r].color)).setOrigin(0, 0.5);
     });
     // titolo in alto a destra
     // 5 tocchi sul titolo = contatore FPS nelle run (per i test sui telefoni economici, anche dentro l'app)

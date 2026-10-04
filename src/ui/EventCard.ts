@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { PALETTE, hex } from '../config/palette';
 import type { EventChoice, GameEvent } from '../game/events';
 import { textStyle } from './style';
-import { DPR, view } from './screen';
+import { UI, view } from './screen';
 
 const MAX_W = 380;
 const H = 240;
@@ -57,7 +57,7 @@ export class EventCard extends Phaser.GameObjects.Container {
     scene.input.setDraggable(bg);
     bg.on('drag', (p: Phaser.Input.Pointer) => {
       if (this.done) return;
-      const dx = (p.x - p.downX) / DPR;
+      const dx = (p.x - p.downX) / UI();
       this.card.x = cx + dx;
       this.card.angle = dx / 18;
       this.leftLbl.setScale(dx < -20 ? 1.12 : 1);

@@ -4,7 +4,7 @@ import Phaser from 'phaser';
 import { BALANCE } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
 import { FACTION_INFO } from '../game/factions';
-import { DPR, view } from '../ui/screen';
+import { UI, view } from '../ui/screen';
 import { FONT, textStyle } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
 
@@ -33,7 +33,7 @@ export class MapLabels {
     this.tags = FACTION_INFO.map((f) => {
       const g = scene.add.graphics();
       drawSymbol(g, f.symbol, 0, -12, 6, f.fill, PALETTE.mappa.fondo);
-      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: hex(f.border), resolution: DPR, backgroundColor: '#020409dd', padding: { x: 4, y: 2 } }).setOrigin(0.5, 0);
+      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: hex(f.border), resolution: UI(), backgroundColor: '#020409dd', padding: { x: 4, y: 2 } }).setOrigin(0.5, 0);
       const c = scene.add.container(0, 0, [g, t]).setVisible(false);
       this.layer.add(c);
       return c;
@@ -46,13 +46,13 @@ export class MapLabels {
   private toScreen(cam: Phaser.Cameras.Scene2D.Camera, x: number, y: number): [number, number] {
     const z = cam.zoom;
     const vx = cam.scrollX + cam.width / 2 - cam.width / (2 * z), vy = cam.scrollY + cam.height / 2 - cam.height / (2 * z);
-    return [((x - vx) * z) / DPR, ((y - vy) * z) / DPR];
+    return [((x - vx) * z) / UI(), ((y - vy) * z) / UI()];
   }
 
   update(src: LabelSource) {
     const cam = src.cameras.main;
     const { width, height } = view(this.scene);
-    const zoom = cam.zoom / DPR;
+    const zoom = cam.zoom / UI();
     const inView = (sx: number, sy: number, m = 40) => sx > -m && sx < width + m && sy > -m && sy < height + m;
 
     // nomi delle nazioni: solo da lontano (vista strategica), gialli come sui terminali
@@ -64,7 +64,7 @@ export class MapLabels {
         if (!inView(sx, sy)) continue;
         let t = this.names[n];
         if (!t) {
-          t = this.scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: hex(PALETTE.mappa.nome), resolution: DPR }).setOrigin(0.5);
+          t = this.scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: hex(PALETTE.mappa.nome), resolution: UI() }).setOrigin(0.5);
           this.layer.add(t);
           this.names.push(t);
         }
@@ -84,7 +84,7 @@ export class MapLabels {
       if (!inView(sx, sy, 10)) continue;
       let t = this.front[f];
       if (!t) {
-        t = this.scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: '#ffffff', resolution: DPR, stroke: '#020409', strokeThickness: 3 }).setOrigin(0.5);
+        t = this.scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: '#ffffff', resolution: UI(), stroke: '#020409', strokeThickness: 3 }).setOrigin(0.5);
         this.layer.add(t);
         this.front.push(t);
       }
@@ -111,7 +111,7 @@ export class MapLabels {
   /** Scritta che sale da un punto della mappa (bottino, costi, ordini). */
   float(src: LabelSource, x: number, y: number, msg: string, color: number, delay = 0) {
     const [sx, sy] = this.toScreen(src.cameras.main, x, y);
-    const t = this.scene.add.text(Math.round(sx), Math.round(sy), msg, { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: hex(color), resolution: DPR, stroke: '#020409', strokeThickness: 4 }).setOrigin(0.5).setAlpha(0);
+    const t = this.scene.add.text(Math.round(sx), Math.round(sy), msg, { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: hex(color), resolution: UI(), stroke: '#020409', strokeThickness: 4 }).setOrigin(0.5).setAlpha(0);
     this.layer.add(t);
     this.scene.tweens.add({ targets: t, y: sy - 22, alpha: { from: 1, to: 0 }, delay, duration: 900, ease: 'Quad.easeOut', onComplete: () => t.destroy() });
   }

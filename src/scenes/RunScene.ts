@@ -15,7 +15,7 @@ import { NEUTRAL, PLAYER, RunState } from '../game/RunState';
 import { FACTION_INFO, assignFactions } from '../game/factions';
 import { textStyle } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
-import { DPR, LOW_END } from '../ui/screen';
+import { DPR, LOW_END, UI } from '../ui/screen';
 import type { FactionTag, NationLabel, WorldLabel } from '../render/MapLabels';
 import { buzz } from '../ui/haptics';
 import { drawAbilityIcon, drawUnitIcon } from '../ui/unitIcons';
@@ -192,6 +192,14 @@ export class RunScene extends Phaser.Scene {
         this.hud.onStorm(e.phase);
       } else if (e.type === 'ability') {
         this.abilityFx(e.ability, e.tile, e.phase, e.hits ?? 0);
+      } else if (e.type === 'provinceDone') {
+        if (e.by === PLAYER) {
+          this.hud.onProvinceDone(e.nation, e.troops, e.loot);
+          this.provinceFx(e.province);
+        }
+      } else if (e.type === 'offensive') {
+        this.hud.onOffensive(e.faction, e.phase, e.lost);
+        if (e.phase === 'start') this.cameras.main.shake(300, 0.004);
       } else {
         this.hud.onEliminated(e.faction, e.by, e.loot);
       }
@@ -201,7 +209,7 @@ export class RunScene extends Phaser.Scene {
     if (this.state.opts.fog && this.state.fogVersion !== this.fogVersion) this.redrawFog();
     this.tapFxTile = -1;
     // nomi delle nazioni solo nella vista strategica: da vicino si combatte, non si legge l'atlante
-    const showNames = this.cameras.main.zoom < BALANCE.provinces.namesMaxZoom * DPR;
+    const showNames = this.cameras.main.zoom < BALANCE.provinces.namesMaxZoom * UI();
     if (showNames !== this.namesShown) {
       this.namesShown = showNames;
       this.tweens.add({ targets: this.nationNames, alpha: showNames ? 0.5 : 0, duration: 200 });
@@ -433,7 +441,7 @@ export class RunScene extends Phaser.Scene {
   /** Numeri del fronte: li disegna l'interfaccia, nitidi (vedi MapLabels). */
   private updateLabels() {
     this.frontLabels.length = 0;
-    if (this.cameras.main.zoom < CAM.labelMinZoom * DPR) return;
+    if (this.cameras.main.zoom < CAM.labelMinZoom * UI()) return;
     const view = this.cameras.main.worldView;
     for (const i of this.state.frontier()) {
       const { x, y } = center(i);
@@ -554,7 +562,7 @@ export class RunScene extends Phaser.Scene {
           return this.failFx(x, y, msg);
         }
         this.flowMarker.setPosition(x, y).setVisible(true);
-        this.floatText(x, y - 6, 'avanzata!', PALETTE.carta);
+        this.floatText(x, y - 6, this.state.flowProvince >= 0 ? 'avanzata: tutta la provincia' : 'avanzata!', PALETTE.carta);
         this.hud.tutorialSignal('flow');
         this.usage.avanzate++;
         return;
@@ -661,6 +669,20 @@ export class RunScene extends Phaser.Scene {
 
   private stormDistOf(i: number): number {
     return hexDistance(i, this.map.stormCenter);
+  }
+
+  /** Provincia presa tutta: le sue celle lampeggiano insieme. */
+  private provinceFx(p: number) {
+    const prov = this.map.provinces[p];
+    if (!prov) return;
+    const g = this.add.graphics().setDepth(9).setBlendMode(Phaser.BlendModes.ADD);
+    g.fillStyle(0xffffff, 1);
+    for (const i of prov.tiles) {
+      const { x, y } = center(i);
+      g.fillRect(x - SQ / 2, y - SQ / 2, SQ, SQ);
+    }
+    this.tweens.add({ targets: g, alpha: { from: 0.9, to: 0 }, duration: 700, ease: 'Quad.easeOut', onComplete: () => g.destroy() });
+    buzz([30, 30, 50]);
   }
 
   /** Ricognizione: aereo che attraversa e anello che si apre; bombardamento: mirino, poi esplosioni. */
@@ -897,14 +919,14 @@ export class RunScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const m = 400;
     cam.setBounds(-m, -m, WORLD_W + 2 * m, WORLD_H + 2 * m);
-    cam.setZoom(CAM.startZoom * DPR); // lo zoom della camera conta i pixel reali dello schermo
+    cam.setZoom(CAM.startZoom * UI()); // lo zoom della camera conta i pixel reali dello schermo
     const { x, y } = center(this.map.starts[0]);
     cam.centerOn(x, y);
   }
 
   private zoomAt(sx: number, sy: number, z: number) {
     const cam = this.cameras.main;
-    const nz = Phaser.Math.Clamp(z, CAM.minZoom * DPR, CAM.maxZoom * DPR);
+    const nz = Phaser.Math.Clamp(z, CAM.minZoom * UI(), CAM.maxZoom * UI());
     const w = cam.width / 2, h = cam.height / 2;
     const wx = cam.scrollX + w + (sx - w) / cam.zoom;
     const wy = cam.scrollY + h + (sy - h) / cam.zoom;
@@ -926,7 +948,7 @@ export class RunScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const w = cam.width / 2, h = cam.height / 2;
     const c = center(i);
-    return { x: ((c.x - cam.scrollX - w) * cam.zoom + w) / DPR, y: ((c.y - cam.scrollY - h) * cam.zoom + h) / DPR };
+    return { x: ((c.x - cam.scrollX - w) * cam.zoom + w) / UI(), y: ((c.y - cam.scrollY - h) * cam.zoom + h) / UI() };
   }
 
   /**
@@ -935,7 +957,7 @@ export class RunScene extends Phaser.Scene {
    */
   private setupInput() {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (this.hud.hitUi(p.x / DPR, p.y / DPR)) return;
+      if (this.hud.hitUi(p.x / UI(), p.y / UI())) return;
       if (this.activePointers().length === 1) {
         this.down = { x: p.x, y: p.y };
         this.last = { x: p.x, y: p.y };

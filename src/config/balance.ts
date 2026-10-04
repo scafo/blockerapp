@@ -57,7 +57,7 @@ export const BALANCE = {
   ai: {
     count: 3,
     startTroops: 55,
-    growthMult: 1, // rispetto alla crescita del giocatore (con il 15% di lavoratori = 0,85 in truppe, come prima)
+    growthMult: 1.15, // rispetto alla crescita del giocatore (con il 15% di lavoratori = 0,85 in truppe, come prima)
     actChance: 0.6, // probabilità di agire a ogni tick
     attacksPerAct: 1, // caselle piccole: più caselle per azione (stesso ritmo di prima in superficie)
     reserve: 1.25, // attacca solo se truppe > difesa * reserve
@@ -135,6 +135,13 @@ export const BALANCE = {
     unitDamage: 6, // hp per tick alle pedine nella cenere
   },
   // Avanzata: tocchi una casella lontana e il confine "cola" verso di lei, una casella ogni stepMs.
+  // Provincia completa (tutte le sue caselle tue): ricompensa una volta per provincia e per fazione
+  provinceReward: { troopsPerTile: 0.6, lootPerTile: 0.2 }, // bottino diviso metà metallo, un quarto benzina e cibo
+  // Offensive nemiche: un'IA confinante concentra gli attacchi su di te per un po', con preavviso
+  offensive: {
+    firstMs: 100_000, everyMs: 60_000, jitterMs: 15_000, warnMs: 6_000, durationMs: 25_000,
+    attacksPerAct: 5, playerBias: 0.15, troopsBonus: 40, troopsPerTile: 0.8,
+  },
   flow: {
     stepMs: 65,
     reserve: 5, // truppe che l'avanzata lascia sempre in cassa

@@ -33,6 +33,8 @@ export type RunEvent =
   | { type: 'province'; by: number; province: number; count: number; capital: boolean; nation: string; bonus: number }
   | { type: 'unitDied'; unit: Unit }
   | { type: 'ability'; ability: AbilityType; tile: number; phase: 'launch' | 'impact'; hits?: number }
+  | { type: 'provinceDone'; by: number; province: number; nation: string; troops: number; loot: Bag }
+  | { type: 'offensive'; faction: number; phase: 'warn' | 'start' | 'end'; lost?: number }
   | { type: 'eliminated'; faction: number; by: number; loot: Bag };
 
 export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'storm';
@@ -77,6 +79,14 @@ export class RunState {
   private growthBoost = { mult: 1, until: 0 };
   // avanzata automatica del giocatore
   flowTarget: number | null = null;
+  /** Avanzata alla Call of War: si conquista tutta la provincia toccata, poi ci si ferma. */
+  flowProvince = -1;
+  /** Pausa (tasto PAUSA): il tempo di gioco si ferma. */
+  paused = false;
+  /** Offensiva nemica in corso o annunciata. */
+  offensive: { faction: number; phase: 'warn' | 'on'; until: number; lostAtStart: number } | null = null;
+  private nextOffensiveAt: number = BALANCE.offensive.firstMs;
+  private provincesDone = new Set<string>(); // "fazione:provincia" già premiate
   private flowAcc = 0;
   private flowBudget = 0;
   // navi in viaggio
@@ -221,7 +231,7 @@ export class RunState {
 
   /** Avanza il tempo; ritorna quanti tick sono scattati. */
   update(deltaMs: number): number {
-    if (this.over || this.pendingEvent) return 0; // con una carta evento aperta la run è in pausa
+    if (this.over || this.pendingEvent || this.paused) return 0; // carta evento aperta o pausa: tempo fermo
     const dt = deltaMs * this.speed;
     this.gameTimeMs += dt;
     this.tickAcc += dt;
@@ -380,12 +390,15 @@ export class RunState {
     for (const f of this.factions) if (f.alive) this.grow(f);
     for (const f of this.factions) {
       if (f.id === PLAYER || !f.alive) continue;
-      if (this.aiRng() <= BALANCE.ai.actChance) {
-        for (let a = 0; a < BALANCE.ai.attacksPerAct; a++) if (!this.aiAttack(f)) break;
+      const assault = this.offensive?.phase === 'on' && this.offensive.faction === f.id;
+      if (assault || this.aiRng() <= BALANCE.ai.actChance) {
+        const n = assault ? BALANCE.offensive.attacksPerAct : BALANCE.ai.attacksPerAct;
+        for (let a = 0; a < n; a++) if (!this.aiAttack(f)) break;
       }
       this.aiUnits(f);
     }
     this.unitsTick();
+    this.offensiveTick();
     this.stormTick();
     this.checkVictory();
     this.eventTick();
@@ -492,6 +505,7 @@ export class RunState {
     for (let i = 0; i < this.owner.length && own < 0; i++) if (this.owner[i] === PLAYER) own = i;
     if (own < 0 || !findPath(own, target, (i) => this.passable(i)).length) return false;
     this.flowTarget = target;
+    this.flowProvince = this.map.tiles[target]!.province;
     this.flowAcc = BALANCE.flow.stepMs; // primo passo subito
     this.flowBestD = Infinity;
     this.flowBudget = this.troops * (this.opts.tutorial ? 1 : this.attackRatio); // forza d'attacco
@@ -501,27 +515,44 @@ export class RunState {
   stopFlow(reason: 'reached' | 'blocked' | 'budget' = 'blocked') {
     if (this.flowTarget === null) return;
     this.flowTarget = null;
+    this.flowProvince = -1;
     this.events.push({ type: 'flowEnd', reason });
   }
 
+  /** Caselle della provincia ancora da prendere con l'avanzata: le anomalie no, quelle si attaccano apposta. */
+  private provinceRest(p: number): number[] {
+    const prov = this.map.provinces[p];
+    if (!prov) return [];
+    return prov.tiles.filter((i) => this.owner[i] !== PLAYER && this.passable(i) && this.map.tiles[i]!.type !== 'anomalia');
+  }
+
   private flowStep() {
-    const t = this.flowTarget!;
-    if (this.owner[t] === PLAYER) return this.stopFlow('reached');
-    if (!this.passable(t)) return this.stopFlow('blocked');
+    let t = this.flowTarget!;
+    const P = this.flowProvince;
+    // raggiunto il bersaglio: se la provincia non è finita si prosegue sulle sue caselle rimaste
+    if (this.owner[t] === PLAYER || !this.passable(t)) {
+      const rest = P >= 0 ? this.provinceRest(P) : [];
+      if (!rest.length) return this.stopFlow(this.owner[t] === PLAYER ? 'reached' : 'blocked');
+      t = this.flowTarget = rest[0];
+    }
     let best = -1, bestD = Infinity, bestDef = Infinity;
+    const inProv = (i: number) => P >= 0 && this.map.tiles[i]!.province === P && (this.map.tiles[i]!.type !== 'anomalia' || i === t);
     for (const i of this.frontier(PLAYER)) {
-      const d = hexDistance(i, t), def = this.costFor(PLAYER, i);
+      if (this.map.tiles[i]!.type === 'anomalia' && i !== t) continue; // l'avanzata non sbatte contro le anomalie per strada
+      // dentro la provincia bersaglio si va per difesa più bassa; fuori, verso il bersaglio
+      const d = inProv(i) ? 0 : hexDistance(i, t), def = this.costFor(PLAYER, i);
       if (d < bestD || (d === bestD && def < bestDef)) {
         best = i;
         bestD = d;
         bestDef = def;
       }
     }
-    if (best < 0 || bestD > this.flowBestD + BALANCE.flow.giveUpSteps) return this.stopFlow('blocked');
+    if (best < 0 || (bestD > 0 && bestD > this.flowBestD + BALANCE.flow.giveUpSteps)) return this.stopFlow('blocked');
     if (bestDef > this.flowBudget) return this.stopFlow('budget'); // forza d'attacco esaurita
     if (this.troops - bestDef <= BALANCE.flow.reserve) return; // aspetta rinforzi, il bersaglio resta
     this.flowBestD = Math.min(this.flowBestD, bestD);
     if (this.attack(PLAYER, best).ok) this.flowBudget -= bestDef;
+    if (P >= 0 && this.owner[t] === PLAYER && !this.provinceRest(P).length) this.stopFlow('reached'); // provincia presa tutta
   }
 
   // ---------- eventi ----------
@@ -834,7 +865,9 @@ export class RunState {
     for (const i of this.frontier(f.id)) {
       if (grace && this.owner[i] === PLAYER) continue;
       const city = this.map.tiles[i]!.city ? BALANCE.provinces.aiCityAttraction : 1; // le città valgono una provincia
-      const score = this.defenseOf(i) * (this.owner[i] === PLAYER ? BALANCE.ai.playerBias : 1) * city;
+      const assault = this.offensive?.phase === 'on' && this.offensive.faction === f.id;
+      const bias = this.owner[i] === PLAYER ? (assault ? BALANCE.offensive.playerBias : BALANCE.ai.playerBias) : 1;
+      const score = this.defenseOf(i) * bias * city;
       if (score < bestScore || (score === bestScore && this.aiRng() < 0.5)) {
         best = i;
         bestScore = score;
@@ -922,9 +955,59 @@ export class RunState {
     tile.loot = 0;
     this.claim(by, i);
     this.events.push({ type: 'conquer', by, from, i, cost, loot, lootType: tile.lootType, unit });
+    this.checkProvinceDone(by, tile.province);
     if (tile.city) this.surrender(by, tile);
     if (from !== NEUTRAL && this.factions[from].tiles <= 0) this.eliminate(from, by);
     return loot;
+  }
+
+  /** Provincia tutta tua: truppe e bottino, una volta per provincia (il "picco" alla Clash). */
+  private checkProvinceDone(by: number, p: number) {
+    const prov = this.map.provinces[p];
+    if (!prov || this.opts.tutorial) return;
+    const key = `${by}:${p}`;
+    if (this.provincesDone.has(key)) return;
+    if (prov.tiles.some((i) => this.owner[i] !== by && this.passable(i))) return;
+    this.provincesDone.add(key);
+    const R = BALANCE.provinceReward, n = prov.tiles.length;
+    const f = this.factions[by];
+    const troops = Math.round(n * R.troopsPerTile);
+    f.troops += troops;
+    const total = this.lootFor(by, Math.round(n * R.lootPerTile));
+    const loot: Bag = { metallo: Math.ceil(total / 2), benzina: Math.floor(total / 4), cibo: Math.floor(total / 4) };
+    for (const r of Object.keys(loot) as Resource[]) f.loot[r] += loot[r];
+    const nation = this.map.nations.find((x) => x.id === prov.country)?.name ?? '';
+    this.events.push({ type: 'provinceDone', by, province: p, nation, troops, loot });
+  }
+
+  // ---------- offensive nemiche ----------
+
+  /** Ogni tanto un'IA confinante prepara un'offensiva: preavviso, poi attacchi concentrati su di te per un po'. */
+  private offensiveTick() {
+    const O = BALANCE.offensive;
+    if (this.opts.tutorial || this.over) return;
+    const o = this.offensive;
+    if (o && this.gameTimeMs >= o.until) {
+      if (o.phase === 'warn') {
+        const f = this.factions[o.faction];
+        if (!f.alive) { this.offensive = null; return; }
+        f.troops += O.troopsBonus + f.tiles * O.troopsPerTile; // rinforzi per l'assalto
+        this.offensive = { faction: o.faction, phase: 'on', until: this.gameTimeMs + O.durationMs, lostAtStart: this.player.tiles };
+        this.events.push({ type: 'offensive', faction: o.faction, phase: 'start' });
+      } else {
+        this.events.push({ type: 'offensive', faction: o.faction, phase: 'end', lost: Math.max(0, o.lostAtStart - this.player.tiles) });
+        this.offensive = null;
+        this.nextOffensiveAt = this.gameTimeMs + O.everyMs + (this.aiRng() * 2 - 1) * O.jitterMs;
+      }
+      return;
+    }
+    if (o || this.gameTimeMs < this.nextOffensiveAt) return;
+    // solo chi confina con te
+    const near = this.factions.filter((f) => f.id !== PLAYER && f.alive && this.frontier(f.id).some((i) => this.owner[i] === PLAYER));
+    if (!near.length) { this.nextOffensiveAt = this.gameTimeMs + 10_000; return; }
+    const f = near[Math.floor(this.aiRng() * near.length)];
+    this.offensive = { faction: f.id, phase: 'warn', until: this.gameTimeMs + O.warnMs, lostAtStart: 0 };
+    this.events.push({ type: 'offensive', faction: f.id, phase: 'warn' });
   }
 
   private lootFor(by: number, n: number): number {

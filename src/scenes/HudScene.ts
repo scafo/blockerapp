@@ -3,7 +3,7 @@ import { BALANCE, type UnitType } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
 import { PLAYER, type Outcome, type VictoryReason } from '../game/RunState';
 import { FACTION_INFO } from '../game/factions';
-import { RESOURCES, bagTotal, type Bag } from '../game/resources';
+import { RESOURCES, RESOURCE_INFO, bagTotal, type Bag } from '../game/resources';
 import type { GameEvent } from '../game/events';
 import { EventCard } from '../ui/EventCard';
 import { TutorialGuide, type GuideSignal } from '../ui/TutorialGuide';
@@ -21,12 +21,11 @@ import { drawUnitIcon } from '../ui/unitIcons';
 import type { RunScene } from './RunScene';
 
 const PAD = 12;
-const LEFT_W = 290;
-const LEFT_H = 112;
+const LEFT_W = 300;
+const LEFT_H = 148;
 const RIGHT_W = 168;
 const ROW_H = 18;
-const RES_X = [0, 64, 128]; // colonne delle 3 risorse nel pannello
-const TOP_H = 88; // verticale: altezza del pannello in alto
+const TOP_H = 112; // verticale: altezza del pannello in alto
 const STRIP_H = 24; // verticale: striscia delle fazioni
 
 const mmss = (ms: number) => {
@@ -40,6 +39,9 @@ export class HudScene extends Phaser.Scene {
   private rate!: Phaser.GameObjects.Text;
   private stats!: Phaser.GameObjects.Text;
   private resTexts: Phaser.GameObjects.Text[] = [];
+  private resLabel!: Phaser.GameObjects.Text;
+  private pauseBtn!: Button;
+  private pausePanel: Phaser.GameObjects.Container | null = null;
   private stormText!: Phaser.GameObjects.Text;
   private seed!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
@@ -104,7 +106,9 @@ export class HudScene extends Phaser.Scene {
     this.rate = this.add.text(0, 0, '', textStyle(12, PALETTE.radioattivo));
     this.stats = this.add.text(0, 0, '', textStyle(12, PALETTE.carta));
     this.resIcons = this.add.graphics();
-    this.resTexts = RESOURCES.map(() => this.add.text(0, 0, '0', textStyle(12, PALETTE.carta)).setOrigin(0, 0.5));
+    // bottino: icone e numeri grandi, ognuno nel colore della sua risorsa
+    this.resTexts = RESOURCES.map((r) => this.add.text(0, 0, '0', textStyle(20, RESOURCE_INFO[r].color)).setOrigin(0, 0.5));
+    this.resLabel = this.add.text(0, 0, 'BOTTINO', textStyle(10, PALETTE.ocra));
     this.stormText = this.add.text(0, 0, '', textStyle(12, PALETTE.ocra));
 
     // pannello destro: fazioni
@@ -129,6 +133,8 @@ export class HudScene extends Phaser.Scene {
       this.setSpeed(sp[(sp.indexOf(this.run.state.speed) + 1) % sp.length]);
     });
     this.retreatBtn = new Button(this, 'RITIRATA', 112, 44, () => this.onRetreat());
+    this.pauseBtn = new Button(this, '❚❚', 56, 44, () => this.togglePause());
+    this.pausePanel = null;
     // le due leve alla OpenFront: forza d'attacco e soldati/lavoratori (non nella run guidata)
     this.attackBtn = this.workBtn = null;
     if (!this.run.state.opts.tutorial) {
@@ -236,8 +242,8 @@ export class HudScene extends Phaser.Scene {
       this.troopsLbl.setPosition(PAD + 10, PAD + 6);
       this.troops.setPosition(PAD + 10, PAD + 18);
       this.stats.setPosition(width - PAD - 10, PAD + 8).setOrigin(1, 0).setAlign('right');
-      this.stormText.setPosition(width - PAD - 10, PAD + 50).setOrigin(1, 0);
-      this.layoutResources(PAD + 16, PAD + 72, 58);
+      this.stormText.setPosition(width - PAD - 10, PAD + 56).setOrigin(1, 0);
+      this.layoutResources(PAD + 16, PAD + 92, (width - 2 * PAD - 40) / 3);
       const sy = PAD + TOP_H + 6, slot = (width - 2 * PAD) / FACTION_INFO.length;
       this.rightPanel.setPosition(PAD, sy).setSize(width - 2 * PAD, STRIP_H);
       this.rows.forEach((r, k) => r.setPosition(PAD + k * slot + 24, sy + STRIP_H / 2));
@@ -245,6 +251,7 @@ export class HudScene extends Phaser.Scene {
       this.unitPos = this.rows.map(() => null);
       this.topBottom = sy + STRIP_H;
       this.speedBtn.setPosition(width - PAD - 56, height - PAD - 44);
+      this.pauseBtn.setPosition(width - PAD - 56 - 8 - 56, height - PAD - 44);
       this.retreatBtn.setPosition(width - PAD - 112, height - PAD - 44 - 8 - 44);
       this.seed.setPosition(width - PAD, height - PAD - 2 * 44 - 8 - 6);
       this.hint.setPosition(width / 2, this.topBottom + 8).setWordWrapWidth(width - 2 * PAD - 20);
@@ -254,8 +261,8 @@ export class HudScene extends Phaser.Scene {
       this.troopsLbl.setPosition(PAD + 10, PAD + 6);
       this.troops.setPosition(PAD + 10, PAD + 18);
       this.stats.setPosition(PAD + 10, PAD + 54).setOrigin(0, 0).setAlign('left');
-      this.stormText.setPosition(PAD + 10, PAD + 92).setOrigin(0, 0);
-      this.layoutResources(PAD + 16, PAD + 79, RES_X[1]);
+      this.layoutResources(PAD + 16, PAD + 98, 92);
+      this.stormText.setPosition(PAD + 10, PAD + 120).setOrigin(0, 0);
       const rx = width - PAD - RIGHT_W;
       this.rightPanel.setPosition(rx, PAD).setSize(RIGHT_W, FACTION_INFO.length * ROW_H + 10);
       this.rows.forEach((r, k) => r.setPosition(rx + 26, PAD + 5 + ROW_H * (k + 0.5)));
@@ -263,7 +270,8 @@ export class HudScene extends Phaser.Scene {
       this.unitPos = this.rows.map((r) => ({ x: rx + RIGHT_W - 14, y: r.y }));
       this.topBottom = PAD + LEFT_H;
       this.speedBtn.setPosition(width - PAD - 56, height - PAD - 44);
-      this.retreatBtn.setPosition(width - PAD - 56 - 8 - 112, height - PAD - 44);
+      this.pauseBtn.setPosition(width - PAD - 56 - 8 - 56, height - PAD - 44);
+      this.retreatBtn.setPosition(width - PAD - 56 - 8 - 56 - 8 - 112, height - PAD - 44);
       this.seed.setPosition(width - PAD, height - PAD - 50);
       const free = width - 2 * PAD - LEFT_W - RIGHT_W - 2 * PAD;
       this.hint.setPosition(width / 2 + (LEFT_W - RIGHT_W) / 2, PAD).setWordWrapWidth(Math.max(180, free));
@@ -291,9 +299,10 @@ export class HudScene extends Phaser.Scene {
 
   private layoutResources(x: number, y: number, step: number) {
     this.resIcons.clear();
+    this.resLabel.setPosition(x - 6, y - 24);
     RESOURCES.forEach((r, k) => {
-      drawResourceIcon(this.resIcons, r, x + k * step, y, 5);
-      this.resTexts[k].setPosition(x + 10 + k * step, y);
+      drawResourceIcon(this.resIcons, r, x + 4 + k * step, y, 9);
+      this.resTexts[k].setPosition(x + 18 + k * step, y);
     });
   }
 
@@ -318,7 +327,13 @@ export class HudScene extends Phaser.Scene {
     const share = Math.round(st.mapShare * 100);
     const goal = `${share}%/${BALANCE.victory.mapShare * 100}%`, anom = `anomalie ${st.anomaliesOwned()}/${st.anomaliesToWin}`;
     this.stats.setText(this.portrait ? `${st.tilesOwned} caselle · ${goal}\n${anom}` : `${st.tilesOwned} caselle ${goal} · ${anom}`);
-    RESOURCES.forEach((r, k) => this.resTexts[k].setText(String(st.backpack[r])));
+    RESOURCES.forEach((r, k) => {
+      const t = this.resTexts[k], v = String(st.backpack[r]);
+      if (t.text !== v) {
+        if (Number(v) > Number(t.text)) this.tweens.add({ targets: t, scale: { from: 1.45, to: 1 }, duration: 260, ease: 'Back.easeOut' });
+        t.setText(v);
+      }
+    });
     if (st.opts.tutorial) {
       this.stormText.setText(`prima missione: ${BALANCE.tutorial.goalTiles} caselle`).setColor(hex(PALETTE.radioattivo));
     } else if (st.stormIn > 0) {
@@ -356,6 +371,20 @@ export class HudScene extends Phaser.Scene {
       const cd = Math.max(0, st.abilityReadyAt[c.ability] - st.gameTimeMs) / (A.cooldownMs * st.opts.abilityCdMult);
       c.refresh(Math.min(1, cd), this.run.selectedAbility === c.ability);
     }
+  }
+
+  /** Provincia tutta tua: stendardo con truppe e bottino. */
+  onProvinceDone(nation: string, troops: number, loot: Bag) {
+    const bag = RESOURCES.filter((r) => loot[r]).map((r) => `+${loot[r]} ${RESOURCE_INFO[r].name.toLowerCase()}`).join(' · ');
+    this.banner(`PROVINCIA PRESA${nation ? ` · ${nation.toUpperCase()}` : ''}`, PALETTE.ocra, `+${troops} truppe${bag ? ` · ${bag}` : ''}`);
+  }
+
+  /** Offensiva nemica: preavviso, inizio, esito. */
+  onOffensive(faction: number, phase: 'warn' | 'start' | 'end', lost = 0) {
+    const who = FACTION_INFO[faction]?.name.toUpperCase() ?? 'IL NEMICO';
+    if (phase === 'warn') this.toast(`⚠ ${who} PREPARA UN'OFFENSIVA\nrinforza il confine (genio, truppe in cassa)`, PALETTE.allerta);
+    else if (phase === 'start') this.banner(`OFFENSIVA ${who}`, PALETTE.ko, 'attaccano il tuo confine');
+    else this.toast(lost ? `OFFENSIVA FINITA · perse ${lost} caselle` : 'OFFENSIVA RESPINTA', lost > 10 ? PALETTE.ko : PALETTE.ocra);
   }
 
   onEliminated(faction: number, by: number, loot: Bag) {
@@ -474,12 +503,42 @@ export class HudScene extends Phaser.Scene {
   }
 
   /** true se il punto (schermo) cade su un elemento dell'HUD. */
+  /** PAUSA: il tempo si ferma, la mappa non risponde; si riprende o ci si ritira. */
+  togglePause() {
+    const st = this.run.state;
+    if (this.ended || st.over) return;
+    if (this.pausePanel) {
+      this.pausePanel.destroy();
+      this.pausePanel = null;
+      st.paused = false;
+      this.pauseBtn.setLabel('❚❚').setOn(false);
+      return;
+    }
+    st.paused = true;
+    this.pauseBtn.setLabel('▶').setOn(true);
+    const { width, height } = view(this);
+    const W = Math.min(360, width - 32), H = 196, x0 = (width - W) / 2, y0 = (height - H) / 2;
+    const shade = this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.6).setOrigin(0).setInteractive();
+    const box = this.add.rectangle(x0, y0, W, H, 0x020a06).setOrigin(0).setStrokeStyle(1, PALETTE.ocra);
+    const title = this.add.text(width / 2, y0 + 18, 'CAMPAGNA IN PAUSA', textStyle(20, PALETTE.ocra)).setOrigin(0.5, 0);
+    const info = this.add.text(width / 2, y0 + 56, `tempo ${mmss(st.gameTimeMs)} · ${st.player.tiles} caselle`, textStyle(12, PALETTE.carta, false)).setOrigin(0.5, 0);
+    const resume = new Button(this, 'RIPRENDI ▶', W - 40, 44, () => this.togglePause());
+    resume.setPosition(x0 + 20, y0 + 86);
+    const quit = new Button(this, 'RITIRATA (tieni il bottino)', W - 40, 40, () => {
+      this.togglePause();
+      this.run.ritirata();
+    }, 12);
+    quit.setPosition(x0 + 20, y0 + 140);
+    this.pausePanel = this.add.container(0, 0, [shade, box, title, info, resume, quit]).setDepth(70);
+  }
+
   hitUi(x: number, y: number, layoutOnly = false): boolean {
     if (!layoutOnly && (this.ended || this.eventCard)) return true;
     if (layoutOnly && y > this.hint.y - 4 && y < this.hint.y + 60 && Math.abs(x - this.hint.x) < 200) return true; // etichetta della guida
     const inRect = (r: Phaser.GameObjects.Rectangle) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
     if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
-    const btns = [this.speedBtn, this.retreatBtn, ...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn].filter((b) => b !== null);
+    if (!layoutOnly && this.pausePanel) return true;
+    const btns = [this.speedBtn, this.pauseBtn, this.retreatBtn, ...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn].filter((b) => b !== null);
     return btns.some((b) => b.contains(x, y));
   }
 }

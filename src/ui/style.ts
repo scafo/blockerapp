@@ -1,5 +1,5 @@
 import { PALETTE, hex } from '../config/palette';
-import { DPR } from './screen';
+import { UI } from './screen';
 
 // Font da terminale (dati) e condensato militare (titoli e numeri grandi), incorporati nel gioco (main.ts).
 export const FONT = '"JetBrains Mono", "Courier New", monospace';
@@ -13,5 +13,5 @@ export const textStyle = (size: number, color: number = PALETTE.carta, bold = tr
   fontSize: `${textSize(size)}px`,
   fontStyle: bold ? (size >= 15 ? '600' : 'bold') : 'normal',
   color: hex(color),
-  resolution: DPR, // testi nitidi sugli schermi ad alta densità
+  resolution: UI(), // testi nitidi sugli schermi ad alta densità e ingranditi
 });
