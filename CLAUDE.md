@@ -56,8 +56,9 @@ forti + simboli (daltonismo).
 - Mappa del mondo divisa in nazioni reali e **province vere alla Call of War** (forme irregolari, la provincia è l'unità di conquista),
   riconoscibile ma alterata (seed). Pausa strategica alla HOI4: il tempo si ferma, gli ordini no.
 - Truppe generiche (pool) che crescono col territorio; tap/avanzata per conquistare; unità come pedine.
-- Eventi a carta con 2 scelte ~ogni 90 s. Fine: tempesta che restringe la mappa (~8 min). Ritirata = tieni il bottino; eliminato = perdi il 70%.
-- Vittoria: 60% della regione / 3 anomalie / più territorio all'arrivo della tempesta.
+- Eventi a carta con 2 scelte ~ogni 90 s. Fine: allo scadere della durata scelta (5/8/12 min) vince chi ha più territorio, altrimenti
+  "fine delle operazioni" (bottino intatto). **Niente tempesta né zone tossiche** (Nico: mai chiesti). Ritirata = tieni il bottino; eliminato = perdi il 70%.
+- Vittoria: 60% della regione / 3 Frammenti (anomalie) / più territorio a fine campagna.
 
 ## Regole di design
 - Max 5–6 scelte a schermo. Mappa sempre libera al centro, comandi negli angoli in basso.
@@ -66,7 +67,7 @@ forti + simboli (daltonismo).
 
 ## MVP (costruisci SOLO questo)
 1 civiltà, 3 unità, 3 risorse, 10 eventi, 4 postazioni (Centro di Comando, Arsenale, Estrazione, Deposito), tempesta, ritirata,
-rivincita, onboarding, analytics. **Fuori dall'MVP:** multiplayer, account, acquisti, sandbox libera, stagioni, classifiche online.
+rivincita, onboarding, analytics (la tempesta è stata tolta su richiesta di Nico). **Fuori dall'MVP:** multiplayer, account, acquisti, sandbox libera, stagioni, classifiche online.
 
 ## Milestone
 1. Mappa + conquista a tap · 2. IA + combattimento + unità · 3. Zaino, ritirata, tempesta, schermata finale · 4. Accampamento + eventi ·
@@ -107,16 +108,22 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   (`textSize` in `src/ui/style.ts`), pixel allineati sulle camere di interfaccia, canvas a misura CSS esatta; testi della mappa disegnati nello spazio dello schermo (`src/render/MapLabels.ts`),
   sempre nitidi a ogni zoom; mappa statica in texture a tasselli 2,6× (1,6× sui dispositivi deboli).
 
-- **Province alla Call of War** (ultima richiesta di Nico: "mappa più grande e vere caselle territoriali", meno retrò): la provincia
-  è l'unità di conquista. Griglia esagonale **invisibile** 280×140 (hexSize 5) solo per forme, pedine, navi, nebbia e tempesta;
-  ~870 province da ~16 caselle in tutte le nazioni (staterelli e isole = 1 provincia senza città, 18 province corrotte non attraversabili).
+- **Carta vera già pronta** (ultima richiesta di Nico: "prendi una mappa del mondo già fatta e facci delle forme dentro, molto grande"):
+  `npm run build:map` (`scripts/build-map.ts`, da rilanciare solo se cambia la griglia) prende Natural Earth 1:50M (`world-atlas/countries-50m`), semplifica la
+  topologia, divide ogni nazione in province con celle di Voronoi rilassate (Lloyd) e ritagliate sui confini veri (`polygon-clipping`),
+  allinea i confini condivisi, ondula quelli interni, assegna le caselle e salva tutto in `src/data/worldmap.json` (~750 KB:
+  1336 province, tratti di confine condivisi, caselle → provincia). A runtime solo decodifica (`src/map/worldAsset.ts`): niente calcoli
+  su terre e nazioni all'avvio. Coste e confini veri, disegnati vettoriali; il tocco usa la sagoma vera (`provinceAtPoint`).
+  **Tolte la tempesta e le zone tossiche** (Nico): la campagna finisce a tempo (`campaign.warnMs`, `campaigns.*.durationMs`,
+  Centro di Comando liv. 3+ = +30 s). Sim: attivo 8/8 vittorie (2,5–8 min), passivo (0,4 tocchi/s) 0/6.
+- **Province alla Call of War**: la provincia è l'unità di conquista. Griglia esagonale **invisibile** 320×160 (hexSize 5) solo per
+  pedine, navi, nebbia e costi (~11 caselle per provincia).
   `RunState.provOwner` + `frontier()` per province (adiacenze in `Province.neighbors`); costo = somma delle difese delle caselle
   (`provCost`); attacco, avanzata (una provincia ogni `flow.stepMs`), IA, pedine (entrano = prendono la provincia), navi, bombardamento:
   tutto per provincia. Premio alla prima presa (`provinceReward`), capitale = truppe. Traguardi, run guidata e HUD contano province.
-  Forme: `src/map/provinceShapes.ts` (lati di confine tra regioni → catene tra incroci, rumore morbido + levigatura + Chaikin,
-  condivise tra vicini: niente fessure). Disegno: carta statica (mare, coste, toni per nazione, bordi) in texture a tasselli; colori delle
-  fazioni = sagome bianche in atlante tinte (`src/render/ProvinceLayer.ts`); confini tra potenze = linee a spessore costante solo
-  nell'inquadratura. Bilanciamento (`sim.ts 1 8 0 1`): giocatore attivo 7/8 vittorie in 2,5–4 min (difesa casella 6/3/12, Frammento 160, crescita 0,08, IA `actChance` 0,12).
+  Forme: `src/map/provinceShapes.ts` (anelli di tratti condivisi dalla carta pronta). Disegno: campiture statiche (mare, toni per
+  nazione) in texture a tasselli; colori delle fazioni = sagome bianche in atlante tinte (`src/render/ProvinceLayer.ts`); confini
+  (province, nazioni, coste, potenze), città e capitali vettoriali a spessore costante, solo nell'inquadratura. Bilanciamento (`sim.ts 1 8 0 1`): giocatore attivo 7/8 vittorie in 2,5–4 min (difesa casella 6/3/12, Frammento 160, crescita 0,08, IA `actChance` 0,12).
 - **Pausa strategica (HOI4)**: ❚❚ o SPAZIO/P. Tempo fermo, mappa comandabile: tocchi e trascinamenti mettono province nel **piano**
   (`RunState.plan`, evidenziate), pedine/abilità/navi prendono ordini; alla ripresa il piano parte (attacco o avanzata, in ordine).
   Toccare il proprio territorio = alt (ferma avanzata e piano). Cornice dorata + cartello "PAUSA STRATEGICA".

@@ -9,7 +9,8 @@
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
     "check:land": "vite-node scripts/check-land-mask.ts",
-    "build:single": "node scripts/build-single.mjs"
+    "build:single": "node scripts/build-single.mjs",
+    "build:map": "vite-node scripts/build-map.ts"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.2",
@@ -23,10 +24,15 @@
   "devDependencies": {
     "@capacitor/android": "^8.5.2",
     "@capacitor/cli": "^8.5.2",
+    "@types/d3-delaunay": "^6.0.4",
     "@types/d3-geo": "^3.1.1",
     "@types/geojson": "^7946.0.16",
     "@types/topojson-client": "^3.1.5",
+    "@types/topojson-simplify": "^3.0.3",
+    "d3-delaunay": "^6.0.4",
     "d3-geo": "^3.1.1",
+    "polygon-clipping": "^0.15.7",
+    "topojson-simplify": "^3.0.3",
     "typescript": "^5.9.3",
     "vite": "^6.4.3",
     "vite-node": "^3.2.4"

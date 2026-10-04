@@ -3,8 +3,7 @@
 import Phaser from 'phaser';
 import { PALETTE, hex } from '../config/palette';
 import loading from '../data/loading.json';
-import { buildLandMask } from '../map/landMask';
-import { buildCountryMap } from '../map/countries';
+import { loadWorld } from '../map/worldAsset';
 import { coverImage, fade } from '../ui/images';
 import { textStyle, FONT_TITLE } from '../ui/style';
 import { uiCamera, view } from '../ui/screen';
@@ -104,23 +103,14 @@ export class LoadScene extends Phaser.Scene {
     });
     this.cameras.main.fadeIn(450, 0, 0, 0);
 
-    if (d.boot) {
-      // il calcolo è sincrono: prima lasciamo disegnare la schermata
-      this.time.delayedCall(260, () => {
-        if (!this.registry.get('landMask')) {
-          const mask = buildLandMask();
-          this.registry.set('landMask', mask);
-          this.registry.set('countries', buildCountryMap(mask)); // nazioni reali per province e confini
-        }
-      });
-    }
+    if (d.boot) this.time.delayedCall(200, () => this.registry.set('world', loadWorld())); // carta già pronta: solo decodifica
   }
 
   update(time: number) {
     const t = Math.min(1, (time - this.startAt) / MIN_MS);
     this.bar.width = this.barW * (this.launched && !this.ready ? Math.min(t, 0.92) : t);
     // la scena successiva parte sotto, coperta da questa (che resta in cima)
-    if (!this.launched && t > 0.62 && (!this.target.boot || this.registry.get('landMask'))) {
+    if (!this.launched && t > 0.62 && (!this.target.boot || this.registry.get('world'))) {
       this.launched = true;
       const key = this.target.next;
       this.scene.get(key).events.once('create', () => this.time.delayedCall(50, () => (this.ready = true)));

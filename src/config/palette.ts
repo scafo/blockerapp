@@ -24,7 +24,6 @@ export const PALETTE = {
     reticolo: 0x13263a, // meridiani e paralleli
     nazioni: [0x4c5a6b, 0x52625c, 0x5c6070, 0x47606a, 0x5d5869, 0x506866, 0x62665a, 0x555b72], // ardesia, acciaio, salvia
     deserto: 0x7a7060, // tinta delle province desertiche
-    corrotta: 0x24132c, // province corrotte dalla Caduta
     confine: 0xd5dee8, // confini nazionali
     provincia: 0x10171f, // confini di provincia
     costa: 0x9cbad3,

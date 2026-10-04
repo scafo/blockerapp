@@ -1,16 +1,41 @@
 {
   "screens": [
-    { "img": "load-statua", "title": "LA CONCORDIA", "quote": "Per cento anni il mondo non conobbe la guerra. Non avevamo nemmeno una parola per «nemico».", "source": "archivio del Senato · sezione distrutta" },
-    { "img": "load-croce", "title": "ANNO ZERO", "quote": "Scesero con le ali accese, nella notte più fredda del secolo. Chi li guardò troppo a lungo smise di parlare.", "source": "testimonianza raccolta sul Baltico" },
-    { "img": "load-ghiaccio", "title": "LA CORRUZIONE", "quote": "Dove sono caduti la terra non brucia. Gela, e poi cambia.", "source": "rapporto sanitario n° 311" },
-    { "img": "load-nave", "title": "IL LUME", "quote": "I Frammenti fanno una luce che non scalda. Le flotte ora navigano con quella.", "source": "intercettazione navale · banda 9" },
-    { "img": "load-radar", "title": "LA PROVA", "quote": "Il cielo trasmette di nuovo, sulla frequenza della Caduta. È un conto alla rovescia.", "source": "Sala Radar · turno di notte" }
+    {
+      "img": "load-statua",
+      "title": "LA CONCORDIA",
+      "quote": "Per cento anni il mondo non conobbe la guerra. Non avevamo nemmeno una parola per «nemico».",
+      "source": "archivio del Senato · sezione distrutta"
+    },
+    {
+      "img": "load-croce",
+      "title": "ANNO ZERO",
+      "quote": "Scesero con le ali accese, nella notte più fredda del secolo. Chi li guardò troppo a lungo smise di parlare.",
+      "source": "testimonianza raccolta sul Baltico"
+    },
+    {
+      "img": "load-ghiaccio",
+      "title": "LA CORRUZIONE",
+      "quote": "Dove sono caduti la terra non brucia. Gela, e poi cambia.",
+      "source": "rapporto sanitario n° 311"
+    },
+    {
+      "img": "load-nave",
+      "title": "IL LUME",
+      "quote": "I Frammenti fanno una luce che non scalda. Le flotte ora navigano con quella.",
+      "source": "intercettazione navale · banda 9"
+    },
+    {
+      "img": "load-radar",
+      "title": "LA PROVA",
+      "quote": "Il cielo trasmette di nuovo, sulla frequenza della Caduta. È un conto alla rovescia.",
+      "source": "Sala Radar · turno di notte"
+    }
   ],
   "status": [
     "Decrittazione delle carte di stato maggiore",
     "Sincronizzazione delle stazioni radio",
     "Rilevamento dei Frammenti",
-    "Calcolo dei fronti della tempesta",
+    "Calcolo delle linee di rifornimento",
     "Convocazione dello stato maggiore"
   ],
   "tips": [

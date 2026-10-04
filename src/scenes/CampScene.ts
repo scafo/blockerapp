@@ -625,7 +625,7 @@ export class CampScene extends Phaser.Scene {
     const bw = stack ? W - 32 : (W - 32 - 10) / 2, by = y0 + H - 56;
     if (campaignChoice(p)) {
       const C = BALANCE.campaigns[p.campaign];
-      const lbl = `DURATA ${CAMPAIGN_NAME[p.campaign]} · ${Math.round(C.stormMs / 60000)} MIN · ×${C.lootMult} ▸`;
+      const lbl = `DURATA ${CAMPAIGN_NAME[p.campaign]} · ${Math.round(C.durationMs / 60000)} MIN · ×${C.lootMult} ▸`;
       items.push(this.btn(lbl, x0 + 16, stack ? by - 48 : by, bw, true, () => {
         p.campaign = CAMPAIGNS[(CAMPAIGNS.indexOf(p.campaign) + 1) % CAMPAIGNS.length];
         saveProfile(p);
@@ -691,7 +691,7 @@ export class CampScene extends Phaser.Scene {
     const best = p.history.reduce((m, r) => Math.max(m, r.tiles), p.bestTiles);
     items.push(this.add.text(x0 + 16, y0 + 40, `CAMPAGNE ${p.runs} · VITTORIE ${p.wins} · TERRITORIO MAX ${best}\n${byCiv || 'Nessuna campagna registrata.'}`,
       textStyle(11, PALETTE.carta)).setLineSpacing(4).setWordWrapWidth(W - 32));
-    const OUT: Record<string, string> = { victory: 'VITTORIA', retreat: 'RITIRATA', eliminated: 'ELIMINATO', storm: 'TEMPESTA' };
+    const OUT: Record<string, string> = { victory: 'VITTORIA', retreat: 'RITIRATA', eliminated: 'ELIMINATO', timeout: 'FINE TEMPO' };
     const rows = p.history.slice(0, 7).map((r) => {
       const d = new Date(r.at);
       const when = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;

@@ -14,7 +14,7 @@ export class ProvinceLayer {
 
   constructor(scene: Phaser.Scene, shapes: RegionShape[], k: number, depth: number, prefix = 'prov') {
     // impaginazione a scaffali, dalla più alta
-    const order = shapes.map((_, i) => i).filter((i) => shapes[i].outer.length >= 6)
+    const order = shapes.map((_, i) => i).filter((i) => shapes[i].parts.length > 0)
       .sort((a, b) => (shapes[b].y1 - shapes[b].y0) - (shapes[a].y1 - shapes[a].y0));
     const slots: (Slot | null)[] = shapes.map(() => null);
     let page = 0, x = 0, y = 0, rowH = 0;
@@ -46,8 +46,10 @@ export class ProvinceLayer {
           for (let j = 0; j < r.length; j += 2) out.push({ x: tx(r[j]), y: ty(r[j + 1]) });
           return out;
         };
-        g.fillPoints(pts(s.outer), true).strokePoints(pts(s.outer), true, true);
-        for (const h of s.holes) holes.fillPoints(pts(h), true);
+        for (const part of s.parts) {
+          g.fillPoints(pts(part.outer), true).strokePoints(pts(part.outer), true, true);
+          for (const h of part.holes) holes.fillPoints(pts(h), true);
+        }
       });
       dt.draw(g);
       dt.erase(holes);

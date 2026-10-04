@@ -28,7 +28,7 @@ export interface Faction {
 
 export type RunEvent =
   | { type: 'conquer'; by: number; from: number; p: number; i: number; cost: number; loot: number; lootType: Resource; unit?: number }
-  | { type: 'storm'; phase: 'warn' | 'start' }
+  | { type: 'timer'; phase: 'warn' }
   | { type: 'event'; event: GameEvent }
   | { type: 'flowEnd'; reason: 'reached' | 'blocked' | 'budget' }
   | { type: 'boat'; phase: 'landed' | 'lost'; boat: Boat }
@@ -39,8 +39,8 @@ export type RunEvent =
   | { type: 'offensive'; faction: number; phase: 'warn' | 'start' | 'end'; lost?: number }
   | { type: 'eliminated'; faction: number; by: number; loot: Bag };
 
-export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'storm';
-export type VictoryReason = 'map' | 'anomalies' | 'storm' | 'tutorial';
+export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'timeout';
+export type VictoryReason = 'map' | 'anomalies' | 'time' | 'tutorial';
 
 export interface RunSummary {
   seed: string;
@@ -68,14 +68,9 @@ export class RunState {
   speed = 1;
   over: null | Outcome = null;
   victoryReason?: VictoryReason;
-  /** casella → 1 se già inghiottita dalla tempesta */
-  readonly stormed: Uint8Array;
-  private stormDist: Int16Array;
-  private stormMaxR = 0;
-  private stormPhase: 'none' | 'warn' | 'active' = 'none';
-  private stormDelayMs = 0;
-  /** caselle già inghiottite per provincia */
-  private provStormed: Int16Array;
+  /** tempo in più guadagnato con gli eventi */
+  private bonusTimeMs = 0;
+  private timerWarned = false;
   // eventi
   pendingEvent: GameEvent | null = null;
   private nextEventAt: number = BALANCE.events.firstMs;
@@ -139,7 +134,6 @@ export class RunState {
     this.owner = new Int8Array(map.tiles.length).fill(NEUTRAL);
     this.provOwner = new Int8Array(map.provinces.length).fill(NEUTRAL);
     this.provVisible = new Uint8Array(map.provinces.length).fill(1);
-    this.provStormed = new Int16Array(map.provinces.length);
     this.provAnomaly = new Uint8Array(map.provinces.length);
     for (const a of map.anomalies) this.provAnomaly[map.tiles[a]!.province] = 1;
     this.fortBy = new Int8Array(map.tiles.length).fill(-1);
@@ -160,26 +154,9 @@ export class RunState {
       workers: id === PLAYER ? (opts.tutorial ? 0 : BALANCE.workers.default) : BALANCE.ai.workers,
       lootAcc: emptyBag(),
     }));
-    this.stormed = new Uint8Array(map.tiles.length);
     this.visible = new Uint8Array(map.tiles.length);
     this.seen = new Uint8Array(map.tiles.length);
     for (const a of map.anomalies) this.seen[a] = 1; // il segnale si sente da lontano
-    this.stormDist = new Int16Array(map.tiles.length);
-    for (let i = 0; i < map.tiles.length; i++) this.stormDist[i] = hexDistance(i, map.stormCenter);
-    // raggio iniziale: copre tutta la regione raggiungibile dal giocatore
-    const seen = new Uint8Array(map.tiles.length);
-    const queue = [map.starts[0]];
-    seen[map.starts[0]] = 1;
-    for (let h = 0; h < queue.length; h++) {
-      const c = queue[h];
-      this.stormMaxR = Math.max(this.stormMaxR, this.stormDist[c]);
-      for (const n of NEIGHBORS[c]) {
-        if (n >= 0 && !seen[n] && this.passable(n)) {
-          seen[n] = 1;
-          queue.push(n);
-        }
-      }
-    }
     this.cooldowns = this.factions.map(() => Object.fromEntries(UNIT_TYPES.map((t) => [t, 0])) as Record<UnitType, number>);
     this.anomalyDefMult = opts.mods.anomalyDefenseMult;
     this.aiSpawnAt = this.factions.map(() => BALANCE.ai.graceMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
@@ -293,67 +270,28 @@ export class RunState {
     }
   }
 
-  // ---------- tempesta ----------
+  // ---------- durata della campagna ----------
 
-  get stormStartMs(): number {
-    if (this.opts.tutorial) return Infinity; // niente tempesta nella prima run
-    return this.opts.stormStartMs + this.stormDelayMs;
+  /** Tempo di gioco in cui la campagna finisce (la run guidata non ha limite). */
+  get endMs(): number {
+    if (this.opts.tutorial) return Infinity;
+    return this.opts.endMs + this.bonusTimeMs;
   }
 
-  /** Raggio sicuro attuale attorno all'occhio (Infinity prima dell'arrivo). */
-  get stormRadius(): number {
-    const S = BALANCE.storm;
-    if (this.gameTimeMs < this.stormStartMs) return Infinity;
-    const k = Math.min(1, (this.gameTimeMs - this.stormStartMs) / S.durationMs);
-    return this.stormMaxR + (S.finalRadius - this.stormMaxR) * k;
+  /** ms alla fine della campagna. */
+  get timeLeft(): number {
+    return this.endMs - this.gameTimeMs;
   }
 
-  /** ms di gioco all'arrivo della tempesta (negativo = già arrivata). */
-  get stormIn(): number {
-    return this.stormStartMs - this.gameTimeMs;
-  }
-
-  inStorm(i: number): boolean {
-    return this.stormDist[i] > this.stormRadius;
-  }
-
-  private stormTick() {
-    const S = BALANCE.storm;
-    if (this.stormPhase === 'none' && this.stormIn <= S.warnMs + this.opts.warnBonusMs) {
-      this.stormPhase = 'warn';
-      this.events.push({ type: 'storm', phase: 'warn' });
+  /** Ultimo minuto: avviso; allo scadere vince chi ha più territorio, altrimenti si rientra col bottino. */
+  private timerTick() {
+    if (!this.timerWarned && this.timeLeft <= BALANCE.campaign.warnMs) {
+      this.timerWarned = true;
+      this.events.push({ type: 'timer', phase: 'warn' });
     }
-    if (this.stormPhase !== 'active' && this.stormIn <= 0) {
-      this.stormPhase = 'active';
-      this.events.push({ type: 'storm', phase: 'start' });
-    }
-    if (this.stormPhase !== 'active') return;
-    const r = this.stormRadius;
-    for (let i = 0; i < this.stormed.length; i++) {
-      if (this.stormed[i] || !this.map.tiles[i] || this.stormDist[i] <= r) continue;
-      this.stormed[i] = 1;
-      const p = this.provOf(i);
-      this.provStormed[p]++;
-      const o = this.owner[i];
-      if (o === NEUTRAL) continue;
-      this.owner[i] = NEUTRAL;
-      this.factions[o].tiles--;
-      if (!this.provPassable(p) && this.provOwner[p] === o) {
-        this.provOwner[p] = NEUTRAL; // provincia inghiottita tutta
-        this.factions[o].provinces--;
-      }
-      this.frontierCache.clear();
-      this.events.push({ type: 'conquer', by: NEUTRAL, from: o, p, i, cost: 0, loot: 0, lootType: 'metallo' });
-      if (this.factions[o].tiles <= 0 && this.factions[o].alive) this.eliminate(o, NEUTRAL);
-    }
-    for (const u of this.units) if (this.stormed[u.tile]) u.hp -= S.unitDamage;
-    this.removeDead();
-    if (this.over) return;
-    if (this.gameTimeMs >= this.stormStartMs + S.durationMs) {
-      // la tempesta è arrivata: vince chi ha più territorio
-      const best = Math.max(...this.factions.filter((f) => f.alive).map((f) => f.tiles));
-      this.end(this.player.tiles >= best ? 'victory' : 'storm', 'storm');
-    }
+    if (this.timeLeft > 0) return;
+    const best = Math.max(...this.factions.filter((f) => f.alive).map((f) => f.tiles));
+    this.end(this.player.tiles >= best ? 'victory' : 'timeout', 'time');
   }
 
   // ---------- fine run ----------
@@ -394,7 +332,7 @@ export class RunState {
     const outcome = this.over ?? 'retreat';
     const bag = this.player.loot;
     const k = outcome === 'victory' ? 1 + BALANCE.victory.bonus
-      : outcome === 'retreat' ? 1 + this.opts.retreatBonus : 1 - this.opts.eliminatedLoss;
+      : outcome === 'retreat' ? 1 + this.opts.retreatBonus : outcome === 'timeout' ? 1 : 1 - this.opts.eliminatedLoss;
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
       maxTiles: this.player.maxTiles, maxProvinces: this.player.maxProvinces, anomalies: this.anomaliesOwned(), backpack: { ...bag }, kept: scaleBag(bag, k * this.opts.campaignLootMult),
@@ -416,7 +354,7 @@ export class RunState {
     }
     this.unitsTick();
     this.offensiveTick();
-    this.stormTick();
+    this.timerTick();
     this.checkVictory();
     this.eventTick();
     this.updateFog();
@@ -639,7 +577,7 @@ export class RunState {
     if (fx.loot) for (const [r, v] of Object.entries(fx.loot)) p.loot[r as Resource] = Math.max(0, p.loot[r as Resource] + v);
     if (fx.growth) this.growthBoost = { mult: fx.growth.mult, until: this.gameTimeMs + fx.growth.durationMs };
     if (fx.anomalyDefense) this.anomalyDefMult *= fx.anomalyDefense;
-    if (fx.stormDelayMs) this.stormDelayMs += fx.stormDelayMs;
+    if (fx.timeBonusMs) this.bonusTimeMs += fx.timeBonusMs;
     if (fx.unit) {
       // pedina gratuita su una nostra casella di confine; se non c'è posto, valore in truppe
       const border = [];
@@ -762,7 +700,7 @@ export class RunState {
       if (isNaval(u.type) || !this.map.tiles[u.tile]) {
         // le navi non conquistano: si riparano vicino a una tua costa
         if (!u.inCombat && NEIGHBORS[u.tile].some((n) => n >= 0 && this.owner[n] === u.owner)) u.hp = Math.min(u.maxHp, u.hp + U.healPerTick);
-      } else if (this.owner[u.tile] !== u.owner && !this.stormed[u.tile]) {
+      } else if (this.owner[u.tile] !== u.owner) {
         // la pedina prende tutta la provincia in cui entra
         const p = this.provOf(u.tile);
         u.hp -= this.provDefense(p) * stats.captureCost;
@@ -933,11 +871,11 @@ export class RunState {
     return i >= 0 ? this.map.tiles[i]?.province ?? -1 : -1;
   }
 
-  /** Si può entrare nella provincia? (non corrotta e non tutta inghiottita dalla tempesta) */
+  /** Provincia vera (con caselle)? */
   provPassable(p: number): boolean {
     if (p < 0) return false;
     const prov = this.map.provinces[p];
-    return !prov.toxic && this.provStormed[p] < prov.tiles.length;
+    return !!prov && prov.tiles.length > 0;
   }
 
   /** Difesa della provincia: somma delle sue caselle (città, insediamenti, presidio compresi). */
@@ -956,7 +894,7 @@ export class RunState {
 
   passable(i: number): boolean {
     const t = this.map.tiles[i];
-    return !!t && t.type !== 'tossica' && !this.stormed[i];
+    return !!t;
   }
 
   /** Truppe che `by` spende per prendere la casella (l'Imperium paga meno le neutrali). */
@@ -1146,7 +1084,7 @@ export class RunState {
     const released = f === PLAYER || by === NEUTRAL ? emptyBag() : scaleBag(dead.loot, BALANCE.ai.releaseLootShare);
     if (by !== NEUTRAL) this.factions[by].loot = addBag(this.factions[by].loot, released);
     this.events.push({ type: 'eliminated', faction: f, by, loot: released });
-    if (f === PLAYER) this.end(by === NEUTRAL ? 'storm' : 'eliminated');
+    if (f === PLAYER) this.end('eliminated');
   }
 
 }

@@ -15,14 +15,13 @@ export interface RunOptions {
   units: UnitType[];
   unitHpMult: number;
   events: number; // 0 nessuno, 1 comuni, 2 anche rari
-  warnBonusMs: number;
   eliminatedLoss: number;
   retreatBonus: number;
   tutorial: boolean; // prima run guidata
   fog: boolean; // nebbia di guerra
   civ: CivId; // civiltà del giocatore
   campaign: CampaignId;
-  stormStartMs: number; // la durata della campagna sposta la tempesta
+  endMs: number; // durata della campagna (Centro di Comando: un po' di tempo in più)
   campaignLootMult: number; // campagne lunghe = più risorse a casa
   mods: Mods;
   abilities: AbilityType[]; // abilità a ricarica sbloccate
@@ -32,9 +31,9 @@ export interface RunOptions {
 
 /** Tutto sbloccato, niente eventi: usato dal simulatore e come ripiego. */
 export const DEFAULT_OPTIONS: RunOptions = {
-  units: ['fanteria', 'ricognitori', 'artiglieria'], unitHpMult: 1, events: 0, warnBonusMs: 0,
+  units: ['fanteria', 'ricognitori', 'artiglieria'], unitHpMult: 1, events: 0,
   eliminatedLoss: BALANCE.end.eliminatedLoss, retreatBonus: 0, tutorial: false, fog: false,
-  civ: 'republica', campaign: 'standard', stormStartMs: BALANCE.campaigns.standard.stormMs, campaignLootMult: 1, mods: BASE_MODS,
+  civ: 'republica', campaign: 'standard', endMs: BALANCE.campaigns.standard.durationMs, campaignLootMult: 1, mods: BASE_MODS,
   abilities: [], maxUnitsBonus: 0, abilityCdMult: 1,
 };
 
@@ -73,12 +72,11 @@ export function runOptions(p: Profile): RunOptions {
     maxUnitsBonus: C.comandoMaxUnitsBonus[comando],
     abilityCdMult: C.comandoAbilityCdMult[comando] * (p.test ? BALANCE.test.abilityCdMult : 1),
     civ, campaign, mods,
-    stormStartMs: BALANCE.campaigns[campaign].stormMs,
+    endMs: BALANCE.campaigns[campaign].durationMs + C.comandoTimeBonusMs[comando],
     campaignLootMult: BALANCE.campaigns[campaign].lootMult,
     units,
     unitHpMult: C.arsenaleHpMult[arsenale] * mods.unitHpMult,
     events: C.comandoEvents[comando],
-    warnBonusMs: C.comandoWarnBonusMs[comando],
     eliminatedLoss: C.depositoLoss[deposito],
     retreatBonus: C.depositoRetreatBonus[deposito],
     tutorial,

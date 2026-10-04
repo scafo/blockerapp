@@ -1,7 +1,6 @@
 // Simula run senza grafica per tarare balance.ts.
 // Uso: npx vite-node scripts/sim.ts [taps al secondo del giocatore] [numero run] [pedine: 0/1] [avanzate: 0/1]
-import { buildLandMask } from '../src/map/landMask';
-import { buildCountryMap } from '../src/map/countries';
+import { loadWorld } from '../src/map/worldAsset';
 import { generateMap } from '../src/map/generate';
 import { RunState, PLAYER } from '../src/game/RunState';
 import { hexDistance } from '../src/map/hexGrid';
@@ -12,10 +11,9 @@ const tapsPerSec = Number(process.argv[2] ?? 2);
 const runs = Number(process.argv[3] ?? 6);
 const useUnits = process.argv[4] !== '0';
 const useFlow = process.argv[5] !== '0'; // 5° argomento: 0 = niente avanzate
-const mask = buildLandMask();
-const countries = buildCountryMap(mask);
+const world = loadWorld();
 for (let r = 0; r < runs; r++) {
-  const st = new RunState(generateMap('sim' + r, mask, undefined, countries));
+  const st = new RunState(generateMap('sim' + r, world));
   let tapAcc = 0;
   const snaps: string[] = [];
   let firstContact = -1;

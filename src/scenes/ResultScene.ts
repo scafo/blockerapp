@@ -15,10 +15,10 @@ const TITLES: Record<RunSummary['outcome'], string> = {
   victory: 'VITTORIA',
   retreat: 'RITIRATA',
   eliminated: 'ELIMINATO',
-  storm: 'TRAVOLTO DALLA TEMPESTA',
+  timeout: 'FINE DELLE OPERAZIONI',
 };
 
-const REASONS = { map: 'Impero sul 60% della regione', anomalies: '3 Frammenti in mano tua', storm: 'Più territorio alla fine della tempesta', tutorial: 'Il primo pezzo di mondo è tuo' };
+const REASONS = { map: 'Impero sul 60% della regione', anomalies: '3 Frammenti in mano tua', time: 'Più territorio di tutti a fine campagna', tutorial: 'Il primo pezzo di mondo è tuo' };
 
 /** Schermata finale stile manifesto: esito, bollettino comando, bottino portato a casa, rivincita. */
 export class ResultScene extends Phaser.Scene {
@@ -42,7 +42,7 @@ export class ResultScene extends Phaser.Scene {
     const { width, height, portrait: P } = view(this);
     this.cameras.main.setBackgroundColor(PALETTE.inchiostro);
     // fondo: la potenza in vittoria, un'immagine dell'archivio della Caduta negli altri casi
-    const bg = sum.outcome === 'victory' ? civImage(sum.civ) : { retreat: 'load-nave', eliminated: 'load-croce', storm: 'load-ghiaccio' }[sum.outcome];
+    const bg = sum.outcome === 'victory' ? civImage(sum.civ) : ({ retreat: 'load-nave', eliminated: 'load-croce', timeout: 'load-ghiaccio' } as Record<string, string>)[sum.outcome];
     const img = coverImage(this, bg, 0, 0, width, height, 0.4).setTint(0x9fb4cc).setAlpha(0.7);
     this.tweens.add({ targets: img, alpha: 0.5, duration: 4000, yoyo: true, repeat: -1 });
     this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.45).setOrigin(0);

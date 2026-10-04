@@ -2,12 +2,11 @@
 
 export const BALANCE = {
   map: {
-    cols: 280, // griglia fine (invisibile): serve a disegnare le province e a muovere pedine e navi
-    rows: 140,
+    cols: 320, // griglia fine (invisibile): pedine, navi, nebbia; le forme vengono dalla mappa vera (scripts/build-map.ts)
+    rows: 160,
     latMax: 84,
     latMin: -58, // niente Antartide
     hexSize: 5, // raggio esagono in pixel-mondo
-    toxicProvinces: 18, // province corrotte dalla Caduta: non si attraversano
     ruinsCount: 360,
     desertLatBand: [12, 35] as [number, number], // |lat| in gradi
     desertChance: 0.7, // probabilità deserto dentro la fascia
@@ -124,14 +123,11 @@ export const BALANCE = {
     anomalies: 3,
     bonus: 0.5, // +50% dello zaino in caso di vittoria
   },
-  // Tempesta di cenere: arriva e restringe la mappa attorno a un punto.
-  storm: {
-    startMs: 480_000, // 8 min di gioco
-    warnMs: 60_000, // avviso + cerchio finale visibile prima dell'arrivo
-    durationMs: 90_000, // tempo per chiudersi fino a finalRadius
-    finalRadius: 7,
-    unitDamage: 6, // hp per tick alle pedine nella cenere
+  // Fine della campagna: allo scadere della durata scelta vince chi ha più territorio (avviso nell'ultimo minuto).
+  campaign: {
+    warnMs: 60_000,
   },
+
   // Avanzata: tocchi una casella lontana e il confine "cola" verso di lei, una casella ogni stepMs.
   // Provincia completa (tutte le sue caselle tue): ricompensa una volta per provincia e per fazione
   provinceReward: { troopsPerTile: 0.3, lootPerTile: 0.2 }, // bottino diviso metà metallo, un quarto benzina e cibo
@@ -148,14 +144,14 @@ export const BALANCE = {
   // Nazioni e province (alla Call of War): ogni nazione reale è divisa in province con una città.
   // Prendi la città → le caselle neutrali della provincia si arrendono. La capitale dà truppe a chi la prende.
   provinces: {
-    size: 16, // caselle per provincia (circa)
+    size: 12, // caselle per provincia (circa; la carta è in src/data/worldmap.json)
     cityDefenseMult: 2, // difesa città = base × mult + bonus
     cityDefenseBonus: 6,
     capitalDefenseBonus: 8,
     capitalTroops: 110, // a chi prende una capitale (la prima volta)
     aiCityAttraction: 0.6, // le città sembrano più deboli all'IA: le cerca
     nameMinTiles: 40, // nomi delle nazioni solo per le più grandi
-    minTilesForCity: 8, // staterelli più piccoli: una provincia sola, senza città
+    minTilesForCity: 4, // province minuscole (isolette): niente città
     namesMaxZoom: 2.0, // sopra questo zoom (vista tattica) i nomi delle nazioni spariscono
   },
   // Navi: tocchi una costa che non raggiungi via terra; la nave parte dalla tua costa più vicina con la forza d'attacco.
@@ -174,7 +170,7 @@ export const BALANCE = {
     seenAlpha: 0.45, // già esplorato ma ora fuori vista
     unseenAlpha: 0.88, // mai visto
   },
-  // Prima run guidata: 1 sola IA che non attacca, niente tempesta né eventi, si vince con goalProvinces province.
+  // Prima run guidata: 1 sola IA che non attacca, senza limite di tempo né eventi, si vince con goalProvinces province.
   tutorial: {
     aiCount: 1,
     goalProvinces: 7, // province da tenere per vincere la run guidata
@@ -236,7 +232,7 @@ export const BALANCE = {
     arsenaleAbilities: 5, // dal liv. 5 ricognizione aerea e bombardamento
     arsenaleUnique: 6, // dal liv. 6 anche l'unità unica della civiltà
     comandoEvents: [0, 1, 2, 2, 2, 2], // 0 = niente eventi, 1 = comuni, 2 = anche rari
-    comandoWarnBonusMs: [0, 0, 0, 30_000, 30_000, 30_000],
+    comandoTimeBonusMs: [0, 0, 0, 30_000, 30_000, 30_000], // rete di allerta: 30 s in più per ogni campagna
     comandoMaxUnitsBonus: [0, 0, 0, 0, 1, 1], // liv. 4: un'unità in più in campo
     comandoAbilityCdMult: [1, 1, 1, 1, 1, 0.75], // liv. 5: abilità -25% ricarica
     depositoLoss: [0.7, 0.4, 0.25, 0.25],
@@ -250,7 +246,7 @@ export const BALANCE = {
     tentsMax: 7,
   },
   end: {
-    eliminatedLoss: 0.7, // zaino perso se eliminato (o travolto dalla tempesta)
+    eliminatedLoss: 0.7, // zaino perso se eliminato
     resultDelayMs: 1200, // pausa prima della schermata finale
   },
   // effetti grafici della mappa (Figma: heatmap luminosa). bloom = bagliore su tutta la mappa (spento sui telefoni deboli)
@@ -258,9 +254,9 @@ export const BALANCE = {
   speeds: [1, 2, 4],
   // Campagne a durata scelta (Figma: "campagne di durata più lunga portano più risorse")
   campaigns: {
-    breve: { stormMs: 300_000, lootMult: 0.8 },
-    standard: { stormMs: 480_000, lootMult: 1 },
-    lunga: { stormMs: 720_000, lootMult: 1.4 },
+    breve: { durationMs: 300_000, lootMult: 0.8 },
+    standard: { durationMs: 480_000, lootMult: 1 },
+    lunga: { durationMs: 720_000, lootMult: 1.4 },
   },
   // Modalità test (HQ → tasto TEST): sblocca tutto e azzera i timer per provare il gioco senza aspettare
   test: { stash: 9999, startTroops: 1000, abilityCdMult: 0.25, runs: 3, wins: 3, expeditions: 3 },
@@ -299,7 +295,7 @@ export const BALANCE = {
   },
 } as const;
 
-export type TileType = 'terra' | 'deserto' | 'rovine' | 'tossica' | 'anomalia';
+export type TileType = 'terra' | 'deserto' | 'rovine' | 'anomalia';
 export type Resource = 'metallo' | 'benzina' | 'cibo';
 export type UnitType = 'fanteria' | 'ricognitori' | 'artiglieria' | 'corazzati' | 'genio' | 'cannoniera' | 'legionari' | 'guardia' | 'prototipo' | 'infiltrati';
 export type AbilityType = 'ricognizione' | 'bombardamento';

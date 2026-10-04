@@ -8,7 +8,7 @@ export interface EventEffects {
   unit?: UnitType; // pedina gratuita
   growth?: { mult: number; durationMs: number }; // crescita truppe temporanea
   anomalyDefense?: number; // moltiplicatore difesa anomalie per il resto della run
-  stormDelayMs?: number;
+  timeBonusMs?: number; // tempo in più per la campagna
 }
 
 export interface EventChoice {

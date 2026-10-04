@@ -195,7 +195,7 @@
   {
     "id": "cartografo",
     "rare": true,
-    "text": "Un pilota di dirigibile ha fotografato il fronte della tempesta dall'alto. Vuole metallo, non promesse.",
+    "text": "Un pilota di dirigibile ha fotografato le linee nemiche dall'alto. Vuole metallo, non promesse.",
     "left": {
       "label": "Lascia stare",
       "effects": {},
@@ -207,9 +207,9 @@
         "loot": {
           "metallo": -15
         },
-        "stormDelayMs": 60000
+        "timeBonusMs": 60000
       },
-      "result": "Le lastre sono nitide. La tempesta ci raggiungerà un minuto più tardi."
+      "result": "Le lastre sono nitide. Il Comando concede un minuto in più alla campagna."
     }
   }
 ]

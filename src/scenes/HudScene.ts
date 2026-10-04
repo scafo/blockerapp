@@ -24,7 +24,7 @@ const PAD = 12;
 const LEFT_W = 300;
 const LEFT_H = 148;
 const RIGHT_W = 180;
-const BAR_H = 64; // orizzontale: barra in alto (truppe, obiettivi, tempesta, bottino)
+const BAR_H = 64; // orizzontale: barra in alto (truppe, obiettivi, tempo, bottino)
 const ROW_H = 18;
 const TOP_H = 112; // verticale: altezza del pannello in alto
 const STRIP_H = 46; // verticale: fazioni su due righe
@@ -93,7 +93,7 @@ export class HudScene extends Phaser.Scene {
     this.retreatArmed = null;
     this.eventCard = null;
 
-    // pannello sinistro: truppe, territorio/obiettivi, zaino, tempesta
+    // pannello sinistro: truppe, territorio/obiettivi, zaino, tempo di campagna
     // (le posizioni le decide layout(): verticale e orizzontale hanno disposizioni diverse)
     this.leftPanel = this.add.rectangle(PAD, PAD, LEFT_W, LEFT_H, PALETTE.inchiostro, 0.84).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
     this.troopsLbl = this.add.text(0, 0, 'TRUPPE', textStyle(11, PALETTE.ocra));
@@ -256,7 +256,7 @@ export class HudScene extends Phaser.Scene {
       this.seed.setPosition(width - PAD, height - PAD - 2 * 44 - 8 - 6);
       this.hint.setPosition(width / 2 - 34, this.topBottom + 8).setWordWrapWidth(width - 2 * PAD - 90);
     } else {
-      // orizzontale: una barra compatta in alto (truppe | obiettivi e tempesta | bottino), fazioni nell'angolo; mappa libera
+      // orizzontale: una barra compatta in alto (truppe | obiettivi e tempo | bottino), fazioni nell'angolo; mappa libera
       const barW = width - 2 * PAD - RIGHT_W - 8;
       P.setPosition(PAD, PAD).setSize(barW, BAR_H);
       this.troopsLbl.setPosition(PAD + 10, PAD + 6);
@@ -342,11 +342,9 @@ export class HudScene extends Phaser.Scene {
     });
     if (st.opts.tutorial) {
       this.stormText.setText(`prima missione: ${BALANCE.tutorial.goalProvinces} province`).setColor(hex(PALETTE.radioattivo));
-    } else if (st.stormIn > 0) {
-      this.stormText.setText(`tempesta tra ${mmss(st.stormIn)}`).setColor(st.stormIn <= BALANCE.storm.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
     } else {
-      const left = st.stormStartMs + BALANCE.storm.durationMs - st.gameTimeMs;
-      this.stormText.setText(`LA TEMPESTA AVANZA · ${mmss(left)}`).setColor(hex(PALETTE.ko));
+      const left = Math.max(0, st.timeLeft);
+      this.stormText.setText(`fine campagna tra ${mmss(left)}`).setColor(left <= BALANCE.campaign.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
     }
     this.seed.setText(`mappa #${st.map.seed}`);
 
@@ -394,13 +392,13 @@ export class HudScene extends Phaser.Scene {
     const got = bagTotal(loot);
     const msg = by === PLAYER
       ? `${who} ELIMINATI${got ? `\n+${got} risorse dal loro bottino` : ''}`
-      : by < 0 ? `${who} INGHIOTTITI DALLA TEMPESTA` : `${who} SPAZZATI VIA DA ${FACTION_INFO[by].short}`;
+      : `${who} SPAZZATI VIA DA ${FACTION_INFO[by]?.short ?? 'NESSUNO'}`;
     this.toast(msg, by === PLAYER ? PALETTE.radioattivo : PALETTE.ocra);
   }
 
-  onStorm(phase: 'warn' | 'start') {
-    if (phase === 'warn') this.toast('ALLERTA: TEMPESTA IN ARRIVO\nresta dentro il confine bianco', PALETTE.carta);
-    else this.toast('LA TEMPESTA AVANZA\nchi ha più territorio quando si chiude vince', PALETTE.ko);
+  /** Ultimo minuto di campagna. */
+  onTimer() {
+    this.toast('ULTIMO MINUTO\nallo scadere vince chi ha più territorio', PALETTE.allerta);
   }
 
   private toast(msg: string, color: number) {
@@ -486,10 +484,10 @@ export class HudScene extends Phaser.Scene {
       this.time.delayedCall(2600, () => conf.destroy());
     }
     const title = {
-      victory: reason === 'anomalies' ? 'IL SEGNALE È TUO' : reason === 'storm' ? 'ULTIMI IN PIEDI' : reason === 'tutorial' ? 'PRIMA VITTORIA!' : 'IMPERO!',
+      victory: reason === 'anomalies' ? 'IL SEGNALE È TUO' : reason === 'time' ? 'IL CAMPO È TUO' : reason === 'tutorial' ? 'PRIMA VITTORIA!' : 'IMPERO!',
       retreat: 'RITIRATA',
       eliminated: 'ELIMINATO',
-      storm: 'TRAVOLTO DALLA TEMPESTA',
+      timeout: 'FINE DELLE OPERAZIONI',
     }[outcome];
     const color = outcome === 'victory' ? PALETTE.radioattivo : outcome === 'retreat' ? PALETTE.ocra : PALETTE.ko;
     const t = this.add.text(width / 2, height / 2, title, textStyle(40, color)).setOrigin(0.5)

@@ -14,9 +14,9 @@
     "Le linee sono cadute. Il nemico conta il nostro equipaggiamento.",
     "Ultima trasmissione dal fronte: solo rumore, e un canto che nessuno riconosce."
   ],
-  "storm": [
-    "La tempesta ha chiuso la regione. Restano le coordinate di ciò che avevamo.",
-    "Dopo la Caduta il cielo non aspetta nessuno. Oggi non ha aspettato noi.",
-    "La cenere viola copre tutto. La Prova continua senza di noi."
+  "timeout": [
+    "Il tempo della campagna è scaduto. La regione resta contesa, il bottino rientra intatto.",
+    "Fine delle operazioni. Il Comando richiama le colonne: un'altra potenza tiene più terra di noi.",
+    "Le radio tacciono all'ora stabilita. Ripiegamento ordinato, nessuna perdita al Deposito."
   ]
 }
