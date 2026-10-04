@@ -104,6 +104,16 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 ## Note del developer (stato e comandi)
 
+- **Mercato, schede, mappa e tabella** (ultime richieste di Nico): **Mercato** nella home (tasto accanto a RICERCA; solo risorse di
+  gioco, niente soldi veri né casse a sorpresa come da regole di design): scambi 50→30 tra risorse, rifornimenti per la prossima
+  campagna (truppe fresche, carte del Radar, sacchi di sabbia; uno per tipo, si consumano alla partenza: `profile.supplies`),
+  cantiere e ricerca finiti subito a 8 metallo per minuto (`shop` in `balance.ts`, testi in `src/data/shop.json`). Icone delle
+  risorse nuove (lingotti, tanica, scatoletta; `src/ui/resourceIcons.ts`). Schede delle postazioni con livello a tacche, costo a
+  schede (serve/hai con barra) e "FINISCI ORA" sul cantiere. Mappa a zoom medio: la terra è uno strato a parte (`landLayer`) con
+  forme intere, prima le province semplificate una per una lasciavano fessure scure negli angoli. **Tabella in basso alla Call of
+  War** (`HudScene.renderProvince`): tocchi una provincia (tua, nemica, libera) o selezioni una pedina → padrone, rapporto, difesa,
+  produzione, costruzione, costo per prenderla (o vita, attacco, gittata, passo, chi batte, stato) e azioni (ATTACCA, AVANZATA,
+  SCHEDA, COSTRUISCI); il tocco conquista ancora subito. Non nella run guidata.
 - **Home più viva** (Nico: "usa le skill per migliorare la home"; skill `game-ui-ux` e `game-feel` in `.claude/skills/`): GIOCA è
   l'azione principale (fondo oro e alone che respira, `Button.setPrimary`), bottoni che si abbassano al tocco e rimbalzano
   (scala attorno al centro), anello attorno alla postazione toccata, entrata della base con le postazioni che scendono una dopo

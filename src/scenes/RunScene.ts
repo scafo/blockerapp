@@ -753,8 +753,15 @@ export class RunScene extends Phaser.Scene {
     return null;
   }
 
+  /** Tocco su una provincia dalla tabella in basso (ATTACCA, AVANZATA): come toccarne il centro sulla mappa. */
+  tapProvince(p: number) {
+    const a = this.map.provinces[p]?.anchor ?? -1;
+    if (a >= 0) this.tapTile(a);
+  }
+
   private selectUnit(id: number | null) {
     this.selectedUnit = id;
+    if (id !== null) this.hud.showUnit(id); // tabella in basso: vita, attacco, stato
     this.selRing.setVisible(id !== null);
     if (id !== null) this.hud.setHint('Tocca una casella: la pedina ci va conquistando la strada.');
     else if (!this.selectedCard) this.hud.setHint(null);
@@ -847,6 +854,7 @@ export class RunScene extends Phaser.Scene {
         }
         this.flowMarker.setPosition(x, y).setVisible(true);
         this.floatText(x, y - 6, 'avanzata!', PALETTE.carta);
+        if (!this.state.opts.tutorial) this.hud.showProvince(p, false);
         this.hud.tutorialSignal('flow');
         this.usage.avanzate++;
         return;
@@ -854,6 +862,7 @@ export class RunScene extends Phaser.Scene {
     }
 
     const res = this.state.tryConquer(i);
+    if (!this.state.opts.tutorial) this.hud.showProvince(p, false); // tabella in basso alla Call of War
     if (res.ok) {
       this.usage.tocchi++;
       buzz(res.loot ? 25 : 8);

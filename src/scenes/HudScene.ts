@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { BALANCE, type UnitType } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
-import { PLAYER, WORKS, type DiploWhat, type Outcome, type VictoryReason } from '../game/RunState';
+import { NEUTRAL, PLAYER, WORKS, type DiploWhat, type Outcome, type VictoryReason } from '../game/RunState';
 import { techInfo } from '../game/tech';
 import { WORK_NAME, drawWorkIcon, workDesc } from '../ui/workIcons';
 import { buzz } from '../ui/haptics';
@@ -22,6 +22,7 @@ import { textStyle } from '../ui/style';
 import { uiCamera, view } from '../ui/screen';
 import { drawSymbol } from '../ui/symbols';
 import { drawUnitIcon } from '../ui/unitIcons';
+import { unitInfo } from '../game/units';
 import type { RunScene } from './RunScene';
 
 const PAD = 12;
@@ -57,6 +58,8 @@ export class HudScene extends Phaser.Scene {
   private profileF = -1;
   private profileAcc = 0;
   private provCardAcc = 0;
+  private selUnit = -1; // pedina selezionata nella tabella in basso
+  private provOpen = true; // costruzioni aperte nella tabella
   private pauseFrame!: Phaser.GameObjects.Graphics;
   private stormText!: Phaser.GameObjects.Text;
   private incTexts: Phaser.GameObjects.Text[] = [];
@@ -377,7 +380,7 @@ export class HudScene extends Phaser.Scene {
       this.profileAcc = 1000;
       this.renderProfile();
     }
-    if (this.provCard && (this.provCardAcc -= delta) <= 0) {
+    if (this.provCard && (this.provCardAcc -= delta) <= 0) { // 2 volte al secondo: vita, cantiere, truppe
       this.provCardAcc = 500;
       this.renderProvince(); // cantiere che avanza, truppe e zaino che cambiano
     }
@@ -728,8 +731,18 @@ export class HudScene extends Phaser.Scene {
     }
   }
 
-  showProvince(p: number) {
+  /** Selezione alla Call of War: provincia (qualsiasi) o pedina; `open` mostra subito le costruzioni di una tua provincia. */
+  showProvince(p: number, open = true) {
     this.provCardP = p;
+    this.selUnit = -1;
+    this.provOpen = open;
+    this.provCardAcc = 500;
+    this.renderProvince();
+  }
+
+  showUnit(id: number) {
+    this.provCardP = -1;
+    this.selUnit = id;
     this.provCardAcc = 500;
     this.renderProvince();
   }
@@ -738,79 +751,145 @@ export class HudScene extends Phaser.Scene {
     this.provCard?.destroy();
     this.provCard = null;
     this.provCardP = -1;
+    this.selUnit = -1;
   }
 
   refreshProvince() {
-    if (this.provCardP >= 0) this.renderProvince();
+    if (this.provCardP >= 0 || this.selUnit >= 0) this.renderProvince();
   }
 
-  /** Scheda provincia alla Call of War: terreno, difesa, produzione e le tre costruzioni. */
+  /**
+   * Tabella in basso alla Call of War: intestazione (padrone, nazione, terreno), una riga di dati a celle e le azioni.
+   * Le tue province aprono anche le sette costruzioni.
+   */
   private renderProvince() {
     const st = this.run.state, p = this.provCardP;
     this.provCard?.destroy();
     this.provCard = null;
-    if (p < 0 || st.provOwner[p] !== PLAYER || st.over) return void (this.provCardP = -1);
-    const prov = st.map.provinces[p];
+    if (st.over || (p < 0 && this.selUnit < 0)) return void (this.provCardP = this.selUnit = -1);
+    const unit = this.selUnit >= 0 ? st.units.find((u) => u.id === this.selUnit) : undefined;
+    if (this.selUnit >= 0 && !unit) return void (this.selUnit = -1); // la pedina non c'è più
     const { width, height } = view(this);
-    const W = Math.min(420, width - 2 * PAD), H = st.workOf(p) || st.workInProgress(p) ? 120 : 196;
+    const W = Math.min(560, width - 2 * PAD);
+    const own = !unit && st.provOwner[p] === PLAYER;
+    const ready = own ? st.workOf(p) : null, prog = own ? st.workInProgress(p) : null;
+    const grid = own && this.provOpen && !ready && !prog;
+    // celle dei dati: su una riga se c'è posto, altrimenti su due (telefono in verticale)
+    const nCells = unit ? 6 : 5 + (st.provOwner[p] > PLAYER && st.seesProv(p) ? 1 : 0);
+    const perRow = W - 24 >= 500 ? nCells : Math.min(nCells, 3), rows = Math.ceil(nCells / perRow);
+    const cellsY = 34, cellH = 42, actY = cellsY + rows * cellH + 8;
+    const H = grid ? actY + 2 * 62 + 6 + 10 : actY + 40;
     const ly = height - PAD - CARD_H - 8 - 36;
-    const y0 = this.portrait ? (this.abilityCards.length ? this.portraitAbilityY() - 8 : ly - 8) - H : this.topBottom + 8;
-    const T = BALANCE.terrain[prov.terrain];
-    const nation = st.map.nations.find((n) => n.id === prov.country)?.name ?? 'Terra di nessuno';
-    const terrainName = { pianura: 'pianura', colline: 'colline', montagne: 'montagne', deserto: 'deserto' }[prov.terrain];
-    const ready = st.workOf(p), prog = st.workInProgress(p);
-    const resName = RESOURCE_INFO[T.res].name.toLowerCase();
+    const bottom = this.portrait ? (this.abilityCards.length ? this.portraitAbilityY() : ly) - 8 : ly - 8;
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, W, H, PALETTE.inchiostro, 0.95).setOrigin(0).setStrokeStyle(1, PALETTE.linea),
-      this.add.rectangle(0, 0, W, 2, PALETTE.ocra).setOrigin(0),
-      this.add.text(12, 8, `${nation.toUpperCase()} · ${terrainName.toUpperCase()}`, textStyle(13, PALETTE.carta)),
-      this.add.text(12, 30, `difesa ${st.provDefense(p)} · produce ${st.provPerMin(p).toFixed(1).replace('.', ',')} ${resName}/min`
-        + `${T.move > 1 ? ` · pedine lente ×${String(T.move).replace('.', ',')}` : ''}`, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 24),
     ];
+    const g = this.add.graphics();
     const close = this.add.text(W - 10, 6, '✕', textStyle(16, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
     close.on('pointerup', () => this.hideProvince());
-    items.push(close);
-    if (ready || prog) {
-      const w = ready ?? prog!.work;
-      const ig = this.add.graphics();
-      ig.fillStyle(PALETTE.pannello, 1).fillCircle(30, 86, 18);
-      drawWorkIcon(ig, w, 30, 86, 11, ready ? PALETTE.ocra : PALETTE.allerta);
-      items.push(ig, this.add.text(58, 70, WORK_NAME[w].toUpperCase(), textStyle(14, ready ? PALETTE.ocra : PALETTE.allerta)),
-        this.add.text(58, 92, ready ? workDesc(w, resName) : `in costruzione · ${mmss(prog!.leftMs)}`, textStyle(11, PALETTE.carta, false)));
-    } else {
-      // sette costruzioni su due righe: icona, nome, effetto, prezzo in truppe
-      const cols = 4, bw = (W - 24 - (cols - 1) * 6) / cols, bh = 62;
-      WORKS.forEach((w, k) => {
-        const D = BALANCE.works[w], block = st.workBlock(p, w), x = 12 + (k % cols) * (bw + 6), y = 56 + Math.floor(k / cols) * (bh + 6);
-        const price = st.workPrice(w);
-        const bg = this.add.rectangle(x, y, bw, bh, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, block ? PALETTE.linea : PALETTE.ocra)
-          .setInteractive({ useHandCursor: true });
-        const ig = this.add.graphics();
-        drawWorkIcon(ig, w, x + 12, y + 13, 7, block ? PALETTE.tenue : PALETTE.ocra);
-        const name = this.add.text(x + 24, y + 6, WORK_NAME[w].toUpperCase(), textStyle(10, block ? PALETTE.tenue : PALETTE.carta));
-        const lock = block === 'tech' ? `🔒 ${techInfo(D.tech).name}` : block === 'coast' ? 'solo sul mare' : workDesc(w, resName);
-        const sub = this.add.text(x + 6, y + 23, lock, textStyle(9, PALETTE.carta, false)).setWordWrapWidth(bw - 10);
-        const priceTxt = this.add.text(x + 6, y + bh - 4, `${price} truppe`, textStyle(9, block === 'troops' ? PALETTE.ko : PALETTE.tenue, false))
-          .setOrigin(0, 1);
-        if (block === 'tech' || block === 'coast') priceTxt.setVisible(false);
-        bg.on('pointerup', () => {
-          const now = st.workBlock(p, w); // lo stato può essere cambiato dopo il disegno della scheda
-          if (now) {
-            const why = now === 'tech' ? `serve la ricerca ${techInfo(D.tech).name}` : now === 'troops' ? `servono ${st.workPrice(w)} truppe`
-              : now === 'busy' ? 'c\'è già una costruzione' : now === 'coast' ? 'il porto va sul mare' : 'provincia non tua';
-            return this.toast(why.toUpperCase(), PALETTE.ko);
-          }
-          if (st.build(PLAYER, p, w)) {
-            analytics.design(['costruzione', w]);
-            this.toast(`${WORK_NAME[w].toUpperCase()} IN COSTRUZIONE · ${Math.round(D.timeMs / 1000)} s`, PALETTE.ocra);
-            buzz(12);
-          }
-          this.renderProvince();
-        });
-        items.push(bg, ig, name, sub, priceTxt);
+    const cells = (list: { k: string; v: string; c?: number }[]) => {
+      const cw = (W - 24) / perRow;
+      list.forEach((c, i) => {
+        const col = i % perRow, x = 12 + col * cw, y = cellsY + Math.floor(i / perRow) * cellH;
+        if (col) g.lineStyle(1, PALETTE.linea, 1).lineBetween(x - 2, y + 4, x - 2, y + cellH - 4);
+        items.push(this.add.text(x + 4, y + 4, c.k, textStyle(8, PALETTE.tenue)),
+          this.add.text(x + 4, y + 20, c.v, textStyle(12, c.c ?? PALETTE.carta)).setWordWrapWidth(cw - 8).setMaxLines(1));
       });
+      for (let r = 1; r < rows; r++) g.lineStyle(1, PALETTE.linea, 1).lineBetween(16, cellsY + r * cellH, W - 16, cellsY + r * cellH);
+      g.lineStyle(1, PALETTE.linea, 1).strokeRect(12, cellsY, W - 24, rows * cellH);
+    };
+    const action = (label: string, color: number, x: number, w: number, run: () => void) => {
+      const r = this.add.rectangle(x, actY, w, 32, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, color).setInteractive({ useHandCursor: true });
+      r.on('pointerup', () => { run(); buzz(10); });
+      items.push(r, this.add.text(x + w / 2, actY + 16, label, textStyle(11, color)).setOrigin(0.5));
+    };
+
+    if (unit) {
+      // pedina: chi è, quanto è messa, cosa batte
+      const U = BALANCE.units[unit.type], info = unitInfo(unit.type), mine = unit.owner === PLAYER, F = FACTION_INFO[unit.owner];
+      g.fillStyle(F?.fill ?? PALETTE.carta, 1).fillRect(0, 0, W, 3);
+      drawUnitIcon(g, unit.type, 22, 18, 8, F?.fill ?? PALETTE.carta);
+      items.push(this.add.text(38, 9, `${info.name.toUpperCase()} · ${mine ? 'TUA' : (F?.short ?? 'NEMICA')}`, textStyle(13, PALETTE.carta)));
+      const pct = unit.hp / unit.maxHp;
+      const beats = info.beats.map((b) => unitInfo(b).short.toLowerCase()).join(', ') || '—';
+      cells([
+        { k: 'VITA', v: `${Math.ceil(unit.hp)}/${Math.round(unit.maxHp)}`, c: pct > 0.5 ? 0x7ee2a8 : pct > 0.25 ? PALETTE.allerta : PALETTE.ko },
+        { k: 'ATTACCO', v: String(U.attack) },
+        { k: 'GITTATA', v: String(U.range) },
+        { k: 'PASSO', v: `${(U.moveMs / 1000).toFixed(1).replace('.', ',')} s` },
+        { k: 'BATTE', v: beats },
+        { k: 'STATO', v: unit.inCombat ? 'in combattimento' : unit.path.length ? 'in marcia' : 'ferma', c: unit.inCombat ? PALETTE.ko : PALETTE.carta },
+      ]);
+      items.push(this.add.text(12, actY + 8, mine ? 'Tocca una casella: la pedina ci va conquistando la strada.' : 'Pedina nemica: schiera chi la batte.',
+        textStyle(10, PALETTE.tenue, false)));
+    } else {
+      const prov = st.map.provinces[p], o = st.provOwner[p], T = BALANCE.terrain[prov.terrain];
+      const seen = o === PLAYER || st.seesProv(p);
+      const nation = st.map.nations.find((n) => n.id === prov.country)?.name ?? 'Terra di nessuno';
+      const terrainName = { pianura: 'pianura', colline: 'colline', montagne: 'montagne', deserto: 'deserto' }[prov.terrain];
+      const resName = RESOURCE_INFO[T.res].name.toLowerCase();
+      const F = o >= 0 ? FACTION_INFO[o] : null;
+      const ownerName = !seen && o !== PLAYER ? 'sconosciuto' : o === PLAYER ? 'TU' : F ? F.name : 'terra libera';
+      g.fillStyle(seen && F ? F.fill : PALETTE.linea, 1).fillRect(0, 0, W, 3);
+      if (seen && F) drawSymbol(g, F.symbol, 20, 18, 7, F.fill, PALETTE.carta);
+      items.push(this.add.text(seen && F ? 34 : 12, 9, `${nation.toUpperCase()} · ${terrainName.toUpperCase()}`, textStyle(13, PALETTE.carta)));
+      const rel = o > PLAYER && seen ? st.relation[o] : null;
+      const work = ready ? WORK_NAME[ready] : prog ? `cantiere ${mmss(prog.leftMs)}` : (() => { const w = st.workOf(p); return w ? WORK_NAME[w] : '—'; })();
+      const cost = o === PLAYER ? 0 : st.provCost(PLAYER, p);
+      cells([
+        { k: 'PADRONE', v: ownerName, c: o === PLAYER ? 0x7ee2a8 : F && seen ? F.fill : PALETTE.carta },
+        ...(rel ? [{ k: 'RAPPORTO', v: rel === 'guerra' ? 'in guerra' : rel === 'alleanza' ? 'alleati' : 'in pace', c: rel === 'guerra' ? PALETTE.ko : PALETTE.ocra }] : []),
+        { k: 'DIFESA', v: seen || o === NEUTRAL ? String(st.provDefense(p)) : '?' },
+        { k: 'PRODUCE', v: `${st.provPerMin(p).toFixed(1).replace('.', ',')} ${resName}/min` },
+        { k: 'COSTRUZIONE', v: work, c: prog ? PALETTE.allerta : PALETTE.carta },
+        o === PLAYER ? { k: 'CASELLE', v: String(prov.tiles.length) }
+          : { k: 'PER PRENDERLA', v: seen || o === NEUTRAL ? `${cost} truppe` : '?', c: st.troops > cost ? 0x7ee2a8 : PALETTE.ko },
+      ]);
+      if (own && !grid) {
+        if (ready || prog) items.push(this.add.text(12, actY + 8, ready ? workDesc(ready, resName) : 'Cantiere aperto: la costruzione resta alla provincia.', textStyle(11, PALETTE.carta, false)));
+        else action('COSTRUISCI ▸', PALETTE.ocra, 12, 160, () => { this.provOpen = true; this.renderProvince(); });
+      } else if (!own) {
+        const atWar = st.atWar(PLAYER, o);
+        if (atWar && st.isFrontierProv(p)) action(`ATTACCA · ${cost} TRUPPE`, st.troops > cost ? PALETTE.radioattivo : PALETTE.ko, 12, 200, () => this.run.tapProvince(p));
+        else if (atWar) action('AVANZATA ▸', PALETTE.carta, 12, 160, () => this.run.tapProvince(p));
+        if (o > PLAYER && seen) action('SCHEDA ›', PALETTE.ocra, W - 12 - 120, 120, () => this.showProfile(o));
+      }
+      if (grid) {
+        // sette costruzioni su due righe: icona, nome, effetto, prezzo in truppe
+        const cols = 4, bw = (W - 24 - (cols - 1) * 6) / cols, bh = 62;
+        WORKS.forEach((w, k) => {
+          const D = BALANCE.works[w], block = st.workBlock(p, w), x = 12 + (k % cols) * (bw + 6), y = actY + Math.floor(k / cols) * (bh + 6);
+          const price = st.workPrice(w);
+          const bg = this.add.rectangle(x, y, bw, bh, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, block ? PALETTE.linea : PALETTE.ocra)
+            .setInteractive({ useHandCursor: true });
+          const ig = this.add.graphics();
+          drawWorkIcon(ig, w, x + 12, y + 13, 7, block ? PALETTE.tenue : PALETTE.ocra);
+          const name = this.add.text(x + 24, y + 6, WORK_NAME[w].toUpperCase(), textStyle(10, block ? PALETTE.tenue : PALETTE.carta));
+          const lock = block === 'tech' ? `🔒 ${techInfo(D.tech).name}` : block === 'coast' ? 'solo sul mare' : workDesc(w, resName);
+          const sub = this.add.text(x + 6, y + 23, lock, textStyle(9, PALETTE.carta, false)).setWordWrapWidth(bw - 10);
+          const priceTxt = this.add.text(x + 6, y + bh - 4, `${price} truppe`, textStyle(9, block === 'troops' ? PALETTE.ko : PALETTE.tenue, false))
+            .setOrigin(0, 1);
+          if (block === 'tech' || block === 'coast') priceTxt.setVisible(false);
+          bg.on('pointerup', () => {
+            const now = st.workBlock(p, w); // lo stato può essere cambiato dopo il disegno della scheda
+            if (now) {
+              const why = now === 'tech' ? `serve la ricerca ${techInfo(D.tech).name}` : now === 'troops' ? `servono ${st.workPrice(w)} truppe`
+                : now === 'busy' ? 'c\'è già una costruzione' : now === 'coast' ? 'il porto va sul mare' : 'provincia non tua';
+              return this.toast(why.toUpperCase(), PALETTE.ko);
+            }
+            if (st.build(PLAYER, p, w)) {
+              analytics.design(['costruzione', w]);
+              this.toast(`${WORK_NAME[w].toUpperCase()} IN COSTRUZIONE · ${Math.round(D.timeMs / 1000)} s`, PALETTE.ocra);
+              buzz(12);
+            }
+            this.renderProvince();
+          });
+          items.push(bg, ig, name, sub, priceTxt);
+        });
+      }
     }
-    this.provCard = this.add.container((width - W) / 2, y0, items).setDepth(45);
+    items.push(g, close);
+    this.provCard = this.add.container((width - W) / 2, bottom - H, items).setDepth(45);
     this.hint.setVisible(false);
   }
 
