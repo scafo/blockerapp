@@ -6,8 +6,8 @@ export const FONT = '"Barlow Semi Condensed", "Arial Narrow", sans-serif';
 /** Leggibilità: nessun testo sotto 12 punti e tutto un po' più grande dei valori scritti nel codice. */
 export const textSize = (size: number) => Math.round(Math.max(12, size * 1.2));
 export const FONT_TITLE = 'Oswald, "Arial Narrow", sans-serif';
-/** Font da terminale (rapporti e archivio nei caricamenti). */
-export const FONT_MONO = '"IBM Plex Mono", "Courier New", monospace';
+/** Font da terminale (archivio e flussi di dati nei caricamenti, come le scritte sull'immagine della nave). */
+export const FONT_MONO = '"Share Tech Mono", "Courier New", monospace';
 
 export const textStyle = (size: number, color: number = PALETTE.carta, bold = true): Phaser.Types.GameObjects.Text.TextStyle => ({
   // dati in Barlow (500, grassetto 700); i titoli grandi in condensato militare

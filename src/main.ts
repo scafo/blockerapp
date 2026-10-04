@@ -12,7 +12,7 @@ import { DPR } from './ui/screen';
 import bodyUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-500-normal.woff2';
 import bodyBoldUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-700-normal.woff2';
 import titleUrl from '@fontsource/oswald/files/oswald-latin-600-normal.woff2';
-import monoUrl from '@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2';
+import monoUrl from '@fontsource/share-tech-mono/files/share-tech-mono-latin-400-normal.woff2';
 
 analytics.init();
 
@@ -33,7 +33,7 @@ async function loadFonts() {
       new FontFace('Barlow Semi Condensed', `url(${bodyUrl})`, { weight: '500' }),
       new FontFace('Barlow Semi Condensed', `url(${bodyBoldUrl})`, { weight: '700' }),
       new FontFace('Oswald', `url(${titleUrl})`, { weight: '600' }),
-      new FontFace('IBM Plex Mono', `url(${monoUrl})`, { weight: '500' }),
+      new FontFace('Share Tech Mono', `url(${monoUrl})`, { weight: '400' }),
     ];
     for (const f of await Promise.all(faces.map((x) => x.load()))) document.fonts.add(f);
   } catch {
