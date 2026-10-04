@@ -20,15 +20,18 @@ import { FPS_KEY, fpsEnabled } from '../ui/debug';
 import { askName } from '../ui/nameInput';
 import { canStake, recoverStake, runOptions, stakeIndex } from '../game/camp';
 import { Button } from '../ui/Button';
+import { buzz } from '../ui/haptics';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
-import { uiCamera, view } from '../ui/screen';
+import { safeInsets, uiCamera, view } from '../ui/screen';
 import { drawPatch } from '../ui/symbols';
 import { drawUnitIcon } from '../ui/unitIcons';
 import { civImage, coverImage, fade } from '../ui/images';
 import { ashFall, drawBuilding, drawCompound, drawGround, drawLot, drawRoad, drawScaffold, drawTower, truck } from '../ui/baseArt';
 
 const PAD = 12;
+// risorse mostrate l'ultima volta che la base era aperta: al rientro da una campagna i numeri scorrono fino ai nuovi
+let shownStash: number[] | null = null;
 const maxLvl = (id: BuildingId) => BALANCE.camp.buildings[id].length;
 const SKY = PALETTE.inchiostro; // l'HQ è una planimetria sul tavolo dello stato maggiore, di notte
 const INK = PALETTE.carta; // testi chiari sul fondo scuro
@@ -48,9 +51,11 @@ export class CampScene extends Phaser.Scene {
   private spotPos = {} as Record<MapSpot, { x: number; y: number }>;
   private clock: Phaser.GameObjects.Text | null = null;
   private portrait = false;
+  private safe = { top: 0, right: 0, bottom: 0, left: 0 }; // notch e barra dei gesti (punti)
   private spots = new Map<Spot, { x: number; y: number; g: Phaser.GameObjects.Graphics; deco: Phaser.GameObjects.GameObject[]; label: Phaser.GameObjects.Text }>();
   private stashTexts: Phaser.GameObjects.Text[] = [];
   private stashBars: Phaser.GameObjects.Rectangle[] = [];
+  private counting: boolean[] = [];
   private stashBarW = 0;
   private capText: Phaser.GameObjects.Text | null = null;
   private statusText: Phaser.GameObjects.Text | null = null;
@@ -87,7 +92,10 @@ export class CampScene extends Phaser.Scene {
     this.portrait = height > width;
 
     // planimetria: area utile tra la scorta in alto e i comandi in basso
-    this.plan = this.portrait ? { x: PAD, y: 164, w: width - 2 * PAD, h: height - 164 - 150 } : { x: PAD, y: 114, w: width - 2 * PAD, h: height - 114 - 76 };
+    this.safe = safeInsets();
+    const st = this.safe.top, sb = this.safe.bottom;
+    this.plan = this.portrait ? { x: PAD, y: 164 + st, w: width - 2 * PAD, h: height - 164 - 150 - st - sb }
+      : { x: PAD, y: 114 + st, w: width - 2 * PAD, h: height - 114 - 76 - st - sb };
     this.k = this.portrait ? Math.min(this.plan.w / 400, 1.2) : Math.min(this.plan.w / 820, this.plan.h / 230, 1.6);
     const frac: Record<MapSpot, [number, number]> = this.portrait
       ? { comando: [0.5, 0.41], laboratorio: [0.27, 0.13], radar: [0.73, 0.13], arsenale: [0.27, 0.68], deposito: [0.73, 0.68], spedizione: [0.5, 0.88] }
@@ -102,6 +110,10 @@ export class CampScene extends Phaser.Scene {
 
     this.drawHud();
     this.settleAll(true);
+    this.introSpots();
+    // tastiera (PC): INVIO = GIOCA, ESC = chiude la scheda aperta
+    this.input.keyboard?.on('keydown-ENTER', () => { if (!this.panel && !document.getElementById('name-ask')) this.onPlay(); });
+    this.input.keyboard?.on('keydown-ESC', () => this.closePanel());
     this.scale.once('resize', () => this.scene.restart());
   }
 
@@ -148,6 +160,9 @@ export class CampScene extends Phaser.Scene {
       this.redrawSpot(done);
       const spot = this.spots.get(done)!;
       this.cameras.main.flash(200, 77, 255, 154);
+      this.cameras.main.shake(180, 0.003);
+      this.tapRing(done, PALETTE.radioattivo, 1.15);
+      buzz([30, 40, 30]);
       this.burst.setParticleTint(PALETTE.ocra);
       this.burst.explode(30, spot.x, spot.y);
       const lvl = this.profile.buildings[done];
@@ -169,9 +184,16 @@ export class CampScene extends Phaser.Scene {
 
   private updateStash() {
     const p = this.profile, cap = stashCap(p), finite = Number.isFinite(cap);
+    shownStash ??= RESOURCES.map((r) => p.stash[r]); // prima apertura: niente da far scorrere
     RESOURCES.forEach((r, i) => {
       const v = p.stash[r];
-      this.stashTexts[i]?.setText(String(v)).setColor(hex(finite && v >= cap ? PALETTE.ko : RESOURCE_INFO[r].color));
+      const t = this.stashTexts[i];
+      if (!t) return;
+      t.setColor(hex(finite && v >= cap ? PALETTE.ko : RESOURCE_INFO[r].color));
+      const from = shownStash?.[i];
+      if (from !== undefined && from !== v && !this.counting[i]) this.countTo(i, from, v);
+      else if (!this.counting[i]) t.setText(String(v));
+      if (!this.counting[i] && shownStash) shownStash[i] = v;
       if (this.stashBars[i]) this.stashBars[i].width = this.stashBarW * (finite ? Math.min(1, v / cap) : 1);
     });
     this.capText?.setText(finite ? `DEPOSITO · capienza ${cap} per risorsa` : 'DEPOSITO · senza limite (test)');
@@ -237,6 +259,7 @@ export class CampScene extends Phaser.Scene {
     this.timerTexts.set(id, timer);
     this.spots.set(id, { x, y, g, deco: [], label });
     const hit = this.add.rectangle(x, y + 8, w + 16, h + 36, 0xffffff, 0.001).setInteractive({ useHandCursor: true }).setDepth(7);
+    hit.on('pointerdown', () => { this.tapRing(id, PALETTE.ocra, 1); buzz(8); });
     // il Laboratorio costruito apre direttamente l'albero della ricerca
     hit.on('pointerup', () => (id === 'laboratorio' && this.profile.buildings.laboratorio > 0 ? this.openTree('esercito') : this.openPanel(id)));
   }
@@ -304,7 +327,8 @@ export class CampScene extends Phaser.Scene {
     // scorta in alto a sinistra
     const P = this.portrait;
     // scorta alla Clash: risorse grandi nel loro colore, barra di riempimento sulla capienza del Deposito
-    const panelW = P ? width - 2 * PAD : 360, panelY = P ? PAD + 52 : PAD, step = P ? (panelW - 20) / 3 : 116;
+    const T = PAD + this.safe.top, B = PAD + this.safe.bottom; // margini sicuri in alto e in basso
+    const panelW = P ? width - 2 * PAD : 360, panelY = P ? T + 52 : T, step = P ? (panelW - 20) / 3 : 116;
     this.add.rectangle(PAD, panelY, panelW, 74, PALETTE.inchiostro, 0.84).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
     this.capText = this.add.text(PAD + 10, panelY + 6, '', textStyle(10, PALETTE.ocra));
     const ig = this.add.graphics();
@@ -323,7 +347,7 @@ export class CampScene extends Phaser.Scene {
     // 5 tocchi sul titolo = contatore FPS nelle run (per i test sui telefoni economici, anche dentro l'app)
     let taps = 0;
     const titleX = P ? width / 2 : width - PAD, titleO = P ? 0.5 : 1;
-    this.add.text(titleX, PAD + 4, 'ASHEN ATLAS', textStyle(20, INK)).setOrigin(titleO, 0)
+    this.add.text(titleX, T + 4, 'ASHEN ATLAS', textStyle(20, INK)).setOrigin(titleO, 0)
       .setInteractive().on('pointerup', () => {
         if (++taps < 5) return;
         taps = 0;
@@ -337,26 +361,80 @@ export class CampScene extends Phaser.Scene {
       });
     const p = this.profile;
     // tasto TEST (giallo se attiva): apre la modalità test
-    const testBtn = this.add.text(P ? width - PAD : titleX - 150, P ? PAD + 4 : PAD + 8, p.test ? '[ TEST ATTIVO ]' : '[ TEST ]', textStyle(11, PALETTE.allerta))
+    const testBtn = this.add.text(P ? width - PAD : titleX - 150, P ? T + 4 : T + 8, p.test ? '[ TEST ATTIVO ]' : '[ TEST ]', textStyle(11, PALETTE.allerta))
       .setOrigin(1, 0).setInteractive({ useHandCursor: true }).on('pointerup', () => this.openPanel('test'));
     void testBtn;
     // potenza e fronte (alla Call of War: il punteggio della tua nazione)
     const power = playerPower(p), front = p.frontMax ?? 0;
-    this.add.text(titleX, PAD + 30, `⛨ ${(p.name || 'COMANDANTE').toUpperCase()} ✎  ·  POTENZA ${power} · FRONTE ${ROMAN[front]} · ${p.wins} vittorie`, textStyle(11, PALETTE.ocra))
+    this.add.text(titleX, T + 30, `⛨ ${(p.name || 'COMANDANTE').toUpperCase()} ✎  ·  POTENZA ${power} · FRONTE ${ROMAN[front]} · ${p.wins} vittorie`, textStyle(11, PALETTE.ocra))
       .setOrigin(titleO, 0).setInteractive({ useHandCursor: true }).on('pointerup', () => this.editName());
     // GIOCA: in basso a destra (orizzontale) o grande in basso al centro (verticale, sotto il pollice)
     const bw = P ? Math.min(260, width - 2 * PAD) : 150;
     // dopo la run guidata GIOCA apre la preparazione: civiltà e durata della campagna
-    const play = new Button(this, 'GIOCA ▶', bw, 56, () => (this.profile.runs === 0 ? this.scene.start('Load', { next: 'Run', data: { seed: randomSeed() } }) : this.openPanel('gioca')));
-    play.setPosition(P ? (width - bw) / 2 : width - PAD - bw, height - PAD - 56).setDepth(20);
-    this.tweens.add({ targets: play, scale: 1.04, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    const play = new Button(this, 'GIOCA ▶', bw, 56, () => this.onPlay(), 20).setPrimary();
+    play.setPosition(P ? (width - bw) / 2 : width - PAD - bw, height - B - 56).setDepth(20);
+    // azione principale: fondo oro e un alone che respira piano dietro (attira l'occhio senza muovere il tasto)
+    const glow = this.add.rectangle(play.x - 5, play.y - 5, bw + 10, 66, PALETTE.ocra, 0.22).setOrigin(0).setDepth(19);
+    this.tweens.add({ targets: glow, alpha: 0.04, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     // albero della ricerca (armamenti e tecnologie): accanto a GIOCA, sempre a portata
     if (this.profile.runs > 0) {
       const rw = P ? bw : 150;
       const res = new Button(this, this.profile.research ? 'RICERCA ⏱' : 'RICERCA', rw, P ? 44 : 56, () => this.openTree('armamenti'), P ? 14 : 16);
-      res.setPosition(P ? (width - rw) / 2 : width - PAD - bw - 10 - rw, P ? height - PAD - 56 - 52 : height - PAD - 56).setDepth(20);
+      res.setPosition(P ? (width - rw) / 2 : width - PAD - bw - 10 - rw, P ? height - B - 56 - 52 : height - B - 56).setDepth(20);
     }
-    if (!P) this.add.text(PAD, height - PAD, 'Tocca una postazione o il convoglio', textStyle(11, INK, false)).setOrigin(0, 1);
+    if (!P) this.add.text(PAD, height - B, 'Tocca una postazione o il convoglio', textStyle(11, INK, false)).setOrigin(0, 1);
+  }
+
+  /** GIOCA: la prima volta parte la run guidata, poi si apre la preparazione della campagna. */
+  private onPlay() {
+    if (this.profile.runs === 0) this.scene.start('Load', { next: 'Run', data: { seed: randomSeed() } });
+    else this.openPanel('gioca');
+  }
+
+  /** Anello che si allarga e svanisce attorno a una postazione: tocco (piccolo) o lavori finiti (grande). */
+  private tapRing(id: MapSpot, color: number, size: number) {
+    const spot = this.spots.get(id);
+    if (!spot) return;
+    const { w, h } = this.footprint(id);
+    const g = this.add.graphics({ x: spot.x, y: spot.y }).setDepth(8);
+    g.lineStyle(2, color, 0.9).strokeRoundedRect(-w / 2 - 6, -h / 2 - 6, w + 12, h + 12, 8);
+    g.setScale(0.97 * size);
+    this.tweens.add({ targets: g, scale: 1.07 * size, alpha: 0, duration: size > 1 ? 650 : 280, ease: 'Quad.easeOut', onComplete: () => g.destroy() });
+  }
+
+  /** Entrata della base: le postazioni scendono al loro posto una dopo l'altra, con un piccolo rimbalzo. */
+  private introSpots() {
+    this.cameras.main.fadeIn(250, 5, 9, 15);
+    [...this.spots.values()].forEach((spot, k) => {
+      // decorazioni già animate (fari, radar, frecce) restano come sono: solo quelle ferme entrano in dissolvenza
+      const still = spot.deco.filter((d) => d.type !== 'ParticleEmitter' && 'setAlpha' in d && !this.tweens.isTweening(d));
+      const parts = [spot.label, ...still] as unknown as Phaser.GameObjects.Components.Alpha[];
+      spot.g.y = 14;
+      spot.g.alpha = 0;
+      for (const d of parts) d.setAlpha(0);
+      this.tweens.add({ targets: spot.g, y: 0, alpha: 1, duration: 380, delay: 60 + k * 70, ease: 'Back.easeOut' });
+      this.tweens.add({ targets: parts, alpha: 1, duration: 260, delay: 160 + k * 70 });
+    });
+  }
+
+  /** Il numero della risorsa scorre fino al nuovo valore (rientro da una campagna, spese); in salita, scintille del suo colore. */
+  private countTo(i: number, from: number, to: number) {
+    const t = this.stashTexts[i], r = RESOURCES[i], o = { v: from };
+    this.counting[i] = true;
+    this.tweens.add({
+      targets: o, v: to, duration: Math.min(1200, 400 + Math.abs(to - from) * 2), delay: 350, ease: 'Quad.easeOut',
+      onUpdate: () => t.setText(String(Math.round(o.v))),
+      onComplete: () => {
+        t.setText(String(to));
+        this.counting[i] = false;
+        if (shownStash) shownStash[i] = to;
+        this.tweens.add({ targets: t, scale: { from: 1.25, to: 1 }, duration: 260, ease: 'Back.easeOut' });
+        if (to > from) {
+          this.burst.setParticleTint(RESOURCE_INFO[r].color);
+          this.burst.explode(10, t.x + t.width / 2, t.y);
+        }
+      },
+    });
   }
 
   private closePanel() {

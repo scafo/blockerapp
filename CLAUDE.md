@@ -104,7 +104,13 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 ## Note del developer (stato e comandi)
 
-- **Bilanciamento e debug** (ultima richiesta di Nico): partenze eque (niente avvio in montagna o nel deserto: prima la prima
+- **Home più viva** (Nico: "usa le skill per migliorare la home"; skill `game-ui-ux` e `game-feel` in `.claude/skills/`): GIOCA è
+  l'azione principale (fondo oro e alone che respira, `Button.setPrimary`), bottoni che si abbassano al tocco e rimbalzano
+  (scala attorno al centro), anello attorno alla postazione toccata, entrata della base con le postazioni che scendono una dopo
+  l'altra, risorse che scorrono fino al nuovo valore al rientro da una campagna (scintille del loro colore), lavori finiti con
+  lampo + scossa leggera + anello grande, margini sicuri per notch e barra dei gesti (`safeInsets` in `src/ui/screen.ts`),
+  INVIO = GIOCA ed ESC = chiudi scheda su PC.
+- **Bilanciamento e debug** (richiesta di Nico): partenze eque (niente avvio in montagna o nel deserto: prima la prima
   provincia di 15 arrivava tra 2:30 e 8:00 a seconda del seed), 180 truppe iniziali, Fabbrica +2 risorse/min, imperi più vicini
   nei fronti alti e un po' più forti dal III (prima al Fronte III spesso non li incontravi mai), vittoria a tempo per province
   e anticipata se cadono i tre imperi, puntata che si può perdere. Bug corretti: pedine che combattevano e conquistavano contro
