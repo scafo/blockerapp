@@ -33,6 +33,7 @@ export class TerritoryLayer {
   private readonly holes: Phaser.GameObjects.Graphics;
   private cover = { x: 0, y: 0, w: 0, h: 0, zoom: 0 };
   private dirty = true;
+  private hidden = false;
   private lastDraw = -1e9;
   private readonly holed: Uint8Array; // provincia con buchi (enclavi, laghi)
 
@@ -42,6 +43,12 @@ export class TerritoryLayer {
     this.g = scene.make.graphics({}, false);
     this.holes = scene.make.graphics({}, false);
     this.holed = Uint8Array.from(shapes, (sh) => (sh.parts.some((pt) => pt.holes.length) ? 1 : 0));
+  }
+
+  /** Mostra o nasconde la texture (lo strato della terra serve solo da vicino). */
+  setVisible(on: boolean) {
+    this.rt.setVisible(on);
+    this.hidden = !on;
   }
 
   /** Il territorio è cambiato: ridisegna appena possibile. */
@@ -72,7 +79,7 @@ export class TerritoryLayer {
     if (this.rt.width !== W || this.rt.height !== H) {
       // nuova texture invece di resize(): in Phaser una RenderTexture ridimensionata smette di ricevere disegni
       this.rt.destroy();
-      this.rt = this.scene.add.renderTexture(0, 0, W, H).setOrigin(0).setDepth(this.depth);
+      this.rt = this.scene.add.renderTexture(0, 0, W, H).setOrigin(0).setDepth(this.depth).setVisible(!this.hidden);
     }
     this.rt.setPosition(c.x, c.y).setScale(1 / z).clear();
     const g = this.g.clear().setPosition(-c.x * z, -c.y * z).setScale(z);

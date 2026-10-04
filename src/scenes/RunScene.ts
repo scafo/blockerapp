@@ -36,6 +36,7 @@ export class RunScene extends Phaser.Scene {
   /** forme smussate delle province (bordi, sagome) */
   shapes!: MapShapes;
   private territory!: TerritoryLayer;
+  private landLayer!: TerritoryLayer; // da vicino: terra, mare e rilievo (si ridisegna solo spostando la vista)
   private frontOk = new Map<number, boolean>(); // province attaccabili → abbordabili
   private landColor = new Int32Array(0); // tono di ogni provincia sulla carta
   private relief!: Phaser.GameObjects.Image;
@@ -149,6 +150,10 @@ export class RunScene extends Phaser.Scene {
     this.drawRelief();
     this.seaGfx = this.make.graphics({}, false);
     this.territory?.destroy();
+    this.landLayer?.destroy();
+    // due strati: la terra (ferma, forme intere: niente fessure tra province) e il territorio delle potenze (cambia spesso)
+    this.landLayer = new TerritoryLayer(this, this.shapes.provinces, D.owned - 0.01, Math.min(1, 2 / DPR));
+    this.landLayer.setVisible(false);
     this.territory = new TerritoryLayer(this, this.shapes.provinces, D.owned, Math.min(1, 2 / DPR));
     this.frontOk = new Map();
     this.borderGfx = this.add.graphics().setDepth(D.borders);
@@ -287,10 +292,16 @@ export class RunScene extends Phaser.Scene {
     if (landMode !== this.landMode) {
       this.landMode = landMode;
       this.relief.setVisible(!landMode);
+      this.landLayer.setVisible(landMode);
+      this.landLayer.invalidate();
       this.territory.invalidate();
     }
-    this.territory.update(time, zc < 2.8 ? 4 : zc < 5.2 ? 2 : 1, (a, b, c, d) => this.territoryFills(a, b, c, d),
-      { before: (...a) => this.drawSeaInto(...a), mid: (...a) => this.drawReliefInto(...a) });
+    // forme intere da vicino: semplificate ognuna per conto suo lasciavano fessure scure negli angoli tra le province
+    if (landMode) {
+      this.landLayer.update(time, 1, (a, b, c, d) => this.landFills(a, b, c, d),
+        { before: (...a) => this.drawSeaInto(...a), mid: (...a) => this.drawReliefInto(...a) });
+    }
+    this.territory.update(time, landMode ? 1 : 4, (a, b, c, d) => this.territoryFills(a, b, c, d));
     this.syncPlan();
     this.nameTimer -= delta;
     if (this.nameTimer <= 0) {
@@ -513,13 +524,23 @@ export class RunScene extends Phaser.Scene {
     this.borderKey = ''; // confini da ridisegnare
   }
 
+  /** Terra da vicino: il colore della nazione di ogni provincia inquadrata. */
+  private landFills(x0: number, y0: number, x1: number, y1: number): TerritoryFill[] {
+    const shapes = this.shapes.provinces, out: TerritoryFill[] = [];
+    for (let p = 0; p < shapes.length; p++) {
+      const s = shapes[p];
+      if (!s.parts.length || s.x1 < x0 || s.x0 > x1 || s.y1 < y0 || s.y0 > y1) continue;
+      out.push({ p, color: this.landColor[p], alpha: 1, layer: 0 });
+    }
+    return out;
+  }
+
   /** Cosa colorare nel riquadro: territorio delle potenze (i nemici nella nebbia no) e velo chiaro sul fronte. */
   private territoryFills(x0: number, y0: number, x1: number, y1: number): TerritoryFill[] {
     const own = this.state.provOwner, tone = this.ownTone, shapes = this.shapes.provinces, out: TerritoryFill[] = [];
     for (let p = 0; p < own.length; p++) {
       const s = shapes[p];
       if (!s.parts.length || s.x1 < x0 || s.x0 > x1 || s.y1 < y0 || s.y0 > y1) continue;
-      if (this.landMode) out.push({ p, color: this.landColor[p], alpha: 1, layer: 0 });
       const o = own[p];
       if (o === NEUTRAL || (o !== PLAYER && !this.state.seesProv(p))) continue;
       out.push({ p, color: tone[o], alpha: 1, layer: 1 });
