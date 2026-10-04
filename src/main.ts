@@ -50,7 +50,8 @@ function boot() {
     // canvas a piena densità (DPR×) ridotto a schermo con zoom 1/DPR: nitido sui telefoni
     scale: { mode: Phaser.Scale.NONE, width: w, height: h, zoom: 1 / DPR },
     input: { activePointers: 3 },
-    render: { antialias: true },
+    // pixelArt esplicito: con zoom 1/DPR Phaser lo accenderebbe da solo (texture ingrandite a quadretti sui telefoni)
+    render: { antialias: true, pixelArt: false },
     scene: [BootScene, CampScene, RunScene, HudScene, ResultScene, TreeScene, LoadScene],
   });
   // debug/test: accesso al gioco dalla console

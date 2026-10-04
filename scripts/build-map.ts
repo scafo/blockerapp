@@ -15,7 +15,7 @@ import { BALANCE } from '../src/config/balance';
 import { NEIGHBORS, WORLD_W, center, lonLat } from '../src/map/hexGrid';
 import { createRng } from '../src/map/rng';
 
-const TARGET = 2900; // province circa
+const TARGET = 5900; // province circa
 const SCALE = 8; // coordinate salvate in 1/8 di pixel-mondo
 const { latMax, latMin, rows, cols, hexSize: S } = BALANCE.map;
 const rng = createRng('ashen-atlas-province');
@@ -228,7 +228,7 @@ for (let e = 0; e < E.length; e++) if (!used[e]) walk(E[e].u, e);
 // confini interni (Voronoi, dritti): ondulati con rumore morbido, estremi fermi, uguali per le due province
 function hash(i: number, j: number) { let h = (i * 374761393 + j * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295 - 0.5; }
 function noise(x: number, y: number) {
-  const c = 7, gx = x / c, gy = y / c, ix = Math.floor(gx), iy = Math.floor(gy), fx = gx - ix, fy = gy - iy;
+  const c = 5, gx = x / c, gy = y / c, ix = Math.floor(gx), iy = Math.floor(gy), fx = gx - ix, fy = gy - iy;
   const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
   const a = hash(ix, iy), b = hash(ix + 1, iy), d = hash(ix, iy + 1), e = hash(ix + 1, iy + 1);
   return (a + (b - a) * sx + (d - a) * sy + (a - b - d + e) * sx * sy) * 2;
@@ -239,7 +239,7 @@ const chainPts: Pt[][] = chains.map((c) => {
   if (!pb || pa.country !== pb.country || c.closed) return pts;
   const out: Pt[] = [pts[0]];
   for (let i = 1; i < pts.length; i++) {
-    const [ax, ay] = pts[i - 1], [bx, by] = pts[i], L = Math.hypot(bx - ax, by - ay), n = Math.max(1, Math.round(L / 1.6));
+    const [ax, ay] = pts[i - 1], [bx, by] = pts[i], L = Math.hypot(bx - ax, by - ay), n = Math.max(1, Math.round(L / 1.3));
     for (let s = 1; s <= n; s++) out.push([ax + ((bx - ax) * s) / n, ay + ((by - ay) * s) / n]);
   }
   const [sx, sy] = out[0], [ex, ey] = out[out.length - 1], L = Math.hypot(ex - sx, ey - sy) || 1;
@@ -247,7 +247,7 @@ const chainPts: Pt[][] = chains.map((c) => {
   return out.map(([x, y], i) => {
     if (i === 0 || i === out.length - 1) return [x, y] as Pt;
     const w = Math.min(1, i / 3, (out.length - 1 - i) / 3); // estremi fermi, ondulazione che cresce piano
-    const d = noise(x, y) * 2.4 * w;
+    const d = noise(x, y) * 1.7 * w;
     return [x + nx * d, y + ny * d] as Pt;
   });
 });

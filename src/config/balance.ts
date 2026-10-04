@@ -2,13 +2,13 @@
 
 export const BALANCE = {
   map: {
-    cols: 480, // griglia fine (invisibile): pedine, navi, nebbia; le forme vengono dalla mappa vera (scripts/build-map.ts)
-    rows: 240,
+    cols: 640, // griglia fine (invisibile): pedine, navi, nebbia; le forme vengono dalla mappa vera (scripts/build-map.ts)
+    rows: 320,
     latMax: 84,
     latMin: -58, // niente Antartide
-    hexSize: 10 / 3, // raggio esagono in pixel-mondo (griglia fitta: stessa mappa in pixel, più province)
-    ruinsCount: 810,
-    minStartRegion: 3600, // caselle minime della regione di partenza (ci stanno 4 fazioni)
+    hexSize: 2.5, // raggio esagono in pixel-mondo (griglia fitta: stessa mappa in pixel, più province)
+    ruinsCount: 1620,
+    minStartRegion: 6400, // caselle minime della regione di partenza (ci stanno 4 fazioni)
   },
   tick: {
     ms: 500,
@@ -267,13 +267,15 @@ export const BALANCE = {
   ] as FrontDef[],
   // Potenza del giocatore: punti per livello di postazione e per ricerca (si confronta con quella consigliata del fronte)
   power: { arsenale: 8, comando: 6, laboratorio: 4, deposito: 3, radar: 2, tech: 3 },
-  // Costruzioni nelle province (alla Call of War): truppe + bottino dello zaino, tempo di gioco. Restano alla provincia anche se
-  // cambia padrone (le fabbriche nemiche si conquistano). tech = ricerca che le sblocca ('' = subito).
+  // Costruzioni nelle province (alla Call of War): si pagano in truppe (lo zaino resta bottino da portare a casa), tempo di gioco.
+  // Ogni costruzione già avviata rende la prossima più cara (priceStep). Restano alla provincia anche se cambia padrone
+  // (le fabbriche nemiche si conquistano). prodAdd = risorse/min in più della provincia; tech = ricerca che le sblocca ('' = subito).
   works: {
-    fabbrica: { troops: 30, cost: { metallo: 10, benzina: 0, cibo: 0 }, timeMs: 30_000, prodMult: 2.5, defenseMult: 1, growthTiles: 0, tech: '' },
-    bunker: { troops: 50, cost: { metallo: 15, benzina: 5, cibo: 0 }, timeMs: 40_000, prodMult: 1, defenseMult: 1.7, growthTiles: 0, tech: '' },
-    caserma: { troops: 60, cost: { metallo: 0, benzina: 0, cibo: 20 }, timeMs: 45_000, prodMult: 1, defenseMult: 1, growthTiles: 10, tech: 'addestramento' },
+    fabbrica: { troops: 35, timeMs: 30_000, prodAdd: 1, defenseMult: 1, growthTiles: 0, tech: '' },
+    bunker: { troops: 45, timeMs: 40_000, prodAdd: 0, defenseMult: 1.7, growthTiles: 0, tech: '' },
+    caserma: { troops: 60, timeMs: 45_000, prodAdd: 0, defenseMult: 1, growthTiles: 10, tech: 'addestramento' },
   } as Record<WorkId, WorkDef>,
+  worksPriceStep: 0.2,
   // Modalità test (HQ → tasto TEST): sblocca tutto e azzera i timer per provare il gioco senza aspettare
   test: { stash: 9999, startTroops: 1000, abilityCdMult: 0.25, runs: 3, wins: 3, expeditions: 3 },
   progression: {
@@ -322,9 +324,9 @@ export const BALANCE = {
 
   camera: {
     minZoom: 0.75,
-    maxZoom: 9,
-    startZoom: 3.4, // si vedono più province attorno alla partenza
-    labelMinZoom: 2.25, // sotto questo zoom niente numeri di difesa
+    maxZoom: 13,
+    startZoom: 4.6, // si vedono più province attorno alla partenza
+    labelMinZoom: 3.2, // sotto questo zoom niente numeri di difesa
     dragThreshold: 8, // px schermo prima che un tap diventi trascinamento
   },
 } as const;
@@ -347,8 +349,7 @@ export interface TechDef {
 export type TileType = 'terra' | 'rovine' | 'anomalia';
 export type WorkId = 'fabbrica' | 'bunker' | 'caserma';
 export interface WorkDef {
-  troops: number; cost: { metallo: number; benzina: number; cibo: number }; timeMs: number;
-  prodMult: number; defenseMult: number; growthTiles: number; tech: string;
+  troops: number; timeMs: number; prodAdd: number; defenseMult: number; growthTiles: number; tech: string;
 }
 export interface FrontDef {
   name: string; power: number; lootMult: number;

@@ -242,7 +242,7 @@ function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[], count: num
   // provincia di partenza abbastanza grande e con più vie d'uscita
   const roomy = (i: number) => {
     const p = provinces[tiles[i]!.province];
-    return !p || (p.tiles.length >= 10 && p.neighbors.length >= 3);
+    return !p || (p.tiles.length >= 8 && p.neighbors.length >= 3);
   };
   const all = land.filter((i) => goodStart(tiles, i));
   const ok = all.filter(roomy).length > 50 ? all.filter(roomy) : all;

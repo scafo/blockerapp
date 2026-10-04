@@ -3,7 +3,8 @@ import { BALANCE, type UnitType } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
 import { PLAYER, WORKS, type Outcome, type VictoryReason } from '../game/RunState';
 import { techInfo } from '../game/tech';
-import { WORK_DESC, WORK_NAME, drawWorkIcon } from '../ui/workIcons';
+import { WORK_NAME, drawWorkIcon, workDesc } from '../ui/workIcons';
+import { buzz } from '../ui/haptics';
 import { FACTION_INFO } from '../game/factions';
 import { RESOURCES, RESOURCE_INFO, bagTotal, type Bag } from '../game/resources';
 import type { GameEvent } from '../game/events';
@@ -49,6 +50,7 @@ export class HudScene extends Phaser.Scene {
   /** Scheda della provincia toccata (terreno, produzione, costruzioni). */
   private provCard: Phaser.GameObjects.Container | null = null;
   private provCardP = -1;
+  private buildHint = false;
   private provCardAcc = 0;
   private pauseFrame!: Phaser.GameObjects.Graphics;
   private stormText!: Phaser.GameObjects.Text;
@@ -336,6 +338,14 @@ export class HudScene extends Phaser.Scene {
       const inc = st.incomePerMin();
       RESOURCES.forEach((r, k) => this.incTexts[k].setText(inc[r] >= 0.05 ? `+${inc[r].toFixed(1).replace('.', ',')}/min` : ''));
     }
+    if (!this.buildHint && !st.opts.tutorial && st.gameTimeMs > 40_000) {
+      this.buildHint = true; // una volta per campagna, se non hai ancora costruito niente
+      const msg = 'Tocca una tua provincia per costruire:\nfabbrica, bunker, caserma.';
+      if (!st.worksStarted && !this.hint.visible && !this.provCard) {
+        this.setHint(msg);
+        this.time.delayedCall(8000, () => { if (this.hint.text === msg) this.setHint(null); });
+      }
+    }
     if (this.provCard && (this.provCardAcc -= delta) <= 0) {
       this.provCardAcc = 500;
       this.renderProvince(); // cantiere che avanza, truppe e zaino che cambiano
@@ -595,12 +605,12 @@ export class HudScene extends Phaser.Scene {
     const nation = st.map.nations.find((n) => n.id === prov.country)?.name ?? 'Terra di nessuno';
     const terrainName = { pianura: 'pianura', colline: 'colline', montagne: 'montagne', deserto: 'deserto' }[prov.terrain];
     const ready = st.workOf(p), prog = st.workInProgress(p);
-    const mult = ready ? BALANCE.works[ready].prodMult : 1;
+    const resName = RESOURCE_INFO[T.res].name.toLowerCase();
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, W, H, PALETTE.inchiostro, 0.95).setOrigin(0).setStrokeStyle(1, PALETTE.linea),
       this.add.rectangle(0, 0, W, 2, PALETTE.ocra).setOrigin(0),
       this.add.text(12, 8, `${nation.toUpperCase()} · ${terrainName.toUpperCase()}`, textStyle(13, PALETTE.carta)),
-      this.add.text(12, 30, `difesa ${st.provDefense(p)} · produce ${(T.perMin * mult).toFixed(1).replace('.', ',')} ${RESOURCE_INFO[T.res].name.toLowerCase()}/min`
+      this.add.text(12, 30, `difesa ${st.provDefense(p)} · produce ${st.provPerMin(p).toFixed(1).replace('.', ',')} ${resName}/min`
         + `${T.move > 1 ? ` · pedine lente ×${String(T.move).replace('.', ',')}` : ''}`, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 24),
     ];
     const close = this.add.text(W - 10, 6, '✕', textStyle(16, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
@@ -612,31 +622,37 @@ export class HudScene extends Phaser.Scene {
       ig.fillStyle(PALETTE.pannello, 1).fillCircle(30, 86, 18);
       drawWorkIcon(ig, w, 30, 86, 11, ready ? PALETTE.ocra : PALETTE.allerta);
       items.push(ig, this.add.text(58, 70, WORK_NAME[w].toUpperCase(), textStyle(14, ready ? PALETTE.ocra : PALETTE.allerta)),
-        this.add.text(58, 92, ready ? WORK_DESC[w] : `in costruzione · ${mmss(prog!.leftMs)}`, textStyle(11, PALETTE.carta, false)));
+        this.add.text(58, 92, ready ? workDesc(w, resName) : `in costruzione · ${mmss(prog!.leftMs)}`, textStyle(11, PALETTE.carta, false)));
     } else {
       const bw = (W - 24 - 12) / 3;
       WORKS.forEach((w, k) => {
         const D = BALANCE.works[w], block = st.workBlock(p, w), x = 12 + k * (bw + 6), y = 56;
-        const cost = [`${D.troops} truppe`, ...RESOURCES.filter((r) => D.cost[r]).map((r) => `${D.cost[r]} ${RESOURCE_INFO[r].name.slice(0, 3).toLowerCase()}`)].join(' · ');
+        const price = st.workPrice(w), cost = `${price} truppe · ${Math.round(D.timeMs / 1000)} s`;
         const bg = this.add.rectangle(x, y, bw, 80, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, block ? PALETTE.linea : PALETTE.ocra)
           .setInteractive({ useHandCursor: true });
         const ig = this.add.graphics();
         drawWorkIcon(ig, w, x + 15, y + 16, 8, block ? PALETTE.tenue : PALETTE.ocra);
         const name = this.add.text(x + 28, y + 8, WORK_NAME[w].toUpperCase(), textStyle(11, block ? PALETTE.tenue : PALETTE.carta));
-        const sub = this.add.text(x + 8, y + 30, block === 'tech' ? `🔒 ${techInfo(D.tech).name}` : WORK_DESC[w], textStyle(9, PALETTE.carta, false))
+        const sub = this.add.text(x + 8, y + 30, block === 'tech' ? `🔒 ${techInfo(D.tech).name}` : workDesc(w, resName), textStyle(9, PALETTE.carta, false))
           .setWordWrapWidth(bw - 12);
-        const price = this.add.text(x + 8, y + 74, cost, textStyle(8, block === 'troops' || block === 'loot' ? PALETTE.ko : PALETTE.tenue, false))
+        const priceTxt = this.add.text(x + 8, y + 74, cost, textStyle(9, block === 'troops' ? PALETTE.ko : PALETTE.tenue, false))
           .setOrigin(0, 1).setWordWrapWidth(bw - 12);
-        if (block === 'tech') price.setVisible(false);
+        if (block === 'tech') priceTxt.setVisible(false);
         bg.on('pointerup', () => {
-          if (block) {
-            const why = { owner: 'non è tua', busy: 'c\'è già una costruzione', tech: `serve la ricerca ${techInfo(D.tech).name}`, troops: `servono ${D.troops} truppe`, loot: 'risorse insufficienti nello zaino' }[block];
+          const now = st.workBlock(p, w); // lo stato può essere cambiato dopo il disegno della scheda
+          if (now) {
+            const why = now === 'tech' ? `serve la ricerca ${techInfo(D.tech).name}` : now === 'troops' ? `servono ${st.workPrice(w)} truppe`
+              : now === 'busy' ? 'c\'è già una costruzione' : 'provincia non tua';
             return this.toast(why.toUpperCase(), PALETTE.ko);
           }
-          if (this.run.state.build(PLAYER, p, w)) analytics.design(['costruzione', w]);
+          if (st.build(PLAYER, p, w)) {
+            analytics.design(['costruzione', w]);
+            this.toast(`${WORK_NAME[w].toUpperCase()} IN COSTRUZIONE`, PALETTE.ocra);
+            buzz(12);
+          }
           this.renderProvince();
         });
-        items.push(bg, ig, name, sub, price);
+        items.push(bg, ig, name, sub, priceTxt);
       });
     }
     this.provCard = this.add.container((width - W) / 2, y0, items).setDepth(45);

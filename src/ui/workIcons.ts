@@ -4,10 +4,13 @@ import type { WorkId } from '../config/balance';
 
 export const WORK_NAME: Record<WorkId, string> = { fabbrica: 'Fabbrica', bunker: 'Bunker', caserma: 'Caserma' };
 export const WORK_DESC: Record<WorkId, string> = {
-  fabbrica: 'produzione ×2,5',
+  fabbrica: '+1 risorsa/min',
   bunker: 'difesa ×1,7',
   caserma: 'truppe +10 caselle',
 };
+
+/** Effetto della costruzione col nome della risorsa della provincia (fabbrica: "+1 metallo/min"). */
+export const workDesc = (w: WorkId, res: string) => (w === 'fabbrica' ? `+1 ${res}/min` : WORK_DESC[w]);
 
 export function drawWorkIcon(g: Phaser.GameObjects.Graphics, w: WorkId, x: number, y: number, r: number, color: number) {
   g.fillStyle(color, 1);

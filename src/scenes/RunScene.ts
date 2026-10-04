@@ -429,13 +429,14 @@ export class RunScene extends Phaser.Scene {
       const t = this.map.tiles[i]!.terrain;
       if (t === 'pianura') continue;
       const { x, y } = center(i);
+      // macchie larghe e tenui: si sovrappongono tra caselle vicine e sfumano invece di fare un mosaico
       if (t === 'deserto') {
-        g.fillStyle(0xe8cf95, 0.1).fillCircle(x * R, y * R, S * 1.3 * R);
+        g.fillStyle(0xe8cf95, 0.045).fillCircle(x * R, y * R, S * 2.2 * R);
         continue;
       }
       const k = t === 'montagne' ? 1 : 0.45;
-      g.fillStyle(0xe4ebf2, 0.13 * k).fillCircle((x - S * 0.45) * R, (y - S * 0.5) * R, S * 1.5 * R);
-      g.fillStyle(0x000000, 0.17 * k).fillCircle((x + S * 0.5) * R, (y + S * 0.55) * R, S * 1.4 * R);
+      g.fillStyle(0xe4ebf2, 0.05 * k).fillCircle((x - S * 0.6) * R, (y - S * 0.65) * R, S * 2.4 * R);
+      g.fillStyle(0x000000, 0.065 * k).fillCircle((x + S * 0.65) * R, (y + S * 0.7) * R, S * 2.2 * R);
     }
     rt.draw(g);
     g.destroy();
@@ -476,7 +477,7 @@ export class RunScene extends Phaser.Scene {
     const seen = (p: number) => (p < 0 ? NEUTRAL : own[p] !== PLAYER && !this.state.seesProv(p) ? NEUTRAL : own[p]);
     const z = cam.zoom / UI(); // zoom in punti CSS
     const px = 1 / z; // un punto sullo schermo, in pixel-mondo
-    const step = z < 1.4 ? 4 : z < 2.4 ? 2 : 1; // da lontano meno punti
+    const step = z < 1.6 ? 4 : z < 3 ? 2 : 1; // da lontano meno punti
     const box = this.chainBox, m = 4;
     const inView = (k: number) => !(box[k * 4 + 2] < v.x - m || box[k * 4] > v.right + m || box[k * 4 + 3] < v.y - m || box[k * 4 + 1] > v.bottom + m);
     // carta politica: province sottili (solo da vicino), nazioni chiare, coste nette
@@ -484,7 +485,7 @@ export class RunScene extends Phaser.Scene {
       if (!inView(k)) return;
       const pa = c.a >= 0 ? provs[c.a] : null, pb = c.b >= 0 ? provs[c.b] : null;
       if (pa && pb && pa.country === pb.country) {
-        if (z < 1.5) return;
+        if (z < 2.1) return;
         g.lineStyle(1.1 * px, MP.provincia, 0.7);
       } else if (pa && pb) g.lineStyle(1.6 * px, MP.confine, 0.55);
       else g.lineStyle(1.3 * px, MP.costa, 0.7);
@@ -771,7 +772,7 @@ export class RunScene extends Phaser.Scene {
 
   /** Simboli del terreno da vicino: picchi sulle montagne, archi sulle colline (a scacchiera, per non affollare). */
   private drawTerrainGlyphs(g: Phaser.GameObjects.Graphics, v: Phaser.Geom.Rectangle, px: number, z: number) {
-    if (z < 2.2) return;
+    if (z < 2.9) return;
     const { cols, rows } = BALANCE.map;
     const r0 = Math.max(0, Math.floor((v.y - 2 * S) / (1.5 * S))), r1 = Math.min(rows - 1, Math.ceil((v.bottom + 2 * S) / (1.5 * S)));
     const hw = Math.sqrt(3) * S;
@@ -819,7 +820,7 @@ export class RunScene extends Phaser.Scene {
   private drawCities(g: Phaser.GameObjects.Graphics, v: Phaser.Geom.Rectangle, px: number) {
     const MP = PALETTE.mappa, z = 1 / px;
     const inV = (x: number, y: number) => x > v.x - 8 && x < v.right + 8 && y > v.y - 8 && y < v.bottom + 8;
-    if (z >= 2.4) {
+    if (z >= 3.4) {
       g.fillStyle(MP.segno, 0.55);
       for (const i of this.ruinTiles) {
         const { x, y } = center(i);
@@ -839,7 +840,7 @@ export class RunScene extends Phaser.Scene {
           star.push({ x: x + r * Math.cos(a), y: y + r * Math.sin(a) });
         }
         g.fillStyle(MP.capitale, 1).fillPoints(star, true).lineStyle(1 * px, 0x000000, 0.6).strokePoints(star, true, true);
-      } else if (z >= 1.7) {
+      } else if (z >= 2.4) {
         g.fillStyle(0x000000, 0.5).fillCircle(x, y, 3 * px).fillStyle(MP.segno, 0.95).fillCircle(x, y, 2 * px);
       }
     }

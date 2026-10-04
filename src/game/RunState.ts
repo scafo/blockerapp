@@ -93,6 +93,7 @@ export class RunState {
   readonly provWork: Int8Array;
   readonly provWorkAt: Float64Array;
   private nextAiBunkerAt: number[] = [];
+  private worksBuilt: number[] = []; // costruzioni avviate per fazione (fanno salire il prezzo)
   /** per provincia: peso di crescita (caselle × terreno), risorsa e quantità prodotta a ogni tick */
   private provGrowthW: Float32Array;
   private provYield: Float32Array;
@@ -179,6 +180,7 @@ export class RunState {
     const T = BALANCE.terrain;
     this.provGrowthW = Float32Array.from(map.provinces, (p) => p.tiles.reduce((s, i) => s + T[map.tiles[i]!.terrain].growth, 0));
     this.provYield = Float32Array.from(map.provinces, (p) => (T[p.terrain].perMin * BALANCE.tick.ms) / 60_000);
+    this.worksBuilt = map.starts.map(() => 0);
     this.provWork = new Int8Array(map.provinces.length).fill(-1);
     this.provWorkAt = new Float64Array(map.provinces.length);
     this.gw = this.factions.map(() => 0);
@@ -331,7 +333,8 @@ export class RunState {
       this.gw[o] += this.provGrowthW[p] + (ready?.growthTiles ?? 0);
       const f = this.factions[o];
       const res = BALANCE.terrain[this.map.provinces[p].terrain].res;
-      const made = this.provYield[p] * (ready?.prodMult ?? 1) * (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1);
+      const made = (this.provYield[p] + (ready ? (ready.prodAdd * BALANCE.tick.ms) / 60_000 : 0))
+        * (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1);
       f.lootAcc[res] += made;
       this.incomeTick[o][res] += made;
     }
@@ -341,6 +344,23 @@ export class RunState {
   incomePerMin(f = PLAYER): Bag {
     const k = 60_000 / BALANCE.tick.ms, b = this.incomeTick[f];
     return { metallo: b.metallo * k, benzina: b.benzina * k, cibo: b.cibo * k };
+  }
+
+  /** Risorse al minuto prodotte dalla provincia (terreno + fabbrica), come le conta economyTick. */
+  provPerMin(p: number): number {
+    const w = this.workOf(p), o = this.provOwner[p];
+    const base = BALANCE.terrain[this.map.provinces[p].terrain].perMin + (w ? BALANCE.works[w].prodAdd : 0);
+    return base * (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1);
+  }
+
+  /** Costruzioni avviate dal giocatore in questa campagna. */
+  get worksStarted(): number {
+    return this.worksBuilt[PLAYER] ?? 0;
+  }
+
+  /** Truppe che costa la prossima costruzione di quel tipo (sale con quelle già avviate). */
+  workPrice(w: WorkId, by = PLAYER): number {
+    return Math.round(BALANCE.works[w].troops * (1 + BALANCE.worksPriceStep * (this.worksBuilt[by] ?? 0)));
   }
 
   /** Costruzione pronta in questa provincia (null se niente o ancora in cantiere). */
@@ -356,23 +376,23 @@ export class RunState {
   }
 
   /** Perché il giocatore non può costruire qui (null = si può). */
-  workBlock(p: number, w: WorkId, techs: string[] = this.opts.techs): null | 'owner' | 'busy' | 'tech' | 'troops' | 'loot' {
+  workBlock(p: number, w: WorkId, techs: string[] = this.opts.techs): null | 'owner' | 'busy' | 'tech' | 'troops' | 'over' {
     const W = BALANCE.works[w];
+    if (this.over) return 'over';
     if (this.provOwner[p] !== PLAYER) return 'owner';
     if (this.provWork[p] >= 0) return 'busy';
     if (W.tech && !techs.includes(W.tech)) return 'tech';
-    if (this.troops <= W.troops) return 'troops';
-    if ((Object.keys(W.cost) as Resource[]).some((r) => this.backpack[r] < W.cost[r])) return 'loot';
+    if (this.troops <= this.workPrice(w)) return 'troops';
     return null;
   }
 
-  /** Avvia una costruzione (truppe + zaino); pronta dopo timeMs di gioco. */
+  /** Avvia una costruzione pagandola in truppe; pronta dopo timeMs di gioco. */
   build(by: number, p: number, w: WorkId): boolean {
     const W = BALANCE.works[w];
     if (by === PLAYER && this.workBlock(p, w)) return false;
     const f = this.factions[by];
-    f.troops -= W.troops;
-    for (const r of Object.keys(W.cost) as Resource[]) f.loot[r] = Math.max(0, f.loot[r] - W.cost[r]);
+    f.troops -= this.workPrice(w, by);
+    this.worksBuilt[by] = (this.worksBuilt[by] ?? 0) + 1;
     this.provWork[p] = WORKS.indexOf(w);
     this.provWorkAt[p] = this.gameTimeMs + W.timeMs;
     this.events.push({ type: 'work', by, p, work: w, phase: 'start' });
@@ -385,7 +405,7 @@ export class RunState {
     if (this.opts.tutorial || !every || this.gameTimeMs < (this.nextAiBunkerAt[f.id] ?? Infinity)) return;
     this.nextAiBunkerAt[f.id] = this.gameTimeMs + every;
     const mine = this.frontier(PLAYER).filter((p) => this.provOwner[p] === f.id && this.provWork[p] < 0);
-    if (!mine.length || f.troops < BALANCE.works.bunker.troops * 2) return;
+    if (!mine.length || f.troops < this.workPrice('bunker', f.id) * 2) return;
     this.build(f.id, mine[Math.floor(this.aiRng() * mine.length)], 'bunker');
   }
 

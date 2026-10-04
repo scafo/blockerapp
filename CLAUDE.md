@@ -65,10 +65,11 @@ forti + simboli (daltonismo).
 
 ## Tempi di gioco (calcolati con `scripts/sim.ts`, giocatore attivo)
 - Run guidata: ~2–3 min di conquista (+ i passi della guida).
-- Campagna standard 20 min, Fronte I: primo impero (15 province) a ~2:30–3:00; fine della tregua IA a 4:00; primo contatto 4:30–9:00;
-  prima offensiva a 7:00, poi ogni ~3:30; a 20:00 vince chi ha più territorio (70–200 province). Bottino ~450–900. Breve 10 min, lunga 30.
-- Muro di difficoltà: Fronte III senza potenziamenti 1 vittoria su 4, con HQ a metà 4 su 4; Fronte V con HQ a metà 0 su 4,
-  con HQ al massimo 1 su 4. HQ + tutte le ricerche costano ~13.400 risorse (una decina di campagne).
+- Campagna standard 20 min, Fronte I (carta da 6087 province): primo impero (15 province) a ~3:20; fine della tregua IA a 4:00;
+  primo contatto 5:30–9:00; prima offensiva a 7:00, poi ogni ~3:30; a 20:00 vince chi ha più territorio (60–160 province).
+  Bottino ~550–1150. Breve 10 min, lunga 30.
+- Muro di difficoltà: Fronte III senza potenziamenti 0 vittorie su 3, con HQ a metà 3 su 3; Fronte V con HQ a metà 0 su 3
+  (2 eliminazioni), con HQ al massimo 0 su 3 (si regge fino alla fine). HQ + tutte le ricerche costano ~13.400 risorse.
 
 ## Regole di design
 - Max 5–6 scelte a schermo. Mappa sempre libera al centro, comandi negli angoli in basso.
@@ -126,17 +127,24 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   pesi in `power`), armi nemiche (in rosso quelle che non hai), briefing. **Terreno** (`terrain`, dati in `scripts/data/ne-terrain.json`
   e in `worldmap.json`): difesa ×1–1,9, crescita ×0,45–1, pedine e avanzata più lente in montagna, ogni provincia produce la risorsa
   del suo terreno ogni minuto (pianura cibo, colline e montagne metallo, deserto benzina). **Costruzioni** (`works`): tocca una tua
-  provincia → scheda (terreno, difesa, produzione) e tre cantieri pagati con truppe + zaino in tempo di gioco: Fabbrica (produzione ×2,5),
+  provincia → scheda (terreno, difesa, produzione) e tre cantieri pagati **solo in truppe** (il prezzo sale del 20% a ogni costruzione,
+  `worksPriceStep`; lo zaino resta bottino) in tempo di gioco: Fabbrica (+1 risorsa/min della provincia),
   Bunker (difesa ×1,7), Caserma (+10 caselle di crescita, serve Addestramento); restano alla provincia se cambia padrone; le IA dei
   fronti alti hanno bunker. HUD: entrate al minuto sotto ogni risorsa. **Albero della ricerca** (`TreeScene`, Laboratorio e tasto
   RICERCA): ramo Armamenti (unità e abilità si ricercano, l'Arsenale decide fin dove) + Esercito/Logistica/Economia/Difesa/La Caduta
   con prerequisiti (`tech.*.req`). **HQ alla Clash**: Deposito con capienza (`depositoCap`, oltre si perde), barre di riempimento,
   potenza e fronte, cantiere e ricerca in corso, distintivi di livello e "migliorabile" sui moduli, schede postazione con illustrazione.
+- **Mappa ancora più grande + costruzioni sistemate** (ultima richiesta di Nico: "edifici non funzionano e fai mappa ancora più
+  grande"): il tocco su Fabbrica/Bunker senza risorse mandava in errore la scheda (ora si pagano in truppe, avviso chiaro se mancano,
+  suggerimento a 40 s se non hai costruito). Carta da **6087 province** su griglia invisibile **640×320 (hexSize 2,5)**, stessa
+  dimensione in pixel-mondo: distanze in caselle invariate (in province restano uguali), soglie di zoom ×1,4, zoom iniziale 4,6.
+  `render.pixelArt: false` esplicito in `main.ts`: con lo zoom 1/DPR Phaser lo accendeva da solo e sui telefoni le texture
+  ingrandite (mare, rilievo, colori) diventavano a quadretti. Sim fronte I: primo impero ~3:20, primo contatto 5:30–9:00.
 - **Carta vera già pronta** (ultima richiesta di Nico: "prendi una mappa del mondo già fatta e facci delle forme dentro, molto grande"):
   `npm run build:map` (`scripts/build-map.ts`, da rilanciare solo se cambia la griglia) prende Natural Earth 1:50M (`world-atlas/countries-50m`), semplifica la
   topologia, divide ogni nazione in province con celle di Voronoi rilassate (Lloyd) e ritagliate sui confini veri (`polygon-clipping`),
-  allinea i confini condivisi, ondula quelli interni, assegna le caselle e salva tutto in `src/data/worldmap.json` (~750 KB:
-  1336 province, tratti di confine condivisi, caselle → provincia). A runtime solo decodifica (`src/map/worldAsset.ts`): niente calcoli
+  allinea i confini condivisi, ondula quelli interni, assegna le caselle e salva tutto in `src/data/worldmap.json` (~2,1 MB:
+  6087 province, tratti di confine condivisi, caselle → provincia). A runtime solo decodifica (`src/map/worldAsset.ts`): niente calcoli
   su terre e nazioni all'avvio. Coste e confini veri, disegnati vettoriali; il tocco usa la sagoma vera (`provinceAtPoint`).
   **Tolte la tempesta e le zone tossiche** (Nico): la campagna finisce a tempo (`campaign.warnMs`, `campaigns.*.durationMs`,
   Centro di Comando liv. 3+ = +30 s). Sim: attivo 8/8 vittorie (2,5–8 min), passivo (0,4 tocchi/s) 0/6.

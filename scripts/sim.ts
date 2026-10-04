@@ -82,7 +82,10 @@ for (let r = 0; r < runs; r++) {
     }
     if (!marks.length && st.player.provinces >= 15) marks.push(`impero15 ${Math.round(ms / 1000)}s`);
     for (const e of st.drainEvents()) if (e.type === 'conquer' && e.from === PLAYER && firstContact < 0) firstContact = ms;
-    if (ms % 120_000 === 0) snaps.push(st.factions.map((f) => (f.alive ? f.provinces : '✝')).join('/'));
+    if (ms % 120_000 === 0) {
+      const z = st.player.loot, built = st.provWork.reduce((n, w, p) => n + (w >= 0 && st.provOwner[p] === PLAYER ? 1 : 0), 0);
+      snaps.push(st.factions.map((f) => (f.alive ? f.provinces : '✝')).join('/') + ` [${Math.round(z.metallo)}m ${Math.round(z.benzina)}b ${Math.round(z.cibo)}c ${built}🏭]`);
+    }
   }
   const t = Math.round(st.gameTimeMs / 1000);
   const sum = st.summary();
