@@ -15,6 +15,7 @@ export interface WorldAsset {
   provRings: number[][][]; // provincia → anelli → catene (~k = catena k al contrario)
   chains: WorldChain[];
   tileProv: Int16Array; // casella → provincia (−1 = mare)
+  tileTerrain: Int8Array; // casella → terreno (0 pianura, 1 colline, 2 montagne, 3 deserto; −1 mare)
 }
 
 let cache: WorldAsset | null = null;
@@ -23,7 +24,7 @@ export function loadWorld(): WorldAsset {
   if (cache) return cache;
   const d = data as unknown as {
     scale: number; cols: number; rows: number; names: string[];
-    provinces: { c: number; r: number[][] }[]; chains: { a: number; b: number; z: number; d: number[] }[]; tiles: number[];
+    provinces: { c: number; r: number[][] }[]; chains: { a: number; b: number; z: number; d: number[] }[]; tiles: number[]; terrain: number[];
   };
   const { cols, rows } = BALANCE.map;
   if (d.cols !== cols || d.rows !== rows) throw new Error('worldmap.json non corrisponde alla griglia: npx vite-node scripts/build-map.ts');
@@ -40,12 +41,15 @@ export function loadWorld(): WorldAsset {
   });
   const tileProv = new Int16Array(cols * rows);
   for (let k = 0, i = 0; k < d.tiles.length; k += 2) tileProv.fill(d.tiles[k], i, (i += d.tiles[k + 1]));
+  const tileTerrain = new Int8Array(cols * rows);
+  for (let k = 0, i = 0; k < d.terrain.length; k += 2) tileTerrain.fill(d.terrain[k], i, (i += d.terrain[k + 1]));
   cache = {
     names: d.names,
     provCountry: Int16Array.from(d.provinces.map((p) => p.c)),
     provRings: d.provinces.map((p) => p.r),
     chains,
     tileProv,
+    tileTerrain,
   };
   return cache;
 }

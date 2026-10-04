@@ -2,13 +2,14 @@ import Phaser from 'phaser';
 import { BALANCE } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
 import buildingText from '../data/buildings.json';
+import frontText from '../data/fronts.json';
 import {
   BUILDINGS, EXPEDITIONS, activeCiv, buildBlock, campaignChoice, canAfford, civChoice, collectExpedition, deckOf, expeditionCost, unlockedUnits,
-  enableTestMode, expeditionTimeSec, fmtTime, nextLevel, settle, startBuild, startExpedition, tents,
+  activeFront, enableTestMode, expeditionTimeSec, fmtTime, nextLevel, playerPower, settle, startBuild, startExpedition, stashCap, tents, unlockedAbilities,
 } from '../game/camp';
 import { CIV_IDS, civInfo, civUnlocked } from '../game/civs';
 import { CIV_STYLE } from '../game/factions';
-import { BRANCHES, loreFragments, loreTotal, nextInBranches, researchBlock, settleResearch, startResearch, techInfo, type TechId } from '../game/tech';
+import { loreFragments, loreTotal, settleResearch, techInfo } from '../game/tech';
 import { unitInfo } from '../game/units';
 import type { CampaignId } from '../config/balance';
 import { RESOURCES, RESOURCE_INFO, type Bag } from '../game/resources';
@@ -35,10 +36,11 @@ type Spot = BuildingId | 'spedizione' | 'gioca' | 'test'; // 'gioca' = preparazi
 type MapSpot = BuildingId | 'spedizione'; // le postazioni sulla planimetria
 const CAMPAIGNS: CampaignId[] = ['breve', 'standard', 'lunga'];
 const CAMPAIGN_NAME: Record<CampaignId, string> = { breve: 'BREVE', standard: 'STANDARD', lunga: 'LUNGA' };
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 
 /** Accampamento (home): piccolo all'inizio, cresce con edifici, tende e spedizioni. */
 export class CampScene extends Phaser.Scene {
-  private profile!: Profile;
+  profile!: Profile; // condiviso con l'albero della ricerca (TreeScene)
   private k = 1; // scala del disegno rispetto a 844×390
   private plan = { x: 0, y: 0, w: 0, h: 0 }; // area della planimetria
   private spotPos = {} as Record<MapSpot, { x: number; y: number }>;
@@ -46,6 +48,10 @@ export class CampScene extends Phaser.Scene {
   private portrait = false;
   private spots = new Map<Spot, { x: number; y: number; g: Phaser.GameObjects.Graphics; deco: Phaser.GameObjects.GameObject[]; label: Phaser.GameObjects.Text }>();
   private stashTexts: Phaser.GameObjects.Text[] = [];
+  private stashBars: Phaser.GameObjects.Rectangle[] = [];
+  private stashBarW = 0;
+  private capText: Phaser.GameObjects.Text | null = null;
+  private statusText: Phaser.GameObjects.Text | null = null;
   private timerTexts = new Map<Spot, Phaser.GameObjects.Text>();
   private panel: Phaser.GameObjects.Container | null = null;
   private panelSpot: Spot | null = null;
@@ -71,7 +77,7 @@ export class CampScene extends Phaser.Scene {
     this.portrait = height > width;
 
     // planimetria: area utile tra la scorta in alto e i comandi in basso
-    this.plan = this.portrait ? { x: PAD, y: 164, w: width - 2 * PAD, h: height - 164 - 150 } : { x: PAD, y: 96, w: width - 2 * PAD, h: height - 96 - 76 };
+    this.plan = this.portrait ? { x: PAD, y: 164, w: width - 2 * PAD, h: height - 164 - 150 } : { x: PAD, y: 114, w: width - 2 * PAD, h: height - 114 - 76 };
     this.k = this.portrait ? Math.min(this.plan.w / 400, 1.2) : Math.min(this.plan.w / 820, this.plan.h / 230, 1.6);
     const frac: Record<MapSpot, [number, number]> = this.portrait
       ? { comando: [0.5, 0.42], laboratorio: [0.27, 0.13], radar: [0.73, 0.13], arsenale: [0.27, 0.7], deposito: [0.73, 0.7], spedizione: [0.5, 0.93] }
@@ -119,9 +125,7 @@ export class CampScene extends Phaser.Scene {
     if (spot === 'spedizione') return !p.expedition ? 'none' : p.expedition.until > now ? 'away:timer' : 'ready';
     if (spot === 'test') return `test|${p.test ? 1 : 0}`;
     if (spot === 'gioca') return `gioca|${this.panelMode}|${p.civ}|${p.campaign}|${(p.deck ?? []).join(',')}`;
-    if (spot === 'laboratorio' && this.panelMode !== 'build' && p.buildings.laboratorio > 0) {
-      return `lab|${this.panelMode}|${p.techs.join(',')}|${p.research?.id ?? ''}|${RESOURCES.map((r) => p.stash[r]).join(',')}${p.research ? ':timer' : ''}`;
-    }
+    if (spot === 'laboratorio' && this.panelMode === 'archivio') return `lab|archivio|${p.techs.length}`;
     return `${p.buildings[spot]}|${p.construction?.id ?? ''}|${RESOURCES.map((r) => p.stash[r]).join(',')}${p.construction?.id === spot ? ':timer' : ''}`;
   }
 
@@ -154,7 +158,19 @@ export class CampScene extends Phaser.Scene {
   }
 
   private updateStash() {
-    RESOURCES.forEach((r, i) => this.stashTexts[i]?.setText(String(this.profile.stash[r])));
+    const p = this.profile, cap = stashCap(p), finite = Number.isFinite(cap);
+    RESOURCES.forEach((r, i) => {
+      const v = p.stash[r];
+      this.stashTexts[i]?.setText(String(v)).setColor(hex(finite && v >= cap ? PALETTE.ko : RESOURCE_INFO[r].color));
+      if (this.stashBars[i]) this.stashBars[i].width = this.stashBarW * (finite ? Math.min(1, v / cap) : 1);
+    });
+    this.capText?.setText(finite ? `DEPOSITO · capienza ${cap} per risorsa` : 'DEPOSITO · senza limite (test)');
+    const now = Date.now(), c = p.construction, rs = p.research;
+    const parts = [
+      c ? `🔨 ${buildingText[c.id].name} liv. ${p.buildings[c.id] + 1} · ${fmtTime(c.until - now)}` : '🔨 cantiere libero',
+      rs ? `⚗ ${techInfo(rs.id).name} · ${fmtTime(rs.until - now)}` : '⚗ nessuna ricerca',
+    ];
+    this.statusText?.setText(parts.join('   ')).setColor(hex(c || rs ? PALETTE.allerta : PALETTE.tenue));
   }
 
   // ---------- disegno ----------
@@ -210,7 +226,8 @@ export class CampScene extends Phaser.Scene {
     this.timerTexts.set(id, timer);
     this.spots.set(id, { x, y, g, deco: [], label });
     const hit = this.add.rectangle(x, y, w, h, 0xffffff, 0.001).setInteractive({ useHandCursor: true });
-    hit.on('pointerup', () => this.openPanel(id));
+    // il Laboratorio costruito apre direttamente l'albero della ricerca
+    hit.on('pointerup', () => (id === 'laboratorio' && this.profile.buildings.laboratorio > 0 ? this.openTree('esercito') : this.openPanel(id)));
   }
 
   /** Modulo della planimetria: contorno ad angoli tagliati se costruito, tratteggio se lotto libero, tratteggio obliquo se in cantiere. */
@@ -246,12 +263,23 @@ export class CampScene extends Phaser.Scene {
     }
     if (built && id !== 'spedizione') this.drawModule(spot, g, id, x, y + 6 * k, w, h);
     if (id === 'spedizione') this.drawConvoy(spot, g, x, y + 6 * k, w);
-    // livello: quadratini in basso a destra
+    // livello: quadratini in basso a destra e distintivo col numero nell'angolo (alla Clash)
     if (id !== 'spedizione') {
       const n = maxLvl(id);
       for (let i = 0; i < n; i++) {
         const px = l + w - 10 * k - (n - 1 - i) * 7 * k, py = t + h - 9 * k;
         g.fillStyle(i < lvl ? PALETTE.ocra : LINE, 1).fillRect(px - 2.5 * k, py - 2.5 * k, 5 * k, 5 * k);
+      }
+      if (lvl > 0) {
+        const bx = l + w - 2 * k, by = t + 2 * k, r = 11 * k;
+        g.fillStyle(lvl >= n ? PALETTE.ocra : PALETTE.inchiostro, 1).fillCircle(bx, by, r).lineStyle(1.5, PALETTE.ocra, 1).strokeCircle(bx, by, r);
+        spot.deco.push(this.add.text(bx, by, String(lvl), textStyle(12, lvl >= n ? PALETTE.inchiostro : PALETTE.ocra)).setOrigin(0.5).setDepth(5));
+      }
+      // si può migliorare adesso: freccia che pulsa
+      if (lvl < n && !building && !buildBlock(this.profile, id)) {
+        const up = this.add.text(l + 8, t + h - 8 * k, '▲ migliorabile', textStyle(9, PALETTE.ok, false)).setOrigin(0, 1);
+        this.tweens.add({ targets: up, alpha: 0.35, duration: 700, yoyo: true, repeat: -1 });
+        spot.deco.push(up);
       }
     }
   }
@@ -325,15 +353,22 @@ export class CampScene extends Phaser.Scene {
     const { width, height } = view(this);
     // scorta in alto a sinistra
     const P = this.portrait;
-    // scorta: risorse grandi, ognuna nel suo colore
-    const panelW = P ? width - 2 * PAD : 330, panelY = P ? PAD + 52 : PAD, step = P ? (panelW - 20) / 3 : 104;
-    this.add.rectangle(PAD, panelY, panelW, 66, PALETTE.inchiostro, 0.82).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
-    this.add.text(PAD + 10, panelY + 6, 'SCORTA DEL DEPOSITO', textStyle(10, PALETTE.ocra));
+    // scorta alla Clash: risorse grandi nel loro colore, barra di riempimento sulla capienza del Deposito
+    const panelW = P ? width - 2 * PAD : 360, panelY = P ? PAD + 52 : PAD, step = P ? (panelW - 20) / 3 : 116;
+    this.add.rectangle(PAD, panelY, panelW, 74, PALETTE.inchiostro, 0.84).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
+    this.capText = this.add.text(PAD + 10, panelY + 6, '', textStyle(10, PALETTE.ocra));
     const ig = this.add.graphics();
+    this.stashBars = [];
+    this.stashBarW = step - 22;
     this.stashTexts = RESOURCES.map((r, i) => {
-      drawResourceIcon(ig, r, PAD + 22 + i * step, panelY + 42, 10);
-      return this.add.text(PAD + 38 + i * step, panelY + 42, '0', textStyle(22, RESOURCE_INFO[r].color)).setOrigin(0, 0.5);
+      const x = PAD + 12 + i * step;
+      drawResourceIcon(ig, r, x + 10, panelY + 38, 10);
+      this.add.rectangle(x, panelY + 60, this.stashBarW, 5, PALETTE.linea).setOrigin(0);
+      this.stashBars.push(this.add.rectangle(x, panelY + 60, 0, 5, RESOURCE_INFO[r].color).setOrigin(0));
+      return this.add.text(x + 26, panelY + 38, '0', textStyle(22, RESOURCE_INFO[r].color)).setOrigin(0, 0.5);
     });
+    // sotto: cantiere e ricerca in corso (alla Clash: chi lavora e quanto manca)
+    this.statusText = this.add.text(PAD + 2, panelY + 80, '', textStyle(10, PALETTE.carta, false));
     // titolo in alto a destra
     // 5 tocchi sul titolo = contatore FPS nelle run (per i test sui telefoni economici, anche dentro l'app)
     let taps = 0;
@@ -355,14 +390,22 @@ export class CampScene extends Phaser.Scene {
     const testBtn = this.add.text(P ? width - PAD : titleX - 150, P ? PAD + 4 : PAD + 8, p.test ? '[ TEST ATTIVO ]' : '[ TEST ]', textStyle(11, PALETTE.allerta))
       .setOrigin(1, 0).setInteractive({ useHandCursor: true }).on('pointerup', () => this.openPanel('test'));
     void testBtn;
-    this.add.text(titleX, PAD + 30, `HQ · ${p.wins} vittorie su ${p.runs} campagne`, textStyle(11, PALETTE.ocra, false)).setOrigin(titleO, 0);
+    // potenza e fronte (alla Call of War: il punteggio della tua nazione)
+    const power = playerPower(p), front = p.frontMax ?? 0;
+    this.add.text(titleX, PAD + 30, `⛨ POTENZA ${power} · FRONTE ${ROMAN[front]} · ${p.wins} vittorie`, textStyle(11, PALETTE.ocra)).setOrigin(titleO, 0);
     // GIOCA: in basso a destra (orizzontale) o grande in basso al centro (verticale, sotto il pollice)
     const bw = P ? Math.min(260, width - 2 * PAD) : 150;
     // dopo la run guidata GIOCA apre la preparazione: civiltà e durata della campagna
     const play = new Button(this, 'GIOCA ▶', bw, 56, () => (this.profile.runs === 0 ? this.scene.start('Load', { next: 'Run', data: { seed: randomSeed() } }) : this.openPanel('gioca')));
     play.setPosition(P ? (width - bw) / 2 : width - PAD - bw, height - PAD - 56).setDepth(20);
     this.tweens.add({ targets: play, scale: 1.04, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    this.add.text(P ? width / 2 : PAD, P ? height - PAD - 64 : height - PAD, 'Tocca una postazione o il convoglio', textStyle(11, INK, false))
+    // albero della ricerca (armamenti e tecnologie): accanto a GIOCA, sempre a portata
+    if (this.profile.runs > 0) {
+      const rw = P ? bw : 150;
+      const res = new Button(this, this.profile.research ? 'RICERCA ⏱' : 'RICERCA', rw, P ? 44 : 56, () => this.openTree('armamenti'), P ? 14 : 16);
+      res.setPosition(P ? (width - rw) / 2 : width - PAD - bw - 10 - rw, P ? height - PAD - 56 - 52 : height - PAD - 56).setDepth(20);
+    }
+    this.add.text(P ? width / 2 : PAD, P ? height - PAD - 116 : height - PAD, 'Tocca una postazione o il convoglio', textStyle(11, INK, false))
       .setOrigin(P ? 0.5 : 0, 1);
   }
 
@@ -381,7 +424,9 @@ export class CampScene extends Phaser.Scene {
     const { width, height } = view(this);
     const wide = spot === 'gioca' || ((spot === 'laboratorio' || spot === 'radar') && this.panelMode !== 'build' && this.profile.buildings[spot] > 0);
     const prep = spot === 'gioca';
-    const W = Math.min(prep ? 700 : wide ? 540 : 330, width - 24), H = Math.min(prep ? (this.portrait ? 620 : 420) : wide ? (this.portrait ? 440 : 350) : 290, height - 2 * PAD);
+    const bld = !prep && !wide && spot !== 'spedizione' && spot !== 'test';
+    const W = Math.min(prep ? 700 : wide ? 540 : bld ? 470 : 330, width - 24);
+    const H = Math.min(prep ? (this.portrait ? 620 : 420) : wide ? (this.portrait ? 440 : 350) : bld ? 380 : 290, height - 2 * PAD);
     const x0 = width / 2 - W / 2, y0 = (height - H) / 2;
     const items: Phaser.GameObjects.GameObject[] = [];
     const shade = this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.6).setOrigin(0).setInteractive();
@@ -402,8 +447,8 @@ export class CampScene extends Phaser.Scene {
       this.fillTest(items, x0, y0, W, H);
     } else if (spot === 'gioca') {
       this.fillPrep(items, x0, y0, W, H);
-    } else if (spot === 'laboratorio' && this.panelMode !== 'build' && this.profile.buildings.laboratorio > 0) {
-      this.fillLab(items, x0, y0, W, H, now);
+    } else if (spot === 'laboratorio' && this.panelMode === 'archivio') {
+      this.fillLab(items, x0, y0, W, H);
     } else if (spot === 'radar' && this.panelMode !== 'build' && this.profile.buildings.radar > 0) {
       this.fillRadar(items, x0, y0, W, H);
     } else if (spot === 'spedizione') {
@@ -453,14 +498,32 @@ export class CampScene extends Phaser.Scene {
     } else {
       const T = buildingText[spot];
       const lvl = this.profile.buildings[spot];
-      items.push(this.add.text(x0 + 16, y0 + 12, `${T.name.toUpperCase()}  liv. ${lvl}/${maxLvl(spot)}`, textStyle(T.name.length > 14 ? 15 : 18, INK)));
-      if ((spot === 'laboratorio' || spot === 'radar') && lvl > 0) items.push(this.link('‹ indietro', x0 + W - 40, y0 + 10, () => this.openPanel(spot, '')));
-      items.push(this.add.text(x0 + 16, y0 + 40, T.desc, textStyle(12, INK, false)).setWordWrapWidth(W - 32));
+      // testata: illustrazione animata del modulo, livello, potenza che guadagni migliorando
+      const ig = this.add.graphics();
+      ig.fillStyle(PALETTE.pannello, 1).fillRect(x0 + 16, y0 + 14, 132, 88).lineStyle(1, LINE, 1).strokeRect(x0 + 16, y0 + 14, 132, 88);
+      const ill = { deco: [] as Phaser.GameObjects.GameObject[] };
+      const k0 = this.k;
+      this.k = 0.85;
+      this.drawModule(ill, ig, spot, x0 + 82, y0 + 54, 132, 88);
+      this.k = k0;
+      items.push(ig, ...ill.deco);
+      const pw = BALANCE.power[spot as keyof typeof BALANCE.power] ?? 0;
+      items.push(this.add.text(x0 + 162, y0 + 14, T.name.toUpperCase(), textStyle(T.name.length > 14 ? 16 : 20, INK)),
+        this.add.text(x0 + 162, y0 + 44, `LIVELLO ${lvl}/${maxLvl(spot)}${lvl < maxLvl(spot) ? ` · +${pw} potenza al prossimo` : ' · MASSIMO'}`, textStyle(10, PALETTE.ocra)),
+        this.add.text(x0 + 162, y0 + 62, T.desc, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 178));
+      if (spot === 'radar' && lvl > 0) items.push(this.link('‹ registro', x0 + W - 16, y0 + 90, () => this.openPanel(spot, '')));
+      // Laboratorio e Arsenale: da qui all'albero della ricerca (armamenti e tecnologie)
+      if (spot === 'laboratorio' || spot === 'arsenale') {
+        items.push(this.link(spot === 'arsenale' ? 'albero: armamenti ›' : 'albero della ricerca ›', x0 + W - 16, y0 + 90, () => this.openTree(spot === 'arsenale' ? 'armamenti' : 'esercito')));
+        if (spot === 'laboratorio') items.push(this.link(`archivio della Caduta (${loreFragments(this.profile).length}/${loreTotal}) ›`, x0 + 16, y0 + H - 104, () => this.openPanel('laboratorio', 'archivio'), 0));
+      }
+      // tutti i livelli: fatti, il prossimo evidenziato, quelli dopo
       T.levels.forEach((txt, i) => {
-        const mark = i < lvl ? '✓' : i === lvl ? '→' : '·';
+        const mark = i < lvl ? '✓' : i === lvl ? '▶' : '·';
         const col = i < lvl ? PALETTE.ocra : i === lvl ? INK : PALETTE.tenue;
-        const step = T.levels.length > 3 ? 16 : 20;
-        items.push(this.add.text(x0 + 16, y0 + 84 + i * step, `${mark} liv. ${i + 1}: ${txt}`, textStyle(T.levels.length > 3 ? 10 : 11, col, i === lvl)).setWordWrapWidth(W - 32));
+        const step = T.levels.length > 3 ? 18 : 22, ly = y0 + 112 + i * step;
+        if (i === lvl) items.push(this.add.rectangle(x0 + 12, ly - 3, W - 24, step, 0x1b2634).setOrigin(0));
+        items.push(this.add.text(x0 + 18, ly, `${mark} LIV. ${i + 1}  ${txt}`, textStyle(T.levels.length > 3 ? 10 : 11, col, i === lvl)).setWordWrapWidth(W - 36));
       });
       const c = this.profile.construction;
       const next = nextLevel(this.profile, spot);
@@ -562,6 +625,7 @@ export class CampScene extends Phaser.Scene {
         `▸ Edificio unico: ${info.building} — ${info.buildingText}`].join('\n'), textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 32).setLineSpacing(3));
       return;
     }
+    if (this.panelMode === 'fronti') return this.fillFronts(items, x0, y0, W, H);
     if (this.panelMode === 'mazzo') {
       const open = unlockedUnits(p, civ), deck = deckOf(p, civ), max = BALANCE.units.deckSize;
       items.push(this.add.text(x0 + 16, y0 + 12, `MAZZO  ${deck.length}/${max}`, textStyle(16, INK)));
@@ -587,39 +651,65 @@ export class CampScene extends Phaser.Scene {
         items.push(tile, g, this.add.text(cx + cw / 2, cy + 42, u.short, textStyle(9, PALETTE.carta)).setOrigin(0.5, 0),
           this.add.text(cx + cw / 2, cy + 58, `${BALANCE.units[t].cost} truppe`, textStyle(8, PALETTE.ocra, false)).setOrigin(0.5, 0));
       });
-      if (p.buildings.arsenale >= BALANCE.camp.arsenaleAbilities) {
+      if (unlockedAbilities(p).length) {
         items.push(this.add.text(x0 + 16, y0 + H - 24, '+ abilità: Ricognizione aerea · Bombardamento (sempre con te)', textStyle(9, PALETTE.radioattivo, false)));
       }
       return;
     }
-    // vista principale: in testa la potenza scelta, con la sua immagine
+    // vista principale: in testa la potenza scelta (tocca per cambiarla), poi fronte, mazzo, durata
     const info = civInfo(civ), st = CIV_STYLE[civ];
-    const bh = this.portrait ? 132 : 118;
-    items.push(coverImage(this, civImage(civ), x0 + 1, y0 + 1, W - 2, bh, 0.4).setTint(0xc8d6e6), fade(this, x0 + 1, y0 + 1, W - 2, bh, PALETTE.inchiostro, 0.35, 0.97));
+    const bh = this.portrait ? 120 : 104;
+    const banner = coverImage(this, civImage(civ), x0 + 1, y0 + 1, W - 2, bh, 0.4).setTint(0xc8d6e6);
+    items.push(banner, fade(this, x0 + 1, y0 + 1, W - 2, bh, PALETTE.inchiostro, 0.35, 0.97));
     items.push(this.add.text(x0 + 16, y0 + 10, 'PREPARA LA CAMPAGNA', textStyle(11, PALETTE.ocra)).setLetterSpacing(2));
     const bp = this.add.graphics();
-    drawPatch(bp, x0 + 34, y0 + bh - 38, 17, st.fill, st.symbol);
-    items.push(bp, this.add.text(x0 + 60, y0 + bh - 60, info.name.toUpperCase(), textStyle(26, INK)),
-      this.add.text(x0 + 60, y0 + bh - 24, `${info.regime} · ${info.classe}`, textStyle(10, PALETTE.carta, false)).setWordWrapWidth(W - 80));
-    const row = (y: number, label: string, onClick: (() => void) | null) => {
-      const r = this.add.rectangle(x0 + 16, y, W - 32, 52, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1, onClick ? PALETTE.ocra : PALETTE.linea);
+    drawPatch(bp, x0 + 34, y0 + bh - 34, 16, st.fill, st.symbol);
+    items.push(bp, this.add.text(x0 + 60, y0 + bh - 56, info.name.toUpperCase(), textStyle(24, INK)),
+      this.add.text(x0 + 60, y0 + bh - 22, `${info.regime} · ${info.bonus}`, textStyle(9, PALETTE.carta, false)).setWordWrapWidth(W - 90));
+    if (civChoice(p)) {
+      const hit = this.add.rectangle(x0 + 1, y0 + 1, W - 2, bh, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true });
+      hit.on('pointerup', () => this.openPanel('gioca', 'civ'));
+      items.push(hit, this.add.text(x0 + W - 16, y0 + 10, 'cambia potenza ›', textStyle(10, PALETTE.ocra)).setOrigin(1, 0));
+    }
+    const row = (y: number, h: number, label: string, onClick: (() => void) | null, warn = false) => {
+      const r = this.add.rectangle(x0 + 16, y, W - 32, h, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1, warn ? PALETTE.ko : onClick ? PALETTE.ocra : PALETTE.linea);
       if (onClick) r.setInteractive({ useHandCursor: true }).on('pointerup', onClick);
-      items.push(r, this.add.text(x0 + 24, y + 6, label, textStyle(9, PALETTE.ocra)));
-      if (onClick) items.push(this.add.text(x0 + W - 24, y + 26, '›', textStyle(18, PALETTE.ocra)).setOrigin(1, 0.5));
+      items.push(r, this.add.text(x0 + 24, y + 6, label, textStyle(9, warn ? PALETTE.ko : PALETTE.ocra)));
+      if (onClick) items.push(this.add.text(x0 + W - 24, y + h / 2, '›', textStyle(18, PALETTE.ocra)).setOrigin(1, 0.5));
     };
-    let y = y0 + bh + 10;
-    row(y, civChoice(p) ? 'POTENZA · tocca per cambiare' : `POTENZA · le altre dopo ${BALANCE.progression.civChoiceAfterRuns} campagne`, civChoice(p) ? () => this.openPanel('gioca', 'civ') : null);
-    items.push(this.add.text(x0 + 24, y + 24, info.bonus, textStyle(10, PALETTE.carta, false)).setWordWrapWidth(W - 70));
-    y += 60;
+    let y = y0 + bh + 8;
+    // fronte: difficoltà e potenza consigliata (alla Clash)
+    const fi = activeFront(p), F = BALANCE.fronts[fi], power = playerPower(p), weak = power < F.power;
+    row(y, 52, `FRONTE ${ROMAN[fi]} · ${'★'.repeat(fi + 1)}${'☆'.repeat(BALANCE.fronts.length - fi - 1)}${weak ? ' · NEMICI PIÙ FORTI DI TE' : ''}`, () => this.openPanel('gioca', 'fronti'), weak);
+    items.push(this.add.text(x0 + 24, y + 24, `${F.name} · potenza consigliata ${F.power} (tua ${power}) · bottino ×${F.lootMult}`,
+      textStyle(10, weak ? PALETTE.ko : PALETTE.carta, false)).setWordWrapWidth(W - 70));
+    y += 58;
     const deck = deckOf(p, civ);
-    row(y, `MAZZO · ${deck.length}/${BALANCE.units.deckSize}`, unlockedUnits(p, civ).length > 1 ? () => this.openPanel('gioca', 'mazzo') : null);
+    row(y, 52, `MAZZO · ${deck.length}/${BALANCE.units.deckSize}`, unlockedUnits(p, civ).length > 1 ? () => this.openPanel('gioca', 'mazzo') : null);
     const dg = this.add.graphics();
     const dx = Math.min(110, (W - 80) / Math.max(1, deck.length));
     deck.forEach((t, k) => drawUnitIcon(dg, t, x0 + 34 + k * dx, y + 34, 8, PALETTE.carta));
     items.push(dg);
     deck.forEach((t, k) => items.push(this.add.text(x0 + 48 + k * dx, y + 34, unitInfo(t).short, textStyle(9, PALETTE.carta, false)).setOrigin(0, 0.5)));
-    // la classe dirigente parla: due righe di storia sotto le scelte
-    items.push(this.add.text(x0 + 16, y + 64, `«${info.motto}» — ${info.lore}`, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 32).setLineSpacing(3));
+    y += 58;
+    // nemici del fronte: le loro armi (se ne hanno che tu non hai, servono potenziamenti)
+    const eg = this.add.graphics();
+    const mine = unlockedUnits(p, civ);
+    items.push(this.add.text(x0 + 16, y + 2, 'ARMI NEMICHE', textStyle(9, PALETTE.tenue)));
+    F.aiUnits.forEach((t, k) => drawUnitIcon(eg, t, x0 + 112 + k * 28, y + 10, 7, mine.includes(t) ? PALETTE.tenue : PALETTE.ko));
+    items.push(eg);
+    // briefing del fronte: storia, obiettivi, cosa fanno i nemici
+    const mm = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}`;
+    const brief = [
+      (frontText as { brief: string }[])[fi]?.brief ?? '',
+      `OBIETTIVI · ${Math.round(BALANCE.victory.mapShare * 100)}% della regione, ${BALANCE.victory.anomalies} Frammenti, o più territorio di tutti allo scadere.`,
+      `INTEL · tregua ${mm(F.graceMs)} · prima offensiva a ${mm(F.offensiveFirstMs)} · bunker nemici ${F.aiBunkers} · crescita nemica ×${String(F.aiGrowthMult).replace('.', ',')}`,
+    ].join('\n');
+    const limit = y0 + H - 64 - (this.portrait ? 48 : 0);
+    const bt = this.add.text(x0 + 16, y + 28, brief, textStyle(10, PALETTE.carta, false)).setWordWrapWidth(W - 32).setLineSpacing(4);
+    for (let parts = brief.split('\n'); bt.y + bt.height > limit && parts.length > 1;) bt.setText((parts = parts.slice(0, -1)).join('\n')); // se non c'è posto, meno righe
+    if (bt.y + bt.height > limit) bt.setVisible(false);
+    items.push(bt);
     // durata + avvia
     const stack = this.portrait;
     const bw = stack ? W - 32 : (W - 32 - 10) / 2, by = y0 + H - 56;
@@ -631,53 +721,67 @@ export class CampScene extends Phaser.Scene {
         saveProfile(p);
         this.openPanel('gioca', '');
       }, 12));
-      items.push(this.add.text(x0 + 16, (stack ? by - 48 : by) - 16, 'risorse a fine campagna: breve ×0.8 · standard ×1 · lunga ×1.4', textStyle(8, PALETTE.tenue, false)));
     }
     items.push(this.btn('AVVIA LA CAMPAGNA ▶', stack ? x0 + 16 : x0 + 16 + bw + 10, by, bw, true, () => {
-      analytics.design(['campagna', 'avvia', `${civ}:${p.campaign}`]);
+      analytics.design(['campagna', 'avvia', `${civ}:${p.campaign}:${fi}`]);
       this.scene.start('Load', { next: 'Run', data: { seed: randomSeed() } });
     }, 13));
   }
 
-  /** Laboratorio: la prossima ricerca di ogni ramo + archivio della Caduta. */
-  private fillLab(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, H: number, now: number) {
+  /** Fronti: la scala della difficoltà (alla Clash). Si sblocca il successivo vincendo; potenza consigliata contro la tua. */
+  private fillFronts(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, H: number) {
     const p = this.profile;
-    const lvl = p.buildings.laboratorio;
-    items.push(this.link('migliora ›', x0 + W - 40, y0 + 12, () => this.openPanel('laboratorio', 'build')));
-    if (this.panelMode === 'archivio') {
-      const frags = loreFragments(p);
-      items.push(this.add.text(x0 + 16, y0 + 12, `ARCHIVIO DELLA CADUTA  ${frags.length}/${loreTotal}`, textStyle(16, INK)));
-      const txt = frags.length ? frags.map((f, i) => `${i + 1}. ${f.name.toUpperCase()}\n${f.lore}`).join('\n\n')
-        : 'Nessun frammento. Le ricerche del ramo "La Caduta" riempiono questo archivio.';
-      items.push(this.add.text(x0 + 16, y0 + 44, txt, textStyle(10, PALETTE.carta, false)).setWordWrapWidth(W - 32).setLineSpacing(3));
-      items.push(this.link('‹ ricerche', x0 + 16, y0 + H - 26, () => this.openPanel('laboratorio', ''), 0));
-      return;
-    }
-    items.push(this.add.text(x0 + 16, y0 + 12, `LABORATORIO  liv. ${lvl}/${maxLvl('laboratorio')}`, textStyle(16, INK)));
-    const r = p.research;
-    items.push(this.add.text(x0 + 16, y0 + 36, r ? `IN RICERCA: ${techInfo(r.id as TechId).name.toUpperCase()} · ${fmtTime(r.until - now)}` : 'Scegli una ricerca. Una alla volta; non blocca le campagne.',
-      textStyle(10, r ? PALETTE.radioattivo : PALETTE.carta, !!r)));
-    const why = { done: '', nolab: '', lab: 'serve laboratorio di livello più alto', prev: '', busy: 'ricerca in corso', cost: 'risorse insufficienti' } as const;
-    nextInBranches(p).forEach((id, k) => {
-      const t = techInfo(id), block = researchBlock(p, id), y = y0 + 56 + k * 46;
-      const row = this.add.rectangle(x0 + 16, y, W - 32, 42, block ? PALETTE.inchiostro : 0x1b2634).setOrigin(0)
-        .setStrokeStyle(1, block ? PALETTE.linea : PALETTE.ocra).setInteractive({ useHandCursor: !block });
-      row.on('pointerup', () => {
-        if (block || !startResearch(p, id, Date.now())) return;
-        analytics.design(['laboratorio', 'avvia', id]);
-        analytics.resources('sink', t.cost, 'ricerca', id);
+    const power = playerPower(p), max = p.frontMax ?? 0, sel = activeFront(p);
+    items.push(this.add.text(x0 + 16, y0 + 10, 'FRONTI', textStyle(16, INK)),
+      this.add.text(x0 + 110, y0 + 16, `la tua potenza: ${power}`, textStyle(11, PALETTE.ocra)),
+      this.link('‹ indietro', x0 + W - 40, y0 + 12, () => this.openPanel('gioca', '')));
+    const rh = Math.min(46, (H - 52) / BALANCE.fronts.length - 4);
+    BALANCE.fronts.forEach((F, k) => {
+      const y = y0 + 44 + k * (rh + 4), open = k <= max, weak = power < F.power;
+      const r = this.add.rectangle(x0 + 16, y, W - 32, rh, k === sel ? 0x1b2634 : PALETTE.inchiostro).setOrigin(0)
+        .setStrokeStyle(k === sel ? 2 : 1, k === sel ? PALETTE.ocra : PALETTE.linea).setAlpha(open ? 1 : 0.5).setInteractive({ useHandCursor: open });
+      r.on('pointerup', () => {
+        if (!open) return this.toast(`Vinci il fronte ${ROMAN[k - 1]} per sbloccarlo`, PALETTE.carta);
+        p.front = k;
         saveProfile(p);
-        this.updateStash();
-        this.openPanel('laboratorio', '');
-        this.toast(`Ricerca avviata: ${t.name}`, PALETTE.carta);
+        this.openPanel('gioca', '');
       });
-      const cost = RESOURCES.filter((q) => t.cost[q]).map((q) => `${t.cost[q]} ${RESOURCE_INFO[q].name.toLowerCase()}`).join(' · ');
-      items.push(row,
-        this.add.text(x0 + 24, y + 5, `${BRANCHES[t.branch].toUpperCase()} › ${t.name} — ${t.desc}`, textStyle(11, block ? PALETTE.tenue : PALETTE.carta)).setWordWrapWidth(W - 48),
-        this.add.text(x0 + 24, y + 24, block ? why[block] || cost : `${cost} · ${fmtTime(t.timeSec * 1000)}`, textStyle(9, block === 'cost' ? PALETTE.ko : PALETTE.ocra, false)));
+      items.push(r,
+        this.add.text(x0 + 30, y + rh / 2, ROMAN[k], textStyle(18, open ? PALETTE.ocra : PALETTE.tenue)).setOrigin(0.5),
+        this.add.text(x0 + 52, y + 5, `${F.name.toUpperCase()}  ${'★'.repeat(k + 1)}`, textStyle(11, open ? PALETTE.carta : PALETTE.tenue)),
+        this.add.text(x0 + 52, y + rh - 5, open ? `potenza ${F.power}${weak ? ' · troppo forti per te' : ''} · bottino ×${F.lootMult}` : '🔒 vinci il fronte precedente',
+          textStyle(9, open && weak ? PALETTE.ko : PALETTE.tenue, false)).setOrigin(0, 1));
     });
-    items.push(this.link(`archivio della Caduta (${loreFragments(p).length}/${loreTotal}) ›`, x0 + 16, y0 + H - 26, () => this.openPanel('laboratorio', 'archivio'), 0));
   }
+
+  /** Archivio della Caduta: i frammenti di lore sbloccati dal ramo "La Caduta" dell'albero. */
+  private fillLab(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, H: number) {
+    const frags = loreFragments(this.profile);
+    items.push(this.add.text(x0 + 16, y0 + 12, `ARCHIVIO DELLA CADUTA  ${frags.length}/${loreTotal}`, textStyle(16, INK)));
+    const txt = frags.length ? frags.map((f, i) => `${i + 1}. ${f.name.toUpperCase()}\n${f.lore}`).join('\n\n')
+      : 'Nessun frammento. Le ricerche del ramo "La Caduta" riempiono questo archivio.';
+    items.push(this.add.text(x0 + 16, y0 + 44, txt, textStyle(10, PALETTE.carta, false)).setWordWrapWidth(W - 32).setLineSpacing(3));
+    items.push(this.link('albero della ricerca ›', x0 + 16, y0 + H - 26, () => this.openTree('caduta'), 0));
+  }
+
+  /** Albero della ricerca a tutto schermo, sopra l'HQ. */
+  openTree(focus: string) {
+    this.closePanel();
+    this.scene.launch('Tree', { focus });
+    this.scene.bringToTop('Tree');
+  }
+
+  /** Dall'albero: apre la scheda di una postazione (per migliorarla). */
+  openBuilding(id: BuildingId) {
+    this.openPanel(id, 'build');
+  }
+
+  /** Dopo l'albero: scorta e moduli aggiornati. */
+  refreshAfterTree() {
+    this.updateStash();
+    for (const id of BUILDINGS) this.redrawSpot(id);
+  }
+
 
   /** Sala Radar: registro delle campagne (record locali; la classifica online è fuori dall'MVP). */
   private fillRadar(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, _H: number) {

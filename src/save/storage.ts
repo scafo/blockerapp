@@ -17,11 +17,14 @@ export interface Profile {
   expeditionsDone: number;
   civ: CivId; // ultima civiltà scelta (la Rivincita la riusa)
   campaign: CampaignId; // ultima durata scelta
+  front?: number; // fronte scelto (difficoltà)
+  frontMax?: number; // ultimo fronte sbloccato (si sblocca vincendo il precedente)
   techs: string[]; // ricerche completate
   deck: UnitType[]; // mazzo scelto (max 4 truppe)
   research: { id: string; until: number } | null;
   history: CampaignRecord[]; // registro della Sala Radar (più recenti per prime)
   test?: boolean; // modalità test: tutto sbloccato, timer istantanei
+  tree?: number; // 1 = armamenti già convertiti in ricerche (albero della ricerca)
 }
 
 export interface CampaignRecord {
@@ -38,7 +41,7 @@ const KEY = 'ashen-atlas:profile';
 export const freshProfile = (): Profile => ({
   v: 1, stash: emptyBag(), runs: 0, wins: 0, bestTiles: 0,
   buildings: { arsenale: 0, comando: 0, deposito: 0, laboratorio: 0, radar: 0 }, construction: null, expedition: null, expeditionsDone: 0,
-  civ: 'republica', campaign: 'standard', techs: [], deck: [], research: null, history: [],
+  civ: 'republica', campaign: 'standard', techs: [], deck: [], research: null, history: [], tree: 1,
 });
 
 export function loadProfile(): Profile {
@@ -64,6 +67,15 @@ function migrate(p: Record<string, any>): Record<string, any> {
   ren(p.expedition?.reward, res);
   ren(p.buildings, { fucina: 'arsenale', radio: 'comando', magazzino: 'deposito' });
   if (p.construction) p.construction.id = ({ fucina: 'arsenale', radio: 'comando', magazzino: 'deposito' } as Record<string, string>)[p.construction.id] ?? p.construction.id;
+  // prima dell'albero l'Arsenale sbloccava le armi da solo: chi le aveva le tiene come ricerche fatte
+  if (!p.tree) {
+    const lvl = p.buildings?.arsenale ?? 0;
+    const byLevel = [[], ['ricognitori'], ['artiglieria'], ['corazzati', 'genio'], ['cannoniera'], ['munizioni', 'ricognizione', 'bombardamento'], ['unica']];
+    const techs = new Set<string>(p.techs ?? []);
+    for (let l = 1; l <= Math.min(lvl, 6); l++) for (const id of byLevel[l]) techs.add(id);
+    p.techs = [...techs];
+    p.tree = 1;
+  }
   return p;
 }
 

@@ -11,7 +11,8 @@ import { NEIGHBORS, WORLD_H, WORLD_W, center, corners, pixelToIndex } from '../m
 import { buildShapes, provinceAtPoint, type MapShapes } from '../map/provinceShapes';
 import { loadWorld } from '../map/worldAsset';
 import { ProvinceLayer } from '../render/ProvinceLayer';
-import { NEUTRAL, PLAYER, RunState } from '../game/RunState';
+import { NEUTRAL, PLAYER, RunState, WORKS } from '../game/RunState';
+import { WORK_NAME, drawWorkIcon } from '../ui/workIcons';
 import { FACTION_INFO, assignFactions } from '../game/factions';
 import { textStyle } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
@@ -40,6 +41,7 @@ export class RunScene extends Phaser.Scene {
   private borderKey = '';
   private chainBox: Float32Array = new Float32Array(0);
   private ruinTiles: number[] = [];
+  private workTimer = 0;
   private frontImgs = new Map<number, Phaser.GameObjects.Image>();
   private planImgs = new Map<number, Phaser.GameObjects.Image>();
   /** Etichette per l'interfaccia (spazio schermo, sempre nitide). */
@@ -128,6 +130,7 @@ export class RunScene extends Phaser.Scene {
     this.drawSea();
     this.drawLand();
     this.bakeStatic(this.children.list.slice(before));
+    this.drawRelief();
     this.ownLayer?.destroy(this);
     this.ownLayer = new ProvinceLayer(this, this.shapes.provinces, LOW_END ? 1.2 : 1.8, D.owned);
     this.borderGfx = this.add.graphics().setDepth(D.borders);
@@ -221,6 +224,18 @@ export class RunScene extends Phaser.Scene {
       } else if (e.type === 'offensive') {
         this.hud.onOffensive(e.faction, e.phase, e.lost);
         if (e.phase === 'start') this.cameras.main.shake(300, 0.004);
+      } else if (e.type === 'work') {
+        this.borderKey = ''; // icone delle costruzioni da ridisegnare
+        if (e.by === PLAYER) {
+          const { x, y } = center(this.map.provinces[e.p].anchor);
+          const name = WORK_NAME[e.work];
+          if (e.phase === 'done') {
+            this.flashProvince(e.p, PALETTE.ocra, 0.55, 700);
+            this.floatText(x, y - 6, `${name} pronta`, PALETTE.ocra);
+            buzz(20);
+          } else this.floatText(x, y - 6, `cantiere: ${name.toLowerCase()}`, PALETTE.allerta);
+        }
+        this.hud.refreshProvince();
       } else {
         this.hud.onEliminated(e.faction, e.by, e.loot);
       }
@@ -246,6 +261,11 @@ export class RunScene extends Phaser.Scene {
       this.redrawFrontier(true);
     } else if (ticks > 0) {
       this.redrawFrontier();
+    }
+    this.workTimer -= delta;
+    if (this.workTimer <= 0) {
+      this.workTimer = 400;
+      if (this.state.provWorkAt.some((t) => t > 0)) this.borderKey = ''; // avanzamento dei cantieri
     }
     this.redrawBorders();
     this.syncPlan();
@@ -381,9 +401,12 @@ export class RunScene extends Phaser.Scene {
       let color: number = MP.fondo;
       if (r.id >= 0) {
         const p = provs[r.id];
-        const desert = p.tiles.filter((i) => tiles[i]!.type === 'deserto').length / p.tiles.length;
+        const frac = (t: string) => p.tiles.filter((i) => tiles[i]!.terrain === t).length / p.tiles.length;
         const jitter = ((((r.id * 40503) >>> 0) % 7) - 3) * 0.012; // province appena distinguibili
-        color = mix(MP.nazioni[tone.get(p.country) ?? 0], MP.deserto, desert * 0.55);
+        // il terreno tinge la provincia: sabbia nei deserti, roccia in montagna, verde oliva sulle colline
+        color = mix(MP.nazioni[tone.get(p.country) ?? 0], MP.deserto, frac('deserto') * 0.6);
+        color = mix(color, 0x8b939c, frac('montagne') * 0.32);
+        color = mix(color, 0x66745a, frac('colline') * 0.16);
         color = jitter > 0 ? mix(color, 0xffffff, jitter) : mix(color, 0x000000, -jitter);
       }
       for (const part of r.parts) {
@@ -392,6 +415,30 @@ export class RunScene extends Phaser.Scene {
       }
     }
     // i confini li disegna redrawBorders, vettoriali e nitidi a ogni zoom
+  }
+
+  /**
+   * Rilievo morbido (luce da nord-ovest, ombra a sud-est) in una texture a bassa risoluzione: ingrandita, sfuma da sola.
+   * Sotto i colori delle fazioni: sopra il territorio parlano i simboli del terreno.
+   */
+  private drawRelief() {
+    const R = 0.5; // pixel di texture per pixel-mondo
+    const rt = this.add.renderTexture(0, 0, Math.ceil(WORLD_W * R), Math.ceil(WORLD_H * R)).setOrigin(0).setScale(1 / R).setDepth(0.5);
+    const g = this.make.graphics({}, false);
+    for (const i of this.map.land) {
+      const t = this.map.tiles[i]!.terrain;
+      if (t === 'pianura') continue;
+      const { x, y } = center(i);
+      if (t === 'deserto') {
+        g.fillStyle(0xe8cf95, 0.1).fillCircle(x * R, y * R, S * 1.3 * R);
+        continue;
+      }
+      const k = t === 'montagne' ? 1 : 0.45;
+      g.fillStyle(0xe4ebf2, 0.13 * k).fillCircle((x - S * 0.45) * R, (y - S * 0.5) * R, S * 1.5 * R);
+      g.fillStyle(0x000000, 0.17 * k).fillCircle((x + S * 0.5) * R, (y + S * 0.55) * R, S * 1.4 * R);
+    }
+    rt.draw(g);
+    g.destroy();
   }
 
   /** Territorio: un solo colore pieno per potenza (sagome tinte); i nemici nella nebbia non si vedono. */
@@ -437,13 +484,15 @@ export class RunScene extends Phaser.Scene {
       if (!inView(k)) return;
       const pa = c.a >= 0 ? provs[c.a] : null, pb = c.b >= 0 ? provs[c.b] : null;
       if (pa && pb && pa.country === pb.country) {
-        if (z < 1.1) return;
+        if (z < 1.5) return;
         g.lineStyle(1.1 * px, MP.provincia, 0.7);
       } else if (pa && pb) g.lineStyle(1.6 * px, MP.confine, 0.55);
       else g.lineStyle(1.3 * px, MP.costa, 0.7);
       this.strokeChain(g, c.pts, c.closed, step);
     });
+    this.drawTerrainGlyphs(g, v, px, z);
     this.drawCities(g, v, px);
+    this.drawWorks(g, v, px);
     // confini tra potenze, sopra
     const w = 2.2 * px;
     this.shapes.chains.forEach((c, k) => {
@@ -584,6 +633,7 @@ export class RunScene extends Phaser.Scene {
   }
 
   private tapTile(i: number) {
+    this.hud.hideProvince();
     if (i < 0) return;
     const { x, y } = center(i);
     if (this.selectedAbility) {
@@ -646,7 +696,7 @@ export class RunScene extends Phaser.Scene {
           this.state.plan.length = 0; // alt: si ferma anche il piano
           this.state.stopFlow();
           this.floatText(x, y - 4, 'alt!', PALETTE.carta);
-        }
+        } else this.hud.showProvince(p); // scheda della provincia: terreno, produzione, costruzioni
         return;
       }
       if (this.state.passable(i)) {
@@ -719,11 +769,57 @@ export class RunScene extends Phaser.Scene {
     });
   }
 
+  /** Simboli del terreno da vicino: picchi sulle montagne, archi sulle colline (a scacchiera, per non affollare). */
+  private drawTerrainGlyphs(g: Phaser.GameObjects.Graphics, v: Phaser.Geom.Rectangle, px: number, z: number) {
+    if (z < 2.2) return;
+    const { cols, rows } = BALANCE.map;
+    const r0 = Math.max(0, Math.floor((v.y - 2 * S) / (1.5 * S))), r1 = Math.min(rows - 1, Math.ceil((v.bottom + 2 * S) / (1.5 * S)));
+    const hw = Math.sqrt(3) * S;
+    const c0 = Math.max(0, Math.floor(v.x / hw) - 1), c1 = Math.min(cols - 1, Math.ceil(v.right / hw) + 1);
+    const tiles = this.map.tiles;
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+      const i = r * cols + c, t = tiles[i];
+      if (!t || t.terrain === 'pianura' || t.terrain === 'deserto') continue;
+      const { x, y } = center(i);
+      if (t.terrain === 'montagne') {
+        if ((c + 2 * r) % 3) continue; // una su tre: catene leggibili, non un tappeto
+        const h = S * 1.05;
+        g.lineStyle(1.3 * px, 0xeef2f6, 0.45).strokePoints([{ x: x - h, y: y + h * 0.55 }, { x, y: y - h * 0.65 }, { x: x + h, y: y + h * 0.55 }], false);
+        g.lineStyle(1 * px, 0xeef2f6, 0.35).lineBetween(x - h * 0.3, y - h * 0.25, x + h * 0.05, y + h * 0.05); // cresta innevata
+      } else if ((2 * c + r) % 5 === 0) {
+        g.lineStyle(1.1 * px, 0xdfe6ee, 0.3).beginPath().arc(x, y + S * 0.35, S * 0.65, Math.PI * 1.15, Math.PI * 1.85).strokePath();
+      }
+    }
+  }
+
+  /** Costruzioni nelle province inquadrate (le tue e quelle nemiche che vedi): icona e cantiere con l'avanzamento. */
+  private drawWorks(g: Phaser.GameObjects.Graphics, v: Phaser.Geom.Rectangle, px: number) {
+    const st = this.state;
+    for (let p = 0; p < st.provWork.length; p++) {
+      const w = st.provWork[p];
+      if (w < 0) continue;
+      const o = st.provOwner[p];
+      if (o !== PLAYER && !st.seesProv(p)) continue;
+      const a = this.map.provinces[p].anchor;
+      const { x: cx, y: cy } = center(a);
+      const x = cx + 9 * px, y = cy - 7 * px;
+      if (x < v.x - 20 || x > v.right + 20 || y < v.y - 20 || y > v.bottom + 20) continue;
+      const r = 7 * px, col = o >= 0 ? FACTION_INFO[o].border : PALETTE.carta;
+      g.fillStyle(PALETTE.inchiostro, 0.88).fillCircle(x, y, r).lineStyle(1.4 * px, col, 1).strokeCircle(x, y, r);
+      drawWorkIcon(g, WORKS[w], x, y, r * 0.62, col);
+      const prog = st.workInProgress(p);
+      if (prog) {
+        const k = 1 - prog.leftMs / BALANCE.works[prog.work].timeMs;
+        g.lineStyle(2 * px, PALETTE.allerta, 1).beginPath().arc(x, y, r + 2.5 * px, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k).strokePath();
+      }
+    }
+  }
+
   /** Città (punto), capitali (stella dorata) e insediamenti (rombo) inquadrati: dimensione costante sullo schermo. */
   private drawCities(g: Phaser.GameObjects.Graphics, v: Phaser.Geom.Rectangle, px: number) {
     const MP = PALETTE.mappa, z = 1 / px;
     const inV = (x: number, y: number) => x > v.x - 8 && x < v.right + 8 && y > v.y - 8 && y < v.bottom + 8;
-    if (z >= 1.6) {
+    if (z >= 2.4) {
       g.fillStyle(MP.segno, 0.55);
       for (const i of this.ruinTiles) {
         const { x, y } = center(i);
@@ -743,7 +839,7 @@ export class RunScene extends Phaser.Scene {
           star.push({ x: x + r * Math.cos(a), y: y + r * Math.sin(a) });
         }
         g.fillStyle(MP.capitale, 1).fillPoints(star, true).lineStyle(1 * px, 0x000000, 0.6).strokePoints(star, true, true);
-      } else if (z >= 1.1) {
+      } else if (z >= 1.7) {
         g.fillStyle(0x000000, 0.5).fillCircle(x, y, 3 * px).fillStyle(MP.segno, 0.95).fillCircle(x, y, 2 * px);
       }
     }

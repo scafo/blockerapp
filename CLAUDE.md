@@ -56,9 +56,19 @@ forti + simboli (daltonismo).
 - Mappa del mondo divisa in nazioni reali e **province vere alla Call of War** (forme irregolari, la provincia è l'unità di conquista),
   riconoscibile ma alterata (seed). Pausa strategica alla HOI4: il tempo si ferma, gli ordini no.
 - Truppe generiche (pool) che crescono col territorio; tap/avanzata per conquistare; unità come pedine.
-- Eventi a carta con 2 scelte ~ogni 90 s. Fine: allo scadere della durata scelta (5/8/12 min) vince chi ha più territorio, altrimenti
+- Eventi a carta con 2 scelte ~ogni 90 s. Fine: allo scadere della durata scelta (10/20/30 min) vince chi ha più territorio, altrimenti
   "fine delle operazioni" (bottino intatto). **Niente tempesta né zone tossiche** (Nico: mai chiesti). Ritirata = tieni il bottino; eliminato = perdi il 70%.
 - Vittoria: 60% della regione / 3 Frammenti (anomalie) / più territorio a fine campagna.
+- **Terreno vero** (pianura, colline, montagne, deserto: regioni fisiche di Natural Earth) e **costruzioni nelle province**
+  (Fabbrica, Bunker, Caserma, alla Call of War). **Fronti I–VI** di difficoltà crescente: si entra, si fa il primo impero con poche
+  cose e si raccolgono risorse; poi i nemici diventano troppo forti e bisogna potenziare HQ, armi e ricerche per continuare.
+
+## Tempi di gioco (calcolati con `scripts/sim.ts`, giocatore attivo)
+- Run guidata: ~2–3 min di conquista (+ i passi della guida).
+- Campagna standard 20 min, Fronte I: primo impero (15 province) a ~2:30–3:00; fine della tregua IA a 4:00; primo contatto 4:30–9:00;
+  prima offensiva a 7:00, poi ogni ~3:30; a 20:00 vince chi ha più territorio (70–200 province). Bottino ~450–900. Breve 10 min, lunga 30.
+- Muro di difficoltà: Fronte III senza potenziamenti 1 vittoria su 4, con HQ a metà 4 su 4; Fronte V con HQ a metà 0 su 4,
+  con HQ al massimo 1 su 4. HQ + tutte le ricerche costano ~13.400 risorse (una decina di campagne).
 
 ## Regole di design
 - Max 5–6 scelte a schermo. Mappa sempre libera al centro, comandi negli angoli in basso.
@@ -108,6 +118,20 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   (`textSize` in `src/ui/style.ts`), pixel allineati sulle camere di interfaccia, canvas a misura CSS esatta; testi della mappa disegnati nello spazio dello schermo (`src/render/MapLabels.ts`),
   sempre nitidi a ogni zoom; mappa statica in texture a tasselli 2,6× (1,6× sui dispositivi deboli).
 
+- **Ritmo e progressione** (ultima richiesta di Nico: gioco più lento, partite fino a 30 min, primo impero → nemici troppo forti →
+  potenziare): durate 10/20/30 min (`campaigns`); crescita 0,045 per casella pesata dal terreno; **sovraestensione** (`overextension`):
+  ogni provincia posseduta rende le prossime +4% più care (non i Frammenti), così l'impero cresce veloce all'inizio e poi a ritmo costante.
+  **Fronti** (`fronts`, testi in `src/data/fronts.json`): crescita, truppe, armi, vita delle unità, difese, bunker, tregua e offensive
+  delle IA; il successivo si sblocca vincendo (`frontMax`); nella preparazione: potenza consigliata contro la tua (`playerPower`,
+  pesi in `power`), armi nemiche (in rosso quelle che non hai), briefing. **Terreno** (`terrain`, dati in `scripts/data/ne-terrain.json`
+  e in `worldmap.json`): difesa ×1–1,9, crescita ×0,45–1, pedine e avanzata più lente in montagna, ogni provincia produce la risorsa
+  del suo terreno ogni minuto (pianura cibo, colline e montagne metallo, deserto benzina). **Costruzioni** (`works`): tocca una tua
+  provincia → scheda (terreno, difesa, produzione) e tre cantieri pagati con truppe + zaino in tempo di gioco: Fabbrica (produzione ×2,5),
+  Bunker (difesa ×1,7), Caserma (+10 caselle di crescita, serve Addestramento); restano alla provincia se cambia padrone; le IA dei
+  fronti alti hanno bunker. HUD: entrate al minuto sotto ogni risorsa. **Albero della ricerca** (`TreeScene`, Laboratorio e tasto
+  RICERCA): ramo Armamenti (unità e abilità si ricercano, l'Arsenale decide fin dove) + Esercito/Logistica/Economia/Difesa/La Caduta
+  con prerequisiti (`tech.*.req`). **HQ alla Clash**: Deposito con capienza (`depositoCap`, oltre si perde), barre di riempimento,
+  potenza e fronte, cantiere e ricerca in corso, distintivi di livello e "migliorabile" sui moduli, schede postazione con illustrazione.
 - **Carta vera già pronta** (ultima richiesta di Nico: "prendi una mappa del mondo già fatta e facci delle forme dentro, molto grande"):
   `npm run build:map` (`scripts/build-map.ts`, da rilanciare solo se cambia la griglia) prende Natural Earth 1:50M (`world-atlas/countries-50m`), semplifica la
   topologia, divide ogni nazione in province con celle di Voronoi rilassate (Lloyd) e ritagliate sui confini veri (`polygon-clipping`),

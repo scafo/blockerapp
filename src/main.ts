@@ -5,6 +5,7 @@ import { BootScene } from './scenes/BootScene';
 import { CampScene } from './scenes/CampScene';
 import { HudScene } from './scenes/HudScene';
 import { LoadScene } from './scenes/LoadScene';
+import { TreeScene } from './scenes/TreeScene';
 import { ResultScene } from './scenes/ResultScene';
 import { RunScene } from './scenes/RunScene';
 import { DPR } from './ui/screen';
@@ -50,7 +51,7 @@ function boot() {
     scale: { mode: Phaser.Scale.NONE, width: w, height: h, zoom: 1 / DPR },
     input: { activePointers: 3 },
     render: { antialias: true },
-    scene: [BootScene, CampScene, RunScene, HudScene, ResultScene, LoadScene],
+    scene: [BootScene, CampScene, RunScene, HudScene, ResultScene, TreeScene, LoadScene],
   });
   // debug/test: accesso al gioco dalla console
   (window as unknown as { __game: Phaser.Game }).__game = game;

@@ -6,6 +6,10 @@ export interface Mods {
   growthMult: number; // crescita truppe del giocatore
   unitCostMult: number;
   unitHpMult: number;
+  unitAttackMult: number; // danni delle unità del giocatore
+  attackCostMult: number; // truppe per prendere province (neutrali e nemiche)
+  prodMult: number; // produzione delle province
+  bunkerMult: number; // forza dei tuoi bunker
   lootMult: number; // bottino raccolto sulla mappa
   flowSpeedMult: number; // velocità dell'avanzata
   capitalTroopsMult: number; // truppe dalle capitali conquistate
@@ -20,7 +24,7 @@ export interface Mods {
 }
 
 export const BASE_MODS: Mods = {
-  neutralCostMult: 1, ownedDefenseMult: 1, growthMult: 1, unitCostMult: 1, unitHpMult: 1, lootMult: 1, flowSpeedMult: 1,
+  neutralCostMult: 1, ownedDefenseMult: 1, growthMult: 1, unitCostMult: 1, unitHpMult: 1, unitAttackMult: 1, attackCostMult: 1, prodMult: 1, bunkerMult: 1, lootMult: 1, flowSpeedMult: 1,
   capitalTroopsMult: 1, anomalyDefenseMult: 1, expeditionTimeMult: 1,
   fogBonus: 0, startTroops: 0, settlementGrowth: 0, settlementDefense: 0, settlementLoot: 0, anomaliesNeeded: 0,
 };

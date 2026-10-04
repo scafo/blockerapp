@@ -1,34 +1,34 @@
 {
   "arsenale": {
     "name": "Arsenale",
-    "desc": "Sblocca e migliora unità e armamenti. Le casse arrivano sigillate: nessuno chiede da dove.",
+    "desc": "Sblocca e migliora unità e armamenti: ogni livello apre nuove ricerche nel ramo Armamenti. Le casse arrivano sigillate: nessuno chiede da dove.",
     "levels": [
-      "Sblocca i Ricognitori",
-      "Sblocca l'Artiglieria",
-      "Sblocca Corazzati e Genio",
-      "Sblocca la Cannoniera (nave da costa)",
-      "Abilità: Ricognizione aerea e Bombardamento",
-      "Unità unica della civiltà, unità +25% vita"
+      "Armamenti: Ricognitori",
+      "Armamenti: Artiglieria",
+      "Armamenti: Corazzati, Genio, Munizioni",
+      "Armamenti: Cannoniera, Corazze",
+      "Armamenti: Ricognizione aerea, Bombardamento",
+      "Armamenti: unità della potenza · unità +25% vita"
     ]
   },
   "comando": {
     "name": "Centro di Comando",
     "desc": "Il quartier generale. Il suo livello sblocca tutto: le altre postazioni non possono superarlo di più di un livello.",
     "levels": [
-      "Rapporti dal campo: eventi durante le campagne",
-      "Intercettazioni: frammenti sul mistero della Caduta",
-      "Rete di allerta: +30 s per ogni campagna",
-      "Coordinamento: un'unità in più in campo",
-      "Comando supremo: abilità -25% di ricarica"
+      "Rapporti dal campo: eventi durante le campagne · truppe +4%",
+      "Intercettazioni: frammenti sul mistero della Caduta · truppe +8%",
+      "Rete di allerta: +30 s per ogni campagna · truppe +12%",
+      "Coordinamento: un'unità in più in campo · truppe +16%",
+      "Comando supremo: abilità -25% di ricarica · truppe +20%"
     ]
   },
   "deposito": {
     "name": "Deposito",
-    "desc": "Capacità delle risorse e quanto bottino salvi se la campagna va male.",
+    "desc": "Capienza delle risorse (alla base 500 per tipo: oltre si perde) e quanto bottino salvi se la campagna va male.",
     "levels": [
-      "Se eliminato perdi solo il 40% del bottino",
-      "Se eliminato perdi solo il 25%",
-      "Ritirata ordinata: +10% sul bottino"
+      "Capienza 1000 · se eliminato perdi solo il 40%",
+      "Capienza 2000 · se eliminato perdi solo il 25%",
+      "Capienza 4000 · ritirata ordinata: +10% sul bottino"
     ]
   },
   "spedizione": {

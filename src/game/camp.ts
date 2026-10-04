@@ -1,5 +1,5 @@
 // Accampamento: edifici, cantiere, spedizioni e ciò che cambiano nelle run. Niente Phaser.
-import { BALANCE, type AbilityType, type CampaignId, type CivId, type UnitType } from '../config/balance';
+import { BALANCE, type AbilityType, type CampaignId, type CivId, type FrontDef, type UnitType } from '../config/balance';
 import { civMods, civUnlocked, civInfo } from './civs';
 import { BASE_MODS, combine, type Mods } from './mods';
 import { techMods } from './tech';
@@ -22,6 +22,9 @@ export interface RunOptions {
   civ: CivId; // civiltà del giocatore
   campaign: CampaignId;
   endMs: number; // durata della campagna (Centro di Comando: un po' di tempo in più)
+  front: FrontDef; // difficoltà: forza delle IA
+  frontIndex: number;
+  techs: string[]; // ricerche fatte (sbloccano costruzioni)
   campaignLootMult: number; // campagne lunghe = più risorse a casa
   mods: Mods;
   abilities: AbilityType[]; // abilità a ricarica sbloccate
@@ -34,16 +37,24 @@ export const DEFAULT_OPTIONS: RunOptions = {
   units: ['fanteria', 'ricognitori', 'artiglieria'], unitHpMult: 1, events: 0,
   eliminatedLoss: BALANCE.end.eliminatedLoss, retreatBonus: 0, tutorial: false, fog: false,
   civ: 'republica', campaign: 'standard', endMs: BALANCE.campaigns.standard.durationMs, campaignLootMult: 1, mods: BASE_MODS,
+  front: BALANCE.fronts[0], frontIndex: 0, techs: [],
   abilities: [], maxUnitsBonus: 0, abilityCdMult: 1,
 };
 
-/** Truppe sbloccate dall'Arsenale (più l'unità unica della civiltà al liv. 6). */
+/** Truppe sbloccate dall'albero della ricerca (ramo Armamenti): Fanteria sempre, il resto si ricerca. */
 export function unlockedUnits(p: Profile, civ: CivId = activeCiv(p)): UnitType[] {
-  const lvl = p.buildings.arsenale;
-  const units = [...C.arsenaleUnits[lvl]] as UnitType[];
-  if (lvl >= C.arsenaleUnique) units.push(civInfo(civ).unit);
+  const units: UnitType[] = ['fanteria'];
+  for (const id of p.techs) {
+    const t = BALANCE.tech[id];
+    if (t?.unit) units.push(t.unit);
+    if (t?.unique) units.push(civInfo(civ).unit);
+  }
   return units;
 }
+
+/** Abilità ricercate (Ricognizione aerea, Bombardamento). */
+export const unlockedAbilities = (p: Profile): AbilityType[] =>
+  p.techs.map((id) => BALANCE.tech[id]?.ability).filter((a): a is AbilityType => !!a);
 
 /** Mazzo della campagna: le scelte del giocatore ancora valide, completate con le sbloccate fino a 4. */
 export function deckOf(p: Profile, civ: CivId = activeCiv(p)): UnitType[] {
@@ -58,22 +69,36 @@ export const civChoice = (p: Profile) => p.runs >= BALANCE.progression.civChoice
 export const campaignChoice = (p: Profile) => p.runs >= BALANCE.progression.campaignChoiceAfterRuns;
 export const activeCiv = (p: Profile): CivId => (civChoice(p) && civUnlocked(p, p.civ) ? p.civ : 'republica');
 export const activeCampaign = (p: Profile): CampaignId => (campaignChoice(p) ? p.campaign : 'standard');
+/** Fronte scelto (mai oltre l'ultimo sbloccato). */
+export const activeFront = (p: Profile): number => Math.max(0, Math.min(p.front ?? 0, p.frontMax ?? 0, BALANCE.fronts.length - 1));
+
+/** Potenza del giocatore: livelli delle postazioni e ricerche fatte (si confronta con quella consigliata del fronte). */
+export function playerPower(p: Profile): number {
+  const W = BALANCE.power;
+  const b = p.buildings;
+  return b.arsenale * W.arsenale + b.comando * W.comando + b.laboratorio * W.laboratorio + b.deposito * W.deposito + b.radar * W.radar
+    + p.techs.filter((id) => id in BALANCE.tech).length * W.tech;
+}
 
 export function runOptions(p: Profile): RunOptions {
   const { arsenale, comando, deposito, radar } = p.buildings;
   const tutorial = p.runs === 0;
-  const civ = activeCiv(p), campaign = activeCampaign(p);
+  const civ = activeCiv(p), campaign = activeCampaign(p), front = tutorial ? 0 : activeFront(p);
   // la run guidata resta semplice: niente bonus
   const mods = tutorial ? { ...BASE_MODS } : combine(...civMods(civ), ...techMods(p), { fogBonus: C.radarFogBonus[radar] });
   const units = deckOf(p, civ);
   if (p.test) Object.assign(mods, { startTroops: mods.startTroops + BALANCE.test.startTroops });
+  if (!tutorial) mods.growthMult *= C.comandoGrowthMult[comando]; // il Centro di Comando organizza la leva
   return {
-    abilities: arsenale >= C.arsenaleAbilities ? ['ricognizione', 'bombardamento'] : [],
+    abilities: tutorial ? [] : unlockedAbilities(p),
     maxUnitsBonus: C.comandoMaxUnitsBonus[comando],
     abilityCdMult: C.comandoAbilityCdMult[comando] * (p.test ? BALANCE.test.abilityCdMult : 1),
     civ, campaign, mods,
     endMs: BALANCE.campaigns[campaign].durationMs + C.comandoTimeBonusMs[comando],
-    campaignLootMult: BALANCE.campaigns[campaign].lootMult,
+    campaignLootMult: BALANCE.campaigns[campaign].lootMult * BALANCE.fronts[front].lootMult,
+    front: BALANCE.fronts[front],
+    frontIndex: front,
+    techs: tutorial ? [] : [...p.techs],
     units,
     unitHpMult: C.arsenaleHpMult[arsenale] * mods.unitHpMult,
     events: C.comandoEvents[comando],
@@ -131,10 +156,25 @@ export function startExpedition(p: Profile, kind: ExpeditionKind, now: number, r
   return true;
 }
 
+/** Capienza del Deposito per risorsa (modalità test: senza limite). */
+export const stashCap = (p: Profile): number => (p.test ? Infinity : C.depositoCap[p.buildings.deposito] ?? C.depositoCap[0]);
+
+/** Aggiunge alla scorta fino alla capienza; ritorna quanto va perso perché il Deposito è pieno. */
+export function addToStash(p: Profile, bag: Bag): number {
+  const cap = stashCap(p);
+  let lost = 0;
+  for (const r of RESOURCES) {
+    const v = p.stash[r] + bag[r];
+    lost += Math.max(0, v - Math.max(cap, p.stash[r]));
+    p.stash[r] = Math.min(v, Math.max(cap, p.stash[r]));
+  }
+  return lost;
+}
+
 export function collectExpedition(p: Profile, now: number): Bag | null {
   if (!p.expedition || p.expedition.until > now) return null;
   const r = p.expedition.reward;
-  RESOURCES.forEach((k) => (p.stash[k] += r[k]));
+  addToStash(p, r);
   p.expedition = null;
   p.expeditionsDone++;
   return r;

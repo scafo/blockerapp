@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import { BALANCE, type UnitType } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
-import { PLAYER, type Outcome, type VictoryReason } from '../game/RunState';
+import { PLAYER, WORKS, type Outcome, type VictoryReason } from '../game/RunState';
+import { techInfo } from '../game/tech';
+import { WORK_DESC, WORK_NAME, drawWorkIcon } from '../ui/workIcons';
 import { FACTION_INFO } from '../game/factions';
 import { RESOURCES, RESOURCE_INFO, bagTotal, type Bag } from '../game/resources';
 import type { GameEvent } from '../game/events';
@@ -44,8 +46,14 @@ export class HudScene extends Phaser.Scene {
   private pauseBtn!: Button;
   /** Pausa strategica: cornice + cartello, la mappa resta comandabile. */
   private pauseUi: Phaser.GameObjects.Container | null = null;
+  /** Scheda della provincia toccata (terreno, produzione, costruzioni). */
+  private provCard: Phaser.GameObjects.Container | null = null;
+  private provCardP = -1;
+  private provCardAcc = 0;
   private pauseFrame!: Phaser.GameObjects.Graphics;
   private stormText!: Phaser.GameObjects.Text;
+  private incTexts: Phaser.GameObjects.Text[] = [];
+  private incAcc = 0;
   private seed!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
   private leftPanel!: Phaser.GameObjects.Rectangle;
@@ -104,6 +112,8 @@ export class HudScene extends Phaser.Scene {
     // bottino: icone e numeri grandi, ognuno nel colore della sua risorsa
     this.resTexts = RESOURCES.map((r) => this.add.text(0, 0, '0', textStyle(20, RESOURCE_INFO[r].color)).setOrigin(0, 0.5));
     this.resLabel = this.add.text(0, 0, 'BOTTINO', textStyle(10, PALETTE.ocra));
+    // entrate al minuto sotto ogni risorsa: si vede cosa rende l'impero
+    this.incTexts = RESOURCES.map(() => this.add.text(0, 0, '', textStyle(9, PALETTE.tenue, false)).setOrigin(0, 0));
     this.stormText = this.add.text(0, 0, '', textStyle(12, PALETTE.ocra));
 
     // pannello destro: fazioni
@@ -309,6 +319,7 @@ export class HudScene extends Phaser.Scene {
     RESOURCES.forEach((r, k) => {
       drawResourceIcon(this.resIcons, r, x + 4 + k * step, y, 9);
       this.resTexts[k].setPosition(x + 18 + k * step, y);
+      this.incTexts[k].setPosition(x + 18 + k * step, y + 11);
     });
   }
 
@@ -317,9 +328,18 @@ export class HudScene extends Phaser.Scene {
     this.mapLabels.float(this.run, x, y, msg, color, delay);
   }
 
-  update() {
+  update(_t: number, delta: number) {
     const st = this.run.state;
     if (!st) return;
+    if ((this.incAcc -= delta) <= 0) {
+      this.incAcc = 1000;
+      const inc = st.incomePerMin();
+      RESOURCES.forEach((r, k) => this.incTexts[k].setText(inc[r] >= 0.05 ? `+${inc[r].toFixed(1).replace('.', ',')}/min` : ''));
+    }
+    if (this.provCard && (this.provCardAcc -= delta) <= 0) {
+      this.provCardAcc = 500;
+      this.renderProvince(); // cantiere che avanza, truppe e zaino che cambiano
+    }
     this.mapLabels.update(this.run);
     if (!this.ended) this.guide?.update();
     this.fps?.setText(`${Math.round(this.game.loop.actualFps)} fps`);
@@ -344,7 +364,8 @@ export class HudScene extends Phaser.Scene {
       this.stormText.setText(`prima missione: ${BALANCE.tutorial.goalProvinces} province`).setColor(hex(PALETTE.radioattivo));
     } else {
       const left = Math.max(0, st.timeLeft);
-      this.stormText.setText(`fine campagna tra ${mmss(left)}`).setColor(left <= BALANCE.campaign.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
+      this.stormText.setText(`fronte ${['I', 'II', 'III', 'IV', 'V', 'VI'][st.opts.frontIndex]} · fine tra ${mmss(left)}`)
+        .setColor(left <= BALANCE.campaign.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
     }
     this.seed.setText(`mappa #${st.map.seed}`);
 
@@ -543,6 +564,85 @@ export class HudScene extends Phaser.Scene {
     }
   }
 
+  showProvince(p: number) {
+    this.provCardP = p;
+    this.provCardAcc = 500;
+    this.renderProvince();
+  }
+
+  hideProvince() {
+    this.provCard?.destroy();
+    this.provCard = null;
+    this.provCardP = -1;
+  }
+
+  refreshProvince() {
+    if (this.provCardP >= 0) this.renderProvince();
+  }
+
+  /** Scheda provincia alla Call of War: terreno, difesa, produzione e le tre costruzioni. */
+  private renderProvince() {
+    const st = this.run.state, p = this.provCardP;
+    this.provCard?.destroy();
+    this.provCard = null;
+    if (p < 0 || st.provOwner[p] !== PLAYER || st.over) return void (this.provCardP = -1);
+    const prov = st.map.provinces[p];
+    const { width, height } = view(this);
+    const W = Math.min(400, width - 2 * PAD), H = 146;
+    const ly = height - PAD - CARD_H - 8 - 36;
+    const y0 = this.portrait ? (this.abilityCards.length ? height - PAD - CARD_H * 2 - 22 : ly - 8) - H : this.topBottom + 8;
+    const T = BALANCE.terrain[prov.terrain];
+    const nation = st.map.nations.find((n) => n.id === prov.country)?.name ?? 'Terra di nessuno';
+    const terrainName = { pianura: 'pianura', colline: 'colline', montagne: 'montagne', deserto: 'deserto' }[prov.terrain];
+    const ready = st.workOf(p), prog = st.workInProgress(p);
+    const mult = ready ? BALANCE.works[ready].prodMult : 1;
+    const items: Phaser.GameObjects.GameObject[] = [
+      this.add.rectangle(0, 0, W, H, PALETTE.inchiostro, 0.95).setOrigin(0).setStrokeStyle(1, PALETTE.linea),
+      this.add.rectangle(0, 0, W, 2, PALETTE.ocra).setOrigin(0),
+      this.add.text(12, 8, `${nation.toUpperCase()} · ${terrainName.toUpperCase()}`, textStyle(13, PALETTE.carta)),
+      this.add.text(12, 30, `difesa ${st.provDefense(p)} · produce ${(T.perMin * mult).toFixed(1).replace('.', ',')} ${RESOURCE_INFO[T.res].name.toLowerCase()}/min`
+        + `${T.move > 1 ? ` · pedine lente ×${String(T.move).replace('.', ',')}` : ''}`, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 24),
+    ];
+    const close = this.add.text(W - 10, 6, '✕', textStyle(16, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+    close.on('pointerup', () => this.hideProvince());
+    items.push(close);
+    if (ready || prog) {
+      const w = ready ?? prog!.work;
+      const ig = this.add.graphics();
+      ig.fillStyle(PALETTE.pannello, 1).fillCircle(30, 86, 18);
+      drawWorkIcon(ig, w, 30, 86, 11, ready ? PALETTE.ocra : PALETTE.allerta);
+      items.push(ig, this.add.text(58, 70, WORK_NAME[w].toUpperCase(), textStyle(14, ready ? PALETTE.ocra : PALETTE.allerta)),
+        this.add.text(58, 92, ready ? WORK_DESC[w] : `in costruzione · ${mmss(prog!.leftMs)}`, textStyle(11, PALETTE.carta, false)));
+    } else {
+      const bw = (W - 24 - 12) / 3;
+      WORKS.forEach((w, k) => {
+        const D = BALANCE.works[w], block = st.workBlock(p, w), x = 12 + k * (bw + 6), y = 56;
+        const cost = [`${D.troops} truppe`, ...RESOURCES.filter((r) => D.cost[r]).map((r) => `${D.cost[r]} ${RESOURCE_INFO[r].name.slice(0, 3).toLowerCase()}`)].join(' · ');
+        const bg = this.add.rectangle(x, y, bw, 80, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, block ? PALETTE.linea : PALETTE.ocra)
+          .setInteractive({ useHandCursor: true });
+        const ig = this.add.graphics();
+        drawWorkIcon(ig, w, x + 15, y + 16, 8, block ? PALETTE.tenue : PALETTE.ocra);
+        const name = this.add.text(x + 28, y + 8, WORK_NAME[w].toUpperCase(), textStyle(11, block ? PALETTE.tenue : PALETTE.carta));
+        const sub = this.add.text(x + 8, y + 30, block === 'tech' ? `🔒 ${techInfo(D.tech).name}` : WORK_DESC[w], textStyle(9, PALETTE.carta, false))
+          .setWordWrapWidth(bw - 12);
+        const price = this.add.text(x + 8, y + 74, cost, textStyle(8, block === 'troops' || block === 'loot' ? PALETTE.ko : PALETTE.tenue, false))
+          .setOrigin(0, 1).setWordWrapWidth(bw - 12);
+        if (block === 'tech') price.setVisible(false);
+        bg.on('pointerup', () => {
+          if (block) {
+            const why = { owner: 'non è tua', busy: 'c\'è già una costruzione', tech: `serve la ricerca ${techInfo(D.tech).name}`, troops: `servono ${D.troops} truppe`, loot: 'risorse insufficienti nello zaino' }[block];
+            return this.toast(why.toUpperCase(), PALETTE.ko);
+          }
+          if (this.run.state.build(PLAYER, p, w)) analytics.design(['costruzione', w]);
+          this.renderProvince();
+        });
+        items.push(bg, ig, name, sub, price);
+      });
+    }
+    this.provCard = this.add.container((width - W) / 2, y0, items).setDepth(45);
+    this.hint.setVisible(false);
+  }
+
   hitUi(x: number, y: number, layoutOnly = false): boolean {
     if (!layoutOnly && (this.ended || this.eventCard)) return true;
     if (layoutOnly && y > this.hint.y - 4 && y < this.hint.y + 60 && Math.abs(x - this.hint.x) < 200) return true; // etichetta della guida
@@ -552,6 +652,7 @@ export class HudScene extends Phaser.Scene {
     };
     if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
     if (this.pauseUi && inRect(this.pauseUi.list[0] as Phaser.GameObjects.Rectangle, this.pauseUi.x, this.pauseUi.y)) return true;
+    if (this.provCard && inRect(this.provCard.list[0] as Phaser.GameObjects.Rectangle, this.provCard.x, this.provCard.y)) return true;
     const btns = [this.speedBtn, this.pauseBtn, this.retreatBtn, ...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn].filter((b) => b !== null);
     return btns.some((b) => b.contains(x, y));
   }

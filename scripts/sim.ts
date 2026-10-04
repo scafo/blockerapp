@@ -1,23 +1,39 @@
 // Simula run senza grafica per tarare balance.ts.
-// Uso: npx vite-node scripts/sim.ts [taps al secondo del giocatore] [numero run] [pedine: 0/1] [avanzate: 0/1]
+// Uso: npx vite-node scripts/sim.ts [taps al secondo] [numero run] [pedine: 0/1] [avanzate: 0/1] [fronte 0-5] [potenziamenti 0/1/2]
 import { loadWorld } from '../src/map/worldAsset';
 import { generateMap } from '../src/map/generate';
 import { RunState, PLAYER } from '../src/game/RunState';
 import { hexDistance } from '../src/map/hexGrid';
 import { unitInfo } from '../src/game/units';
 import { BALANCE } from '../src/config/balance';
+import { DEFAULT_OPTIONS, type RunOptions } from '../src/game/camp';
+import { BASE_MODS } from '../src/game/mods';
 
 const tapsPerSec = Number(process.argv[2] ?? 2);
 const runs = Number(process.argv[3] ?? 6);
 const useUnits = process.argv[4] !== '0';
 const useFlow = process.argv[5] !== '0'; // 5° argomento: 0 = niente avanzate
+const front = Number(process.argv[6] ?? 0);
+const level = Number(process.argv[7] ?? 0); // 0 = nessun potenziamento, 1 = HQ a metà, 2 = HQ al massimo
+const upgrades = [
+  {},
+  { unitHpMult: 1.15, unitAttackMult: 1.15, startTroops: 40, ownedDefenseMult: 1.1, flowSpeedMult: 1.25, growthMult: 1.08 * 1.12, attackCostMult: 0.85 },
+  { unitHpMult: 1.4, unitAttackMult: 1.15, startTroops: 40, ownedDefenseMult: 1.21, flowSpeedMult: 1.25, unitCostMult: 0.85, capitalTroopsMult: 1.5,
+    growthMult: 1.2 * 1.12, attackCostMult: 0.85, prodMult: 1.4, bunkerMult: 1.4 },
+][level];
+const opts: RunOptions = {
+  ...DEFAULT_OPTIONS, front: BALANCE.fronts[front], frontIndex: front, mods: { ...BASE_MODS, ...upgrades },
+  units: level ? ['fanteria', 'ricognitori', 'artiglieria', 'corazzati'] : ['fanteria'],
+  techs: level ? ['addestramento'] : [],
+};
 const world = loadWorld();
 for (let r = 0; r < runs; r++) {
-  const st = new RunState(generateMap('sim' + r, world));
+  const st = new RunState(generateMap('sim' + r, world), opts);
   let tapAcc = 0;
   const snaps: string[] = [];
   let firstContact = -1;
-  for (let ms = 0; ms <= 12 * 60_000 && !st.over; ms += 100) {
+  const marks: string[] = []; // tempi delle fasi: primo impero, primo contatto
+  for (let ms = 0; ms <= 31 * 60_000 && !st.over; ms += 100) {
     st.update(100);
     tapAcc += tapsPerSec / 10;
     while (tapAcc >= 1) {
@@ -31,7 +47,7 @@ for (let r = 0; r < runs; r++) {
       const front = st.frontier(PLAYER);
       if (front.length) {
         const f0 = st.map.provinces[front[Math.floor((ms / 1000) % front.length)]].anchor;
-        const far = st.map.land.filter((i) => st.passable(i) && st.owner[i] !== PLAYER && hexDistance(i, f0) === 14);
+        const far = st.map.land.filter((i) => st.passable(i) && st.owner[i] !== PLAYER && hexDistance(i, f0) === 21);
         if (far.length) st.startFlow(far[0]);
       }
     }
@@ -55,11 +71,21 @@ for (let r = 0; r < runs; r++) {
         if (foeU) st.order(u, foeU.tile);
       }
     }
+    // costruzioni: fabbriche appena lo zaino lo consente, caserme se ricercate
+    if (ms % 45_000 === 0) { // una costruzione ogni tanto, come un giocatore vero
+      const mine = st.map.provinces.map((_, p) => p).filter((p) => st.provOwner[p] === PLAYER && st.provWork[p] < 0);
+      if (mine.length) {
+        const p = mine[ms % mine.length];
+        if (!st.workBlock(p, 'caserma')) st.build(PLAYER, p, 'caserma');
+        else if (!st.workBlock(p, 'fabbrica')) st.build(PLAYER, p, 'fabbrica');
+      }
+    }
+    if (!marks.length && st.player.provinces >= 15) marks.push(`impero15 ${Math.round(ms / 1000)}s`);
     for (const e of st.drainEvents()) if (e.type === 'conquer' && e.from === PLAYER && firstContact < 0) firstContact = ms;
-    if (ms % 60_000 === 0) snaps.push(st.factions.map((f) => (f.alive ? f.provinces : '✝')).join('/'));
+    if (ms % 120_000 === 0) snaps.push(st.factions.map((f) => (f.alive ? f.provinces : '✝')).join('/'));
   }
   const t = Math.round(st.gameTimeMs / 1000);
   const sum = st.summary();
   const kept = sum.kept.metallo + sum.kept.benzina + sum.kept.cibo;
-  console.log(`run ${r}: ${st.over ?? 'vivo'}${sum.reason ? '/' + sum.reason : ''} a ${t}s, anomalie ${sum.anomalies}, porta a casa ${kept}, primo attacco subito ${firstContact < 0 ? '-' : Math.round(firstContact / 1000) + 's'} | province per minuto ${snaps.join('  ')}`);
+  console.log(`run ${r}: ${st.over ?? 'vivo'}${sum.reason ? '/' + sum.reason : ''} a ${t}s, anomalie ${sum.anomalies}, porta a casa ${kept}, primo attacco subito ${firstContact < 0 ? '-' : Math.round(firstContact / 1000) + 's'} | ${marks.join(' ')} | province ogni 2 min ${snaps.join('  ')}`);
 }

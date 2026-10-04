@@ -10,11 +10,12 @@ import { Delaunay } from 'd3-delaunay';
 import pc from 'polygon-clipping';
 import world from 'world-atlas/countries-50m.json';
 import namesIt from '../src/data/countries-it.json';
+import terrainSrc from './data/ne-terrain.json'; // Natural Earth 1:10M, regioni fisiche: catene, altopiani, deserti (pubblico dominio)
 import { BALANCE } from '../src/config/balance';
-import { WORLD_W, center } from '../src/map/hexGrid';
+import { NEIGHBORS, WORLD_W, center, lonLat } from '../src/map/hexGrid';
 import { createRng } from '../src/map/rng';
 
-const TARGET = 1200; // province circa
+const TARGET = 2900; // province circa
 const SCALE = 8; // coordinate salvate in 1/8 di pixel-mondo
 const { latMax, latMin, rows, cols, hexSize: S } = BALANCE.map;
 const rng = createRng('ashen-atlas-province');
@@ -320,6 +321,35 @@ provs.forEach((pr, p) => {
   tileProv[best] = p; count[p]++; forced++;
 });
 
+// 5b. terreno vero: 0 pianura, 1 colline, 2 montagne, 3 deserto (regioni fisiche di Natural Earth) + colline ai piedi dei monti
+const T_CODE: Record<string, number> = { colline: 1, montagne: 2, deserto: 3 };
+const tpolys = (terrainSrc as { t: string; p: number[][][][] }[]).map((f) => ({ code: T_CODE[f.t], rings: f.p.flat() as Ring[], box: bbox(f.p.flat() as Ring[]) }));
+const terrain = new Int8Array(cols * rows).fill(-1);
+for (let i = 0; i < terrain.length; i++) {
+  if (tileProv[i] < 0) continue;
+  const [lon, lat] = lonLat(i);
+  let code = 0;
+  for (const tp of tpolys) {
+    if (lon < tp.box[0] || lon > tp.box[2] || lat < tp.box[1] || lat > tp.box[3]) continue;
+    // anelli di più poligoni insieme: pari/dispari per ogni poligono basta (buchi rari)
+    if (tp.rings.reduce((s2, r) => (inRing(r, lon, lat) ? !s2 : s2), false)) {
+      if (tp.code === 2) { code = 2; break; } // le montagne vincono su altopiani e deserti
+      code = Math.max(code, tp.code === 3 && code === 1 ? 1 : tp.code);
+    }
+  }
+  terrain[i] = code;
+}
+for (let pass = 0; pass < 1; pass++) { // una fascia di colline ai piedi delle montagne
+  const ring: number[] = [];
+  for (let i = 0; i < terrain.length; i++) {
+    if (terrain[i] !== 0 && terrain[i] !== 3) continue;
+    if (NEIGHBORS[i].some((n) => n >= 0 && terrain[n] === 2 - pass)) ring.push(i);
+  }
+  for (const i of ring) terrain[i] = 1;
+}
+const tc = [0, 0, 0, 0];
+for (const t of terrain) if (t >= 0) tc[t]++;
+
 // 6. salvataggio compatto: catene a delta interi, anelli come indici di catene, caselle in RLE
 const enc = (pts: Pt[]) => {
   const o: number[] = [];
@@ -327,14 +357,20 @@ const enc = (pts: Pt[]) => {
   for (const [x, y] of pts) { const ix = Math.round(x * SCALE), iy = Math.round(y * SCALE); o.push(ix - px, iy - py); px = ix; py = iy; }
   return o;
 };
-const rle: number[] = [];
-for (let i = 0; i < tileProv.length;) { let n = 1; while (i + n < tileProv.length && tileProv[i + n] === tileProv[i]) n++; rle.push(tileProv[i], n); i += n; }
+const runs = (a: Int16Array | Int8Array) => {
+  const o: number[] = [];
+  for (let i = 0; i < a.length;) { let n = 1; while (i + n < a.length && a[i + n] === a[i]) n++; o.push(a[i], n); i += n; }
+  return o;
+};
+const rle = runs(tileProv);
 const out = {
   v: 1, scale: SCALE, cols, rows, names,
   provinces: provs.map((p, k) => ({ c: p.country, r: provRings[k] })),
   chains: chains.map((c, k) => ({ a: c.a, b: c.b, z: c.closed ? 1 : 0, d: enc(chainPts[k]) })),
   tiles: rle,
+  terrain: runs(terrain),
 };
 writeFileSync('src/data/worldmap.json', JSON.stringify(out));
 const land = [...tileProv].filter((p) => p >= 0).length;
+console.log(`terreno: pianura ${tc[0]}, colline ${tc[1]}, montagne ${tc[2]}, deserto ${tc[3]}`);
 console.log(`province ${provs.length}, catene ${chains.length} (coste ${chains.filter((c) => c.b < 0).length}), punti inseriti ${inserted}, caselle di terra ${land}, forzate ${forced}, senza caselle ${[...count].filter((n) => !n).length}`);

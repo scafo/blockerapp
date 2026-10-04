@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
+import { BALANCE } from '../config/balance';
 import { PALETTE } from '../config/palette';
 import bulletins from '../data/bulletins.json';
-import { RESOURCES, RESOURCE_INFO, addBag, bagTotal } from '../game/resources';
+import { RESOURCES, RESOURCE_INFO, bagTotal } from '../game/resources';
+import { addToStash, stashCap } from '../game/camp';
 import type { RunSummary } from '../game/RunState';
 import { loadProfile, saveProfile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
@@ -29,11 +31,17 @@ export class ResultScene extends Phaser.Scene {
   create(sum: RunSummary) {
     uiCamera(this);
     const profile = loadProfile();
-    profile.stash = addBag(profile.stash, sum.kept);
+    const lostCap = addToStash(profile, sum.kept); // oltre la capienza del Deposito si perde
     profile.runs++;
     // registro della Sala Radar
     profile.history = [{ at: Date.now(), civ: sum.civ, campaign: sum.campaign, outcome: sum.outcome, tiles: sum.maxTiles, timeMs: sum.timeMs }, ...(profile.history ?? [])].slice(0, 20);
     if (sum.outcome === 'victory') profile.wins++;
+    // vittoria sull'ultimo fronte sbloccato: si apre il successivo (e diventa quello scelto)
+    let unlocked = -1;
+    if (sum.outcome === 'victory' && !sum.tutorial && sum.front >= (profile.frontMax ?? 0) && sum.front < BALANCE.fronts.length - 1) {
+      unlocked = profile.frontMax = sum.front + 1;
+      profile.front = unlocked;
+    }
     profile.bestTiles = Math.max(profile.bestTiles, sum.maxTiles);
     saveProfile(profile);
     analytics.runEnd(sum.outcome, sum.reason, sum.maxTiles, sum.timeMs, sum.seed);
@@ -55,7 +63,12 @@ export class ResultScene extends Phaser.Scene {
     const cx = width / 2;
     const ink = PALETTE.carta; // testo chiaro sul pannello scuro
 
-    this.add.text(x0 + 16, y0 + 12, `RAPPORTO OPERATIVO N° ${profile.runs} · ${sum.civ.toUpperCase()} · ${sum.campaign.toUpperCase()}`, textStyle(11, PALETTE.ocra));
+    this.add.text(x0 + 16, y0 + 12, `RAPPORTO N° ${profile.runs} · ${sum.civ.toUpperCase()} · FRONTE ${['I', 'II', 'III', 'IV', 'V', 'VI'][sum.front]} · ${sum.campaign.toUpperCase()}`, textStyle(11, PALETTE.ocra));
+    if (unlocked > 0) {
+      const u = this.add.text(width / 2, y0 + H + 8, `NUOVO FRONTE SBLOCCATO: ${['I', 'II', 'III', 'IV', 'V', 'VI'][unlocked]} · ${BALANCE.fronts[unlocked].name.toUpperCase()} — nemici più forti: potenzia l'HQ`,
+        textStyle(12, PALETTE.ocra)).setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(W);
+      this.tweens.add({ targets: u, alpha: 0.5, duration: 700, yoyo: true, repeat: -1 });
+    }
     this.add.text(x0 + W - 16, y0 + 12, `mappa #${sum.seed}`, textStyle(11, PALETTE.tenue, false)).setOrigin(1, 0);
     const color = sum.outcome === 'victory' ? PALETTE.ocra : sum.outcome === 'retreat' ? ink : PALETTE.ruggine;
     const title = this.add.text(cx, y0 + 50, TITLES[sum.outcome], textStyle(P ? 26 : 34, color)).setOrigin(0.5)
@@ -91,7 +104,7 @@ export class ResultScene extends Phaser.Scene {
     });
     y += P ? 32 + 3 * 40 + 6 : 74;
     const s = profile.stash;
-    this.add.text(cx, y, `Scorta dell'accampamento: ${s.metallo} metallo · ${s.benzina} benzina · ${s.cibo} cibo`,
+    this.add.text(cx, y, `Deposito: ${s.metallo} metallo · ${s.benzina} benzina · ${s.cibo} cibo${lostCap ? ` · PIENO: perse ${lostCap} (capienza ${stashCap(profile)})` : ''}`,
       textStyle(11, ink, false)).setOrigin(0.5).setAlign('center').setWordWrapWidth(W - 32);
 
     // pulsanti: affiancati in orizzontale, impilati e larghi in verticale (comodi col pollice)

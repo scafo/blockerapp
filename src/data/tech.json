@@ -1,10 +1,51 @@
 {
   "branches": {
+    "armamenti": "Armamenti",
     "esercito": "Esercito",
     "logistica": "Logistica",
     "economia": "Economia",
     "difesa": "Difesa",
     "caduta": "La Caduta"
+  },
+  "ricognitori": {
+    "name": "Ricognitori",
+    "desc": "Sblocca i Ricognitori: veloci, battono l'artiglieria"
+  },
+  "artiglieria": {
+    "name": "Artiglieria",
+    "desc": "Sblocca l'Artiglieria: colpisce da lontano, batte la fanteria"
+  },
+  "corazzati": {
+    "name": "Corazzati",
+    "desc": "Sblocca i Corazzati: travolgono fanteria e ricognitori"
+  },
+  "munizioni": {
+    "name": "Munizioni perforanti",
+    "desc": "Le tue unità infliggono +15% danni"
+  },
+  "ricognizione": {
+    "name": "Ricognizione aerea",
+    "desc": "Abilità: svela una zona della mappa per 15 s"
+  },
+  "bombardamento": {
+    "name": "Bombardamento",
+    "desc": "Abilità: la provincia nemica colpita torna neutrale"
+  },
+  "unica": {
+    "name": "Unità della potenza",
+    "desc": "Sblocca l'unità unica della tua potenza"
+  },
+  "genio": {
+    "name": "Genio",
+    "desc": "Sblocca il Genio: fortifica le tue caselle, ferma i corazzati"
+  },
+  "cannoniera": {
+    "name": "Cannoniera",
+    "desc": "Sblocca la Cannoniera: nave che copre le coste"
+  },
+  "corazze": {
+    "name": "Corazze rinforzate",
+    "desc": "Le tue unità +10% vita"
   },
   "addestramento": {
     "name": "Addestramento",
@@ -57,5 +98,21 @@
     "name": "Tecnologia della Caduta",
     "desc": "Per vincere basta un'anomalia in meno",
     "lore": "La Caduta non fu una punizione: fu una Prova. Il segnale è un conto alla rovescia verso l'Avvento. Quando il cielo si riaprirà, conterà solo chi tiene il mondo."
+  },
+  "assalto": {
+    "name": "Dottrina d'assalto",
+    "desc": "Prendere province costa il 15% di truppe in meno"
+  },
+  "ferrovie": {
+    "name": "Ferrovie militari",
+    "desc": "Truppe +12% di crescita"
+  },
+  "pianificazione": {
+    "name": "Piano quinquennale",
+    "desc": "Province +40% di produzione"
+  },
+  "fortezze": {
+    "name": "Fortezze",
+    "desc": "Bunker +40% e province +10% di difesa"
   }
 }

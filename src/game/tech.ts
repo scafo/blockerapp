@@ -1,18 +1,16 @@
-// Laboratorio: ricerche a tempo (una alla volta) e archivio della Caduta. Niente Phaser.
-import { BALANCE } from '../config/balance';
+// Albero della ricerca (Laboratorio + Arsenale): ricerche a tempo, una alla volta, con prerequisiti; archivio della Caduta.
+import { BALANCE, type TechDef } from '../config/balance';
 import techText from '../data/tech.json';
 import type { Profile } from '../save/storage';
 import type { Mods } from './mods';
 import { RESOURCES, type Bag } from './resources';
 
-export type TechId = keyof typeof BALANCE.tech;
+export type TechId = string;
 export const TECH_IDS = Object.keys(BALANCE.tech) as TechId[];
 export const BRANCHES = techText.branches as Record<string, string>;
 
-export interface TechInfo {
+export interface TechInfo extends Omit<TechDef, 'cost'> {
   id: TechId;
-  branch: string;
-  tier: number;
   cost: Bag;
   timeSec: number;
   name: string;
@@ -23,34 +21,34 @@ export interface TechInfo {
 const TEXT = techText as unknown as Record<TechId, { name: string; desc: string; lore?: string }>;
 export const techInfo = (id: TechId): TechInfo => {
   const b = BALANCE.tech[id];
-  return { id, branch: b.branch, tier: b.tier, cost: b.cost as Bag, timeSec: b.timeSec, ...TEXT[id] };
+  return { id, ...b, cost: b.cost as Bag, ...TEXT[id] };
 };
 
-export type ResearchBlock = 'done' | 'nolab' | 'lab' | 'prev' | 'busy' | 'cost';
+export type ResearchBlock = 'done' | 'nolab' | 'lab' | 'arsenale' | 'prev' | 'busy' | 'cost';
 
-/** Perché non si può ricercare (null = si può). Dentro un ramo si va in ordine; il livello del Laboratorio limita il grado. */
+/**
+ * Perché non si può ricercare (null = si può). Servono le ricerche precedenti (req); gli Armamenti dipendono dal livello
+ * dell'Arsenale, gli altri rami dal Laboratorio (che limita il grado).
+ */
 export function researchBlock(p: Profile, id: TechId): ResearchBlock | null {
   const t = techInfo(id);
   if (p.techs.includes(id)) return 'done';
-  const lab = p.buildings.laboratorio;
-  if (lab <= 0) return 'nolab';
-  if (lab < Math.min(t.tier, 3)) return 'lab';
-  const prev = TECH_IDS.find((o) => BALANCE.tech[o].branch === t.branch && BALANCE.tech[o].tier === t.tier - 1);
-  if (prev && !p.techs.includes(prev)) return 'prev';
+  if (t.arsenale !== undefined) {
+    if (p.buildings.arsenale < t.arsenale) return 'arsenale';
+  } else {
+    const lab = p.buildings.laboratorio;
+    if (lab <= 0) return 'nolab';
+    if (lab < Math.min(t.tier ?? 1, 3)) return 'lab';
+  }
+  if (t.req.some((r) => !p.techs.includes(r))) return 'prev';
   if (p.research) return 'busy';
   if (!RESOURCES.every((r) => p.stash[r] >= t.cost[r])) return 'cost';
   return null;
 }
 
-/** La prossima ricerca di ogni ramo (quella da fare in ordine). */
-export function nextInBranches(p: Profile): TechId[] {
-  const out: TechId[] = [];
-  for (const branch of Object.keys(BRANCHES)) {
-    const next = TECH_IDS.filter((id) => BALANCE.tech[id].branch === branch && !p.techs.includes(id))
-      .sort((a, b) => BALANCE.tech[a].tier - BALANCE.tech[b].tier)[0];
-    if (next) out.push(next);
-  }
-  return out;
+/** Ricerche disponibili adesso (prerequisiti fatti, non ancora completate). */
+export function availableTechs(p: Profile): TechId[] {
+  return TECH_IDS.filter((id) => !p.techs.includes(id) && BALANCE.tech[id].req.every((r) => p.techs.includes(r)));
 }
 
 export function startResearch(p: Profile, id: TechId, now: number): boolean {
@@ -70,7 +68,7 @@ export function settleResearch(p: Profile, now: number): TechId | null {
   return id;
 }
 
-export const techMods = (p: Profile): Partial<Mods>[] => p.techs.filter((id) => id in BALANCE.tech).map((id) => BALANCE.tech[id as TechId].mods as Partial<Mods>);
+export const techMods = (p: Profile): Partial<Mods>[] => p.techs.filter((id) => BALANCE.tech[id]?.mods).map((id) => BALANCE.tech[id].mods as Partial<Mods>);
 
 /** Frammenti dell'archivio della Caduta sbloccati dalle ricerche. */
 export const loreFragments = (p: Profile) => TECH_IDS.filter((id) => TEXT[id].lore && p.techs.includes(id)).map((id) => ({ name: TEXT[id].name, lore: TEXT[id].lore! }));

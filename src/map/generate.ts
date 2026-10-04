@@ -1,12 +1,13 @@
-// Genera la mappa di una run a partire dal seed: deserti, rovine, anomalie, partenze.
-import { BALANCE, type Resource, type TileType } from '../config/balance';
+// Genera la mappa di una run a partire dal seed: rovine, anomalie, partenze (terreno e province vengono dalla carta pronta).
+import { BALANCE, type Resource, type Terrain, type TileType } from '../config/balance';
 import { createRng, randInt, type Rng } from './rng';
-import { NEIGHBORS, center, hexDistance, lonLat } from './hexGrid';
+import { NEIGHBORS, center, hexDistance } from './hexGrid';
 import type { WorldAsset } from './worldAsset';
 
 export interface Tile {
   i: number;
   type: TileType;
+  terrain: Terrain;
   defense: number;
   loot: number;
   lootType: Resource;
@@ -24,7 +25,11 @@ export interface Province {
   neighbors: number[];
   /** casella di riferimento: la città, o la casella più interna */
   anchor: number;
+  /** terreno prevalente (dà la risorsa prodotta) */
+  terrain: Terrain;
 }
+
+export const TERRAINS: Terrain[] = ['pianura', 'colline', 'montagne', 'deserto'];
 
 export interface Nation {
   id: number; // indice nella CountryMap
@@ -59,11 +64,8 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
 
   for (let i = 0; i < tp.length; i++) {
     if (tp[i] < 0) continue;
-    const absLat = Math.abs(lonLat(i)[1]);
-    const inBand = absLat >= M.desertLatBand[0] && absLat <= M.desertLatBand[1];
-    const desert = rng() < (inBand ? M.desertChance : M.desertSprinkle);
     tiles[i] = {
-      i, type: desert ? 'deserto' : 'terra', defense: 0, loot: 0, lootType: 'metallo',
+      i, type: 'terra', terrain: TERRAINS[Math.max(0, world.tileTerrain[i])], defense: 0, loot: 0, lootType: 'metallo',
       country: world.provCountry[tp[i]], province: tp[i], city: false, capital: false,
     };
     land.push(i);
@@ -79,7 +81,7 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
 
   for (const i of land) {
     const t = tiles[i]!;
-    t.defense = rollDefense(rng, t.type);
+    t.defense = Math.max(1, Math.round(rollDefense(rng, t.type) * BALANCE.terrain[t.terrain].defense)); // colline e montagne si difendono meglio
     if (t.type === 'rovine') {
       t.lootType = pickWeighted(rng, BALANCE.loot.weights);
       t.loot = randInt(rng, BALANCE.loot[t.lootType][0], BALANCE.loot[t.lootType][1]);
@@ -106,8 +108,14 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
  */
 function buildProvinces(tiles: (Tile | null)[], land: number[], world: WorldAsset) {
   const P = BALANCE.provinces;
-  const provinces: Province[] = world.provRings.map((_, p) => ({ country: world.provCountry[p], city: -1, tiles: [], neighbors: [], anchor: -1 }));
+  const provinces: Province[] = world.provRings.map((_, p) => ({ country: world.provCountry[p], city: -1, tiles: [], neighbors: [], anchor: -1, terrain: 'pianura' }));
   for (const i of land) provinces[tiles[i]!.province].tiles.push(i);
+  for (const p of provinces) {
+    // terreno prevalente della provincia
+    const n: Record<Terrain, number> = { pianura: 0, colline: 0, montagne: 0, deserto: 0 };
+    for (const i of p.tiles) n[tiles[i]!.terrain]++;
+    p.terrain = TERRAINS.reduce((a, b) => (n[b] > n[a] ? b : a), 'pianura');
+  }
   const nearest = (list: number[], m: { x: number; y: number }) => list.reduce((a, b) => {
     const pa = center(a), pb = center(b);
     return Math.hypot(pb.x - m.x, pb.y - m.y) < Math.hypot(pa.x - m.x, pa.y - m.y) ? b : a;
@@ -189,7 +197,7 @@ function placeAnomalies(rng: Rng, tiles: (Tile | null)[], region: number[], dist
     const i = pool[Math.floor(rng() * pool.length)];
     const t = tiles[i]!;
     t.type = 'anomalia';
-    t.defense = rollDefense(rng, 'anomalia');
+    t.defense = Math.round(rollDefense(rng, 'anomalia') * BALANCE.terrain[t.terrain].defense);
     t.loot = 0;
     used.add(t.province);
     out.push(i);
