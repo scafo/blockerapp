@@ -84,6 +84,8 @@ export class RunScene extends Phaser.Scene {
   private unitSprites = new Map<number, { c: Phaser.GameObjects.Container; hp: Phaser.GameObjects.Graphics; tile: number; hpShown: number; pop: { k: number } }>();
   private pathGfx!: Phaser.GameObjects.Graphics;
   private selRing!: Phaser.GameObjects.Graphics;
+  private battleGfx!: Phaser.GameObjects.Graphics; // assalti in corso (anello che si riempie) e capitale
+  private lastDefendToast = -1e9;
   // input
   private down: { x: number; y: number } | null = null;
   private last = { x: 0, y: 0 };
@@ -177,6 +179,7 @@ export class RunScene extends Phaser.Scene {
     this.selectedUnit = null;
     this.unitSprites = new Map();
     this.pathGfx = this.add.graphics().setDepth(D.path);
+    this.battleGfx = this.add.graphics().setDepth(D.marks);
     this.selRing = this.add.graphics().setDepth(D.units).setVisible(false);
     this.selRing.lineStyle(2.2, PALETTE.radioattivo, 1).strokeCircle(0, 0, 20);
 
@@ -254,10 +257,31 @@ export class RunScene extends Phaser.Scene {
           this.hud.onEncircled(e.by, e.from, e.provinces.length);
           if (e.by === PLAYER) buzz([20, 30, 20]);
         }
+      } else if (e.type === 'battle') {
+        this.ownedDirty = true; // il fronte attaccabile cambia
+        const b = e.battle, { x, y } = center(this.map.provinces[b.p].anchor);
+        if (e.phase === 'start' && b.from === PLAYER) {
+          this.flashProvince(b.p, PALETTE.ko, 0.5, 600);
+          if (time - this.lastDefendToast > 8000) { this.lastDefendToast = time; this.hud.onDefending(b.by); }
+        } else if (e.phase === 'lost' && b.by === PLAYER) {
+          this.failFx(x, y, 'respinti!');
+          this.cameras.main.shake(140, 0.002);
+          buzz(30);
+        } else if (e.phase === 'lost' && b.from === PLAYER) {
+          this.floatText(x, y - 4, 'tenuta!', PALETTE.radioattivo);
+        }
+      } else if (e.type === 'hit') {
+        this.hitFx(e.from, e.to, e.fromTile, e.toTile, e.dmg, e.owner);
+      } else if (e.type === 'capital') {
+        if (e.faction === PLAYER) {
+          this.flashProvince(e.p, PALETTE.ocra, 0.6, 900);
+          this.hud.onCapital();
+        }
       } else {
         this.hud.onEliminated(e.faction, e.by, e.loot);
       }
     }
+    this.drawBattles(time);
     this.syncUnits();
     this.syncBoats();
     this.scaleMarkers();
@@ -538,12 +562,17 @@ export class RunScene extends Phaser.Scene {
   /** Cosa colorare nel riquadro: territorio delle potenze (i nemici nella nebbia no) e velo chiaro sul fronte. */
   private territoryFills(x0: number, y0: number, x1: number, y1: number): TerritoryFill[] {
     const own = this.state.provOwner, tone = this.ownTone, shapes = this.shapes.provinces, out: TerritoryFill[] = [];
+    // da molto vicino il territorio lascia trasparire terreno, rilievo e grana: colore pieno solo da lontano
+    const zc = this.cameras.main.zoom / UI(), ta = zc >= 5 ? Phaser.Math.Linear(1, 0.8, Math.min(1, (zc - 5) / 4)) : 1;
     for (let p = 0; p < own.length; p++) {
       const s = shapes[p];
       if (!s.parts.length || s.x1 < x0 || s.x0 > x1 || s.y1 < y0 || s.y0 > y1) continue;
       const o = own[p];
       if (o === NEUTRAL || (o !== PLAYER && !this.state.seesProv(p))) continue;
-      out.push({ p, color: tone[o], alpha: 1, layer: 1 });
+      out.push({ p, color: tone[o], alpha: ta, layer: 1 });
+      // logistica: le tue province lontane dalla capitale (o tagliate fuori) si scuriscono
+      const sup = this.state.supply[p];
+      if (o === PLAYER && sup < 0.98) out.push({ p, color: 0x000000, alpha: (1 - sup) * 0.55, layer: 1 });
     }
     for (const [p, ok] of this.frontOk) {
       const s = shapes[p];
@@ -577,13 +606,39 @@ export class RunScene extends Phaser.Scene {
     g.clear();
   }
 
-  /** Il rilievo dentro lo strato vettoriale, tra la terra e il territorio. */
+  /** Il rilievo dentro lo strato vettoriale, tra la terra e il territorio; da molto vicino anche una grana da carta stampata. */
   private drawReliefInto(rt: Phaser.GameObjects.RenderTexture, x0: number, y0: number, _w: number, _h: number, z: number) {
     if (!this.landMode) return;
     const r = this.relief, sx = r.scaleX, sy = r.scaleY;
     r.setVisible(true).setScale(sx * z, sy * z);
     rt.draw(r, (r.x - x0) * z, (r.y - y0) * z);
     r.setScale(sx, sy).setVisible(false);
+    const zc = this.cameras.main.zoom / UI();
+    if (zc < 4) return;
+    // grana fissata al mondo (si muove con la carta), della grandezza dei pixel dello schermo
+    const T = 256, key = this.grainTexture();
+    const ox = -(((x0 * z) % T) + T) % T, oy = -(((y0 * z) % T) + T) % T;
+    rt.beginDraw();
+    for (let y = oy; y < rt.height; y += T) for (let x = ox; x < rt.width; x += T) rt.batchDrawFrame(key, undefined, x, y, Math.min(1, (zc - 4) / 4) * 0.9);
+    rt.endDraw();
+  }
+
+  /** Texture di grana (una volta sola): puntini chiari e scuri quasi trasparenti. */
+  private grainTexture(): string {
+    const key = 'grana';
+    if (this.textures.exists(key)) return key;
+    const T = 256, c = document.createElement('canvas');
+    c.width = c.height = T;
+    const ctx = c.getContext('2d')!, img = ctx.createImageData(T, T);
+    for (let i = 0; i < T * T; i++) {
+      const v = Math.random();
+      const light = v > 0.5;
+      img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = light ? 255 : 0;
+      img.data[i * 4 + 3] = Math.round(Math.abs(v - 0.5) * 2 * (light ? 14 : 22)); // al massimo ~9% di opacità
+    }
+    ctx.putImageData(img, 0, 0);
+    this.textures.addCanvas(key, c);
+    return key;
   }
 
   /**
@@ -609,6 +664,10 @@ export class RunScene extends Phaser.Scene {
       const pa = c.a >= 0 ? provs[c.a] : null, pb = c.b >= 0 ? provs[c.b] : null;
       if (pa && pb && pa.country === pb.country) {
         if (z < 3.6) return;
+        if (z >= 6) { // da molto vicino un'ombra morbida lungo i confini: le province prendono volume
+          g.lineStyle(9 * px, 0x000000, 0.07);
+          this.strokeChain(g, c.pts, c.closed, step);
+        }
         g.lineStyle(1.1 * px, MP.provincia, 0.7);
       } else if (pa && pb) g.lineStyle(1.6 * px, MP.confine, 0.55);
       else g.lineStyle(1.3 * px, MP.costa, 0.7);
@@ -625,6 +684,14 @@ export class RunScene extends Phaser.Scene {
       if (oa === ob || !inView(k)) return;
       edges.push({ k, o: oa === PLAYER || ob === PLAYER ? PLAYER : oa !== NEUTRAL ? oa : ob });
     });
+    // da vicino: alone largo e tenue lungo il tuo confine (la linea del fronte si legge a colpo d'occhio)
+    if (z >= 5) {
+      for (const { k, o } of edges) {
+        if (o !== PLAYER) continue;
+        g.lineStyle(16 * px, FACTION_INFO[PLAYER].fill, 0.16);
+        this.strokeChain(g, this.shapes.chains[k].pts, this.shapes.chains[k].closed, step);
+      }
+    }
     // prima un'ombra scura larga, poi la linea chiara: contorno netto e leggibile su mare, terra e altri colori
     for (const { k, o } of edges) {
       g.lineStyle((o === PLAYER ? 5 : 4) * px, 0x05090f, 0.55);
@@ -807,6 +874,11 @@ export class RunScene extends Phaser.Scene {
       const u = this.state.units.find((v) => v.id === this.selectedUnit);
       if (u && this.state.order(u, i)) {
         this.floatText(x, y - 4, 'avanti!', PALETTE.radioattivo);
+        // segnale d'arrivo: anello che si stringe sul punto scelto
+        const s = UI() / this.cameras.main.zoom, ring = this.add.graphics({ x, y }).setDepth(D.fx);
+        ring.lineStyle(2 * s, PALETTE.radioattivo, 1).strokeCircle(0, 0, 16 * s);
+        this.tweens.add({ targets: ring, scale: { from: 1.6, to: 0.6 }, alpha: { from: 1, to: 0 }, duration: 380, ease: 'Quad.easeIn', onComplete: () => ring.destroy() });
+        buzz(10);
         this.selectUnit(null);
         this.hud.tutorialSignal('order');
         return;
@@ -863,7 +935,14 @@ export class RunScene extends Phaser.Scene {
 
     const res = this.state.tryConquer(i);
     if (!this.state.opts.tutorial) this.hud.showProvince(p, false); // tabella in basso alla Call of War
-    if (res.ok) {
+    if (res.ok && res.battle) {
+      // provincia di qualcuno: parte l'assalto (le truppe sono già in marcia)
+      this.usage.tocchi++;
+      buzz(15);
+      this.floatText(x, y - 6, `assalto · ${Math.ceil((res.battle.endMs - res.battle.startMs) / 1000)} s`, PALETTE.allerta);
+      this.redrawFrontier(true);
+      this.hud.onConquest(0);
+    } else if (res.ok) {
       this.usage.tocchi++;
       buzz(res.loot ? 25 : 8);
       this.tapFxTile = p;
@@ -873,6 +952,8 @@ export class RunScene extends Phaser.Scene {
       this.hud.onConquest(res.loot);
     } else if (res.reason === 'troops') {
       this.failFx(x, y, `servono ${res.need! + 1}`);
+    } else if (res.reason === 'battle') {
+      this.failFx(x, y, 'assalto in corso');
     } else if (res.reason === 'not-adjacent') {
       this.failFx(x, y, 'troppo lontano');
     } else if (res.reason === 'impassable') {
@@ -1056,6 +1137,29 @@ export class RunScene extends Phaser.Scene {
     return { c, hp, tile: u.tile, hpShown: -1, pop };
   }
 
+  /** Assalti visibili: anello che si riempie col tempo e due sciabole incrociate; la tua capitale con un doppio anello d'oro. */
+  private drawBattles(time: number) {
+    const g = this.battleGfx.clear(), st = this.state, s = UI() / this.cameras.main.zoom;
+    for (const b of st.battles) {
+      if (b.by !== PLAYER && b.from !== PLAYER && !st.seesProv(b.p)) continue;
+      const { x, y } = center(this.map.provinces[b.p].anchor);
+      const t = Phaser.Math.Clamp((st.gameTimeMs - b.startMs) / Math.max(1, b.endMs - b.startMs), 0, 1);
+      const col = FACTION_INFO[b.by]?.fill ?? PALETTE.carta, r = 13 * s;
+      const danger = b.from === PLAYER;
+      g.fillStyle(0x05090f, 0.7).fillCircle(x, y, r + 2 * s);
+      g.lineStyle(3 * s, 0x1b2634, 1).strokeCircle(x, y, r);
+      g.lineStyle(3 * s, col, 1).beginPath().arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + t * Math.PI * 2).strokePath();
+      if (danger) g.lineStyle(1.5 * s, PALETTE.ko, 0.5 + 0.5 * Math.sin(time / 120)).strokeCircle(x, y, r + 5 * s);
+      const k = 6 * s; // sciabole incrociate
+      g.lineStyle(2 * s, 0xf2efe6, 1).lineBetween(x - k, y - k, x + k, y + k).lineBetween(x + k, y - k, x - k, y + k);
+    }
+    const cap = st.capitalProv[PLAYER];
+    if (cap >= 0 && st.provOwner[cap] === PLAYER) {
+      const { x, y } = center(this.map.provinces[cap].anchor);
+      g.lineStyle(1.6 * s, PALETTE.ocra, 0.9).strokeCircle(x, y, 9 * s).strokeCircle(x, y, 12 * s);
+    }
+  }
+
   /** Pedine, navi e segnalini a grandezza costante sullo schermo (come i contatti su un radar). */
   private scaleMarkers() {
     const s = UI() / this.cameras.main.zoom;
@@ -1076,8 +1180,11 @@ export class RunScene extends Phaser.Scene {
       if (sp.tile !== u.tile) {
         sp.tile = u.tile;
         const { x, y } = center(u.tile);
-        const dur = Math.min(400, BALANCE.units[u.type].moveMs / this.state.speed);
-        this.tweens.add({ targets: sp.c, x, y, duration: dur, ease: 'Sine.easeInOut' });
+        // scivola alla velocità vera (terreno compreso): niente scatti tra una casella e l'altra
+        const t = this.map.tiles[u.tile], move = t ? BALANCE.terrain[t.terrain].move : 1;
+        const dur = (BALANCE.units[u.type].moveMs * move) / Math.max(0.25, this.state.speed);
+        this.tweens.killTweensOf(sp.c);
+        this.tweens.add({ targets: sp.c, x, y, duration: Math.min(1200, dur), ease: 'Linear' });
       }
       const hpPct = Math.round((u.hp / u.maxHp) * 10);
       if (hpPct !== sp.hpShown) {
@@ -1220,13 +1327,38 @@ export class RunScene extends Phaser.Scene {
     }
   }
 
+  /** Scontro tra pedine: traccia del colpo, scintille sul bersaglio, sobbalzo e danno che sale. */
+  private hitFx(from: number, to: number, fromTile: number, toTile: number, dmg: number, owner: number) {
+    if (!this.state.sees(fromTile) && !this.state.sees(toTile)) return;
+    const a = this.unitSprites.get(from), b = this.unitSprites.get(to);
+    const p0 = a ? { x: a.c.x, y: a.c.y } : center(fromTile), p1 = b ? { x: b.c.x, y: b.c.y } : center(toTile);
+    const s = UI() / this.cameras.main.zoom, col = owner === PLAYER ? PALETTE.radioattivo : FACTION_INFO[owner]?.fill ?? PALETTE.ko;
+    const g = this.add.graphics().setDepth(D.fx);
+    g.lineStyle(2.2 * s, col, 0.95).lineBetween(p0.x, p0.y, p1.x, p1.y);
+    g.fillStyle(0xfff3c4, 1).fillCircle(p0.x, p0.y, 3 * s); // vampa alla partenza
+    this.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() });
+    this.burstAt(p1.x, p1.y, 4, 0xffd9a0);
+    if (b) {
+      b.pop.k = 1.25; // sobbalzo del bersaglio
+      this.tweens.add({ targets: b.pop, k: 1, duration: 200, ease: 'Quad.easeOut' });
+    }
+    const mineHit = this.state.units.find((u) => u.id === to)?.owner === PLAYER;
+    if (owner === PLAYER || mineHit) this.floatText(p1.x, p1.y - 8 * s, `−${Math.round(dmg)}`, mineHit ? PALETTE.ko : 0xffe2a8);
+    if (mineHit && dmg >= 8) this.cameras.main.shake(90, 0.0015);
+  }
+
   private unitDeathFx(u: Unit) {
     const sp = this.unitSprites.get(u.id);
     const { x, y } = sp ? { x: sp.c.x, y: sp.c.y } : center(u.tile);
-    this.burstAt(x, y, 14, FACTION_INFO[u.owner].fill);
+    this.burstAt(x, y, 22, FACTION_INFO[u.owner].fill);
+    this.burstAt(x, y, 10, 0xffd9a0);
     if (u.owner === PLAYER) {
       this.floatText(x, y - 6, `${unitInfo(u.type).short} caduta`, PALETTE.ko);
+      this.cameras.main.shake(160, 0.003);
       buzz(40);
+    } else if (this.state.sees(u.tile)) {
+      this.floatText(x, y - 6, `${unitInfo(u.type).short} distrutta`, PALETTE.radioattivo);
+      buzz(20);
     }
   }
 

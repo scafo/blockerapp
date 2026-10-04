@@ -7,13 +7,13 @@ import aristocrazia from '../assets/img/civ-aristocrazia.jpg';
 import cabal from '../assets/img/civ-cabal.jpg';
 import nave from '../assets/img/load-nave.jpg';
 import croce from '../assets/img/load-croce.jpg';
-import statua from '../assets/img/load-statua.jpg';
+import festa from '../assets/img/load-festa.jpg';
 import ghiaccio from '../assets/img/load-ghiaccio.jpg';
 import radar from '../assets/img/load-radar.jpg';
 
 const URLS: Record<string, string> = {
   'civ-imperium': imperium, 'civ-republica': republica, 'civ-aristocrazia': aristocrazia, 'civ-cabal': cabal,
-  'load-nave': nave, 'load-croce': croce, 'load-statua': statua, 'load-ghiaccio': ghiaccio, 'load-radar': radar,
+  'load-nave': nave, 'load-croce': croce, 'load-festa': festa, 'load-ghiaccio': ghiaccio, 'load-radar': radar,
 };
 
 export const civImage = (id: CivId) => `civ-${id}`;

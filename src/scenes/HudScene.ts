@@ -470,6 +470,16 @@ export class HudScene extends Phaser.Scene {
     if (this.profileF === f) this.renderProfile();
   }
 
+  /** Un nemico assalta una tua provincia: c'è tempo per rinforzarsi (truppe in cassa, bunker, pedine). */
+  onDefending(by: number) {
+    this.toast(`${FACTION_INFO[by]?.short ?? 'IL NEMICO'} ASSALTA UNA TUA PROVINCIA\nhai qualche secondo: tieni truppe in cassa`, PALETTE.ko);
+  }
+
+  /** La capitale è caduta: i rifornimenti ripartono dalla nuova. */
+  onCapital() {
+    this.banner('CAPITALE SPOSTATA', PALETTE.allerta, 'la logistica riparte dalla nuova capitale');
+  }
+
   /** Accerchiamento: una sacca si arrende. */
   onEncircled(by: number, from: number, n: number) {
     if (by === PLAYER) this.banner(`ACCERCHIAMENTO · +${n} ${n === 1 ? 'PROVINCIA' : 'PROVINCE'}`, PALETTE.radioattivo, 'la sacca si arrende');
@@ -828,7 +838,8 @@ export class HudScene extends Phaser.Scene {
         { k: 'GITTATA', v: String(U.range) },
         { k: 'PASSO', v: `${(U.moveMs / 1000).toFixed(1).replace('.', ',')} s` },
         { k: 'BATTE', v: beats },
-        { k: 'STATO', v: unit.inCombat ? 'in combattimento' : unit.path.length ? 'in marcia' : 'ferma', c: unit.inCombat ? PALETTE.ko : PALETTE.carta },
+        { k: 'STATO', v: unit.inCombat ? 'in combattimento' : st.battles.some((b) => b.unit === unit.id) ? 'assedio' : unit.path.length ? 'in marcia' : 'ferma',
+          c: unit.inCombat ? PALETTE.ko : PALETTE.carta },
       ]);
       items.push(this.add.text(12, actY + 8, mine ? 'Tocca una casella: la pedina ci va conquistando la strada.' : 'Pedina nemica: schiera chi la batte.',
         textStyle(10, PALETTE.tenue, false)));
@@ -852,15 +863,19 @@ export class HudScene extends Phaser.Scene {
         { k: 'DIFESA', v: seen || o === NEUTRAL ? String(st.provDefense(p)) : '?' },
         { k: 'PRODUCE', v: `${st.provPerMin(p).toFixed(1).replace('.', ',')} ${resName}/min` },
         { k: 'COSTRUZIONE', v: work, c: prog ? PALETTE.allerta : PALETTE.carta },
-        o === PLAYER ? { k: 'CASELLE', v: String(prov.tiles.length) }
+        o === PLAYER ? { k: 'RIFORNIMENTO', v: `${Math.round(st.supply[p] * 100)}%${st.capitalProv[PLAYER] === p ? ' · capitale' : ''}`,
+          c: st.supply[p] >= 0.95 ? 0x7ee2a8 : st.supply[p] >= 0.6 ? PALETTE.allerta : PALETTE.ko }
           : { k: 'PER PRENDERLA', v: seen || o === NEUTRAL ? `${cost} truppe` : '?', c: st.troops > cost ? 0x7ee2a8 : PALETTE.ko },
       ]);
       if (own && !grid) {
         if (ready || prog) items.push(this.add.text(12, actY + 8, ready ? workDesc(ready, resName) : 'Cantiere aperto: la costruzione resta alla provincia.', textStyle(11, PALETTE.carta, false)));
         else action('COSTRUISCI ▸', PALETTE.ocra, 12, 160, () => { this.provOpen = true; this.renderProvince(); });
+      } else if (!own && st.battleAt(p)) {
+        const b = st.battleAt(p)!, left = Math.max(0, Math.ceil((b.endMs - st.gameTimeMs) / 1000));
+        items.push(this.add.text(12, actY + 8, `ASSALTO IN CORSO · ${left} s · ${b.by === PLAYER ? `${b.troops} truppe impegnate` : 'nemico all\'attacco'}`, textStyle(11, PALETTE.allerta)));
       } else if (!own) {
         const atWar = st.atWar(PLAYER, o);
-        if (atWar && st.isFrontierProv(p)) action(`ATTACCA · ${cost} TRUPPE`, st.troops > cost ? PALETTE.radioattivo : PALETTE.ko, 12, 200, () => this.run.tapProvince(p));
+        if (atWar && st.isFrontierProv(p)) action(`${o === NEUTRAL ? 'PRENDI' : 'ASSALTA'} · ${cost} TRUPPE`, st.troops > cost ? PALETTE.radioattivo : PALETTE.ko, 12, 200, () => this.run.tapProvince(p));
         else if (atWar) action('AVANZATA ▸', PALETTE.carta, 12, 160, () => this.run.tapProvince(p));
         if (o > PLAYER && seen) action('SCHEDA ›', PALETTE.ocra, W - 12 - 120, 120, () => this.showProfile(o));
       }

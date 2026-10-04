@@ -28,6 +28,9 @@ export interface Faction {
   lootAcc: Record<Resource, number>; // frazioni di risorse prodotte dai lavoratori
 }
 
+/** Assalto a una provincia di qualcuno: truppe già pagate, si risolve a `endMs`. Con `unit` è l'assedio di una pedina. */
+export interface Battle { id: number; p: number; by: number; from: number; troops: number; def0: number; startMs: number; endMs: number; unit?: number }
+
 export type RunEvent =
   | { type: 'conquer'; by: number; from: number; p: number; i: number; cost: number; loot: number; lootType: Resource; unit?: number }
   | { type: 'timer'; phase: 'warn' }
@@ -42,7 +45,10 @@ export type RunEvent =
   | { type: 'offensive'; faction: number; phase: 'warn' | 'start' | 'end'; lost?: number }
   | { type: 'eliminated'; faction: number; by: number; loot: Bag }
   | { type: 'diplomacy'; faction: number; what: DiploWhat; byPlayer: boolean; amount?: number }
-  | { type: 'encircled'; by: number; from: number; provinces: number[] };
+  | { type: 'encircled'; by: number; from: number; provinces: number[] }
+  | { type: 'battle'; phase: 'start' | 'won' | 'lost' | 'off'; battle: Battle }
+  | { type: 'capital'; faction: number; p: number }
+  | { type: 'hit'; from: number; to: number; fromTile: number; toTile: number; dmg: number; owner: number };
 
 export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'timeout';
 /** Rapporto di una fazione col giocatore. */
@@ -70,8 +76,8 @@ export interface RunSummary {
 }
 
 export type ConquerResult =
-  | { ok: true; tile: Tile; cost: number; loot: number; lootType: Resource }
-  | { ok: false; reason: 'not-adjacent' | 'impassable' | 'owned' | 'troops'; need?: number };
+  | { ok: true; tile: Tile; cost: number; loot: number; lootType: Resource; battle?: Battle }
+  | { ok: false; reason: 'not-adjacent' | 'impassable' | 'owned' | 'troops' | 'battle'; need?: number };
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -142,6 +148,12 @@ export class RunState {
   private recons: { tile: number; until: number }[] = [];
   private strikes: { tile: number; at: number }[] = [];
   units: Unit[] = [];
+  battles: Battle[] = [];
+  private nextBattleId = 1;
+  /** Rifornimento di ogni provincia (0–1) per chi la possiede; capitale di ogni fazione (provincia, −1 = nessuna). */
+  supply!: Float32Array;
+  capitalProv: number[] = [];
+  private supplyDirty = true;
   /** fazione → tipo → tempo di gioco in cui la carta torna disponibile */
   readonly cooldowns: Record<UnitType, number>[];
   private nextUnitId = 1;
@@ -222,6 +234,8 @@ export class RunState {
     this.provCoastal = Uint8Array.from(map.provinces, (pr) => (pr.tiles.some((i) => isCoast(map.tiles, i)) ? 1 : 0));
     this.provWorkAt = new Float64Array(map.provinces.length);
     this.gw = this.factions.map(() => 0);
+    this.supply = new Float32Array(map.provinces.length).fill(1);
+    this.capitalProv = map.starts.map((st) => this.provOf(st)); // si parte dalla propria capitale
     this.incomeTick = this.factions.map(() => emptyBag());
     // si parte con la provincia della propria partenza; le milizie con qualcuna attorno
     map.starts.forEach((s, f) => this.claimProvince(f, this.provOf(s)));
@@ -377,11 +391,12 @@ export class RunState {
       }
       if (o === NEUTRAL) continue;
       const ready = w >= 0 && this.provWorkAt[p] === 0 ? W[WORKS[w]] : null;
-      this.gw[o] += this.provGrowthW[p] + (ready?.growthTiles ?? 0);
+      const sup = 0.5 + 0.5 * this.supply[p]; // logistica: lontano dalla capitale si cresce e si produce meno (al massimo la metà)
+      this.gw[o] += this.provGrowthW[p] * sup + (ready?.growthTiles ?? 0);
       const f = this.factions[o];
       const res = BALANCE.terrain[this.map.provinces[p].terrain].res;
       const made = (this.provYield[p] + (ready ? (ready.prodAdd * BALANCE.tick.ms) / 60_000 : 0))
-        * (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1);
+        * (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1) * sup;
       f.lootAcc[res] += made;
       this.incomeTick[o][res] += made;
     }
@@ -741,6 +756,7 @@ export class RunState {
   }
 
   private tick() {
+    if (this.supplyDirty) this.recomputeSupply();
     this.countSettlements();
     this.economyTick();
     for (const f of this.factions) if (f.alive) this.grow(f);
@@ -760,6 +776,7 @@ export class RunState {
       this.aiUnits(f);
     }
     this.unitsTick();
+    this.battlesTick();
     this.diploTick();
     this.encircleTick();
     this.offensiveTick();
@@ -949,7 +966,9 @@ export class RunState {
     if (!this.provPassable(T)) return this.stopFlow('blocked');
     const tc = this.map.provinces[T].anchor;
     let best = -1, bestD = Infinity, bestCost = Infinity;
+    if (this.battleAt(T)?.by === PLAYER) return; // il bersaglio è sotto assalto: si aspetta l'esito
     for (const p of this.frontier(PLAYER)) {
+      if (this.battleAt(p)) continue;
       const d = p === T ? 0 : hexDistance(this.map.provinces[p].anchor, tc), cost = this.provCost(PLAYER, p);
       if (d < bestD || (d === bestD && cost < bestCost)) {
         best = p;
@@ -1111,7 +1130,10 @@ export class RunState {
       }
       u.inCombat = !!target || this.units.some((v) => v.owner !== u.owner && this.atWar(u.owner, v.owner) && hexDistance(u.tile, v.tile) <= U[v.type].range);
       const atk = U[u.type].attack * (u.owner === PLAYER ? this.opts.mods.unitAttackMult : 1); // munizioni perforanti
-      if (target) dmg.set(target, (dmg.get(target) ?? 0) + atk * best);
+      if (target) {
+        dmg.set(target, (dmg.get(target) ?? 0) + atk * best);
+        this.events.push({ type: 'hit', from: u.id, to: target.id, fromTile: u.tile, toTile: target.tile, dmg: atk * best, owner: u.owner });
+      }
     }
     for (const [v, d] of dmg) v.hp -= d;
     this.removeDead();
@@ -1120,14 +1142,17 @@ export class RunState {
     for (const u of [...this.units]) {
       if (u.hp <= 0) continue;
       const stats = U[u.type];
-      if (!u.inCombat && u.path.length) {
+      if (!u.inCombat && u.path.length && !this.battles.some((b) => b.unit === u.id)) { // chi assedia resta fermo
         u.moveAcc += BALANCE.tick.ms;
         const next0 = this.map.tiles[u.path[0]];
         if (u.moveAcc >= stats.moveMs * (next0 ? BALANCE.terrain[next0.terrain].move : 1)) { // colline e montagne rallentano
-          const next = u.path[0];
+          const next = u.path[0], there = this.unitAt(next);
+          // si passa attraverso le pedine amiche (si ferma solo se la casella d'arrivo è occupata) mai attraverso le nemiche
+          const blocked = !!there && (there.owner !== u.owner || u.path.length === 1);
           // la pace firmata durante la marcia chiude i confini: la pedina si ferma
           if (this.map.tiles[next] && this.owner[next] !== u.owner && !this.atWar(u.owner, this.owner[next])) u.path.length = 0;
-          else if (!this.unitAt(next)) {
+          else if (blocked && u.path.length === 1 && there!.owner === u.owner) u.path.length = 0; // arrivo occupato da un'amica: si ferma accanto
+          else if (!blocked) {
             u.moveAcc = 0;
             u.tile = next;
             u.path.shift();
@@ -1140,9 +1165,9 @@ export class RunState {
       } else if (this.owner[u.tile] !== u.owner && this.atWar(u.owner, this.owner[u.tile])) {
         // la pedina prende tutta la provincia in cui entra
         const p = this.provOf(u.tile);
-        // in terra libera si avanza senza perdite: si combatte solo entrando nel territorio di qualcuno
-        if (this.provOwner[p] !== NEUTRAL) u.hp -= this.provDefense(p) * stats.captureCost;
-        if (u.hp > 0) this.transferProvince(u.owner, p, 0, u.id);
+        // in terra libera si avanza senza perdite; nel territorio di qualcuno la pedina si ferma e assedia la provincia
+        if (this.provOwner[p] === NEUTRAL) this.transferProvince(u.owner, p, 0, u.id);
+        else if (!this.battleAt(p)) this.startBattle(u.owner, p, 0, u.id);
       } else if (!u.inCombat && this.owner[u.tile] === u.owner) {
         u.hp = Math.min(u.maxHp, u.hp + U.healPerTick * this.healMult(u));
       }
@@ -1220,6 +1245,7 @@ export class RunState {
         this.provOwner[p] = NEUTRAL;
         this.provWork[p] = -1; // le costruzioni saltano
         this.frontierCache.clear();
+        this.supplyDirty = true;
         this.events.push({ type: 'conquer', by: NEUTRAL, from: o, p, i: this.map.provinces[p].anchor, cost: 0, loot: 0, lootType: 'metallo' });
         if (f.tiles <= 0) this.eliminate(o, PLAYER);
       }
@@ -1310,7 +1336,7 @@ export class RunState {
     const assault = this.offensive?.phase === 'on' && this.offensive.faction === f.id;
     for (const p of this.frontier(f.id)) {
       const o = this.provOwner[p];
-      if (grace && o === PLAYER) continue;
+      if ((grace && o === PLAYER) || this.battleAt(p)) continue; // già sotto assalto: si sceglie un altro bersaglio
       const prov = this.map.provinces[p];
       const capital = prov.city >= 0 && this.map.tiles[prov.city]!.capital ? BALANCE.provinces.aiCityAttraction : 1; // le capitali attirano
       const bias = o === PLAYER ? (assault ? BALANCE.offensive.playerBias : BALANCE.ai.playerBias) : 1;
@@ -1350,6 +1376,7 @@ export class RunState {
     let d = 0;
     for (const i of this.map.provinces[p].tiles) if (this.passable(i)) d += this.costFor(by, i);
     if (by === PLAYER) d *= this.opts.mods.attackCostMult; // dottrina d'assalto
+    d *= 1 + (1 - this.supplyFrom(by, p)) * BALANCE.logistics.attackPenalty; // attaccare da province mal rifornite costa di più
     return Math.ceil(d * (1 + BALANCE.overextension * Math.max(0, this.factions[by].provinces - 1)));
   }
 
@@ -1380,7 +1407,9 @@ export class RunState {
     const fort = this.fortBy[i] === o ? BALANCE.units.fortifyDefense : 0;
     const settlement = t.type === 'rovine' ? BALANCE.owned.settlementDefense + (mine ? this.opts.mods.settlementDefense : 0) : 0;
     const front = mine ? this.opts.mods.ownedDefenseMult : this.opts.tutorial ? 1 : this.opts.front.aiDefenseMult; // fronti difficili: IA trincerate
-    return Math.ceil((base * BALANCE.owned.defenseMult + garrison + settlement + fort) * front);
+    if (this.supplyDirty) this.recomputeSupply();
+    const L = BALANCE.logistics, sup = L.defenseMin + (1 - L.defenseMin) * this.supply[t.province]; // province mal rifornite cedono prima
+    return Math.ceil((base * BALANCE.owned.defenseMult + garrison + settlement + fort) * front * sup);
   }
 
   /** La casella sta in una provincia attaccabile da `f`? */
@@ -1419,12 +1448,118 @@ export class RunState {
     if (!this.provPassable(p)) return { ok: false, reason: 'impassable' };
     if (this.provOwner[p] === by) return { ok: false, reason: 'owned' };
     if (!this.isFrontierProv(p, by)) return { ok: false, reason: 'not-adjacent' };
+    if (this.battleAt(p)) return { ok: false, reason: 'battle' };
     const cost = this.provCost(by, p);
     const att = this.factions[by];
     if (att.troops <= cost) return { ok: false, reason: 'troops', need: cost };
     att.troops -= cost;
+    const tile = this.map.tiles[this.map.provinces[p].anchor]!;
+    // provincia di qualcuno: assalto a tempo (le truppe partono ora, l'esito alla fine)
+    if (this.provOwner[p] !== NEUTRAL) return { ok: true, tile, cost, loot: 0, lootType: 'metallo', battle: this.startBattle(by, p, cost) };
     const { loot, lootType } = this.transferProvince(by, p, cost);
-    return { ok: true, tile: this.map.tiles[this.map.provinces[p].anchor]!, cost, loot, lootType };
+    return { ok: true, tile, cost, loot, lootType };
+  }
+
+  // ---------- assalti e assedi ----------
+
+  battleAt(p: number): Battle | undefined {
+    return this.battles.find((b) => b.p === p);
+  }
+
+  /** Inizia un assalto (o l'assedio di una pedina): dura di più se la provincia costa tanto o è in montagna. */
+  private startBattle(by: number, p: number, troops: number, unit?: number): Battle {
+    const B = BALANCE.battle, prov = this.map.provinces[p];
+    const weight = unit !== undefined ? this.provDefense(p) : troops;
+    const move = BALANCE.terrain[prov.terrain].move;
+    const ms = clamp((B.baseMs + weight * B.msPerCost) * (1 + (move - 1) * 0.5), B.minMs, B.maxMs);
+    const b: Battle = { id: this.nextBattleId++, p, by, from: this.provOwner[p], troops, def0: this.provDefense(p), startMs: this.gameTimeMs, endMs: this.gameTimeMs + ms, unit };
+    this.battles.push(b);
+    this.frontierCache.clear();
+    this.events.push({ type: 'battle', phase: 'start', battle: b });
+    return b;
+  }
+
+  /** Assalti che finiscono: vince chi ha ancora abbastanza truppe (o la pedina che resiste); gli altri si sciolgono. */
+  private battlesTick() {
+    const B = BALANCE.battle;
+    for (const b of [...this.battles]) {
+      const unit = b.unit !== undefined ? this.units.find((u) => u.id === b.unit && u.hp > 0) : undefined;
+      const unitHere = !!unit && this.provOf(unit.tile) === b.p;
+      const gone = this.provOwner[b.p] !== b.from || !this.factions[b.by].alive || !this.atWar(b.by, b.from) || (b.unit !== undefined && !unitHere);
+      if (gone) {
+        // la provincia è cambiata di mano, è arrivata la pace o la pedina se n'è andata: le truppe tornano
+        this.battles = this.battles.filter((x) => x !== b);
+        this.factions[b.by].troops += b.troops;
+        this.frontierCache.clear();
+        this.events.push({ type: 'battle', phase: 'off', battle: b });
+        continue;
+      }
+      if (this.gameTimeMs < b.endMs) continue;
+      this.battles = this.battles.filter((x) => x !== b);
+      this.frontierCache.clear();
+      let win: boolean;
+      if (unit) {
+        unit.hp -= this.provDefense(b.p) * BALANCE.units[unit.type].captureCost; // l'assedio costa vita alla pedina
+        win = unit.hp > 0;
+      } else {
+        // conta solo quanto si è rinforzato il difensore (non la sovraestensione dell'attaccante, che intanto cresce altrove)
+        const ratio = this.provDefense(b.p) / Math.max(1, b.def0);
+        win = ratio * B.winRatio <= 1;
+        if (win) this.factions[b.by].troops += Math.max(0, Math.floor(b.troops * (1 - ratio))); // difesa calata: truppe avanzate tornano
+      }
+      if (win) this.transferProvince(b.by, b.p, b.troops, b.unit);
+      else {
+        const def = this.factions[b.from];
+        if (def) def.troops = Math.max(0, def.troops - b.troops * B.defenderLoss);
+      }
+      this.events.push({ type: 'battle', phase: win ? 'won' : 'lost', battle: b });
+    }
+  }
+
+  // ---------- logistica ----------
+
+  /** Rifornimento: visita del territorio a partire dalla capitale di ogni fazione (una volta per tick, se qualcosa è cambiato). */
+  private recomputeSupply() {
+    this.supplyDirty = false;
+    const L = BALANCE.logistics, own = this.provOwner, provs = this.map.provinces;
+    this.supply.fill(L.cutOff);
+    const dist = new Int16Array(own.length).fill(-1);
+    for (const f of this.factions) {
+      if (!f.alive) continue;
+      let c = this.capitalProv[f.id];
+      if (c < 0 || own[c] !== f.id) {
+        c = this.capitalProv[f.id] = this.newCapital(f.id, c);
+        if (c >= 0) this.events.push({ type: 'capital', faction: f.id, p: c });
+      }
+      if (c < 0) continue;
+      const q = [c];
+      dist[c] = 0;
+      for (let h = 0; h < q.length; h++) {
+        const p = q[h], d = dist[p];
+        this.supply[p] = d <= L.range ? 1 : Math.max(L.min, 1 - (d - L.range) * L.decay);
+        for (const n of provs[p].neighbors) if (dist[n] < 0 && own[n] === f.id) { dist[n] = d + 1; q.push(n); }
+      }
+    }
+  }
+
+  /** Capitale persa: la nuova è la provincia della fazione più vicina alla vecchia. */
+  private newCapital(f: number, old: number): number {
+    const provs = this.map.provinces, from = old >= 0 ? provs[old].anchor : this.map.starts[f];
+    let best = -1, bd = Infinity;
+    for (let p = 0; p < this.provOwner.length; p++) {
+      if (this.provOwner[p] !== f || provs[p].anchor < 0) continue;
+      const d = hexDistance(provs[p].anchor, from);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+
+  /** Rifornimento migliore tra le province di `by` che confinano con `p` (da lì parte l'attacco). */
+  private supplyFrom(by: number, p: number): number {
+    if (this.supplyDirty) this.recomputeSupply(); // sempre aggiornato: le province appena prese contano subito
+    let s = 0;
+    for (const q of this.map.provinces[p].neighbors) if (this.provOwner[q] === by && this.supply[q] > s) s = this.supply[q];
+    return s || 1;
   }
 
   /** Passa la provincia a `by` (il costo è già stato pagato): bottino delle rovine, premio, capitale. */
@@ -1452,6 +1587,7 @@ export class RunState {
       f.tiles++;
     }
     this.provOwner[p] = by;
+    this.supplyDirty = true;
     f.provinces++;
     f.maxProvinces = Math.max(f.maxProvinces, f.provinces);
     f.maxTiles = Math.max(f.maxTiles, f.tiles);
@@ -1494,6 +1630,7 @@ export class RunState {
   /** Provincia assegnata senza combattere (partenza). */
   private claimProvince(f: number, p: number) {
     const fac = this.factions[f];
+    this.supplyDirty = true;
     for (const i of this.map.provinces[p].tiles) {
       if (!this.passable(i) || this.owner[i] !== NEUTRAL) continue;
       this.owner[i] = f;

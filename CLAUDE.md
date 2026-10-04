@@ -83,8 +83,9 @@ forti + simboli (daltonismo).
   tregua 4:00, primo confine con un impero a 6–9 min (Fronte III 3–10 min, Fronte V 1–3 min), poi possono dichiarare guerra;
   a 20:00 vince chi ha più province (90–260 tue, milizie ~8 province l'una, 10–25 sacche prese). Bottino ~580–1650.
   Breve 10 min, lunga 30.
-- Muro di difficoltà (sim con giocatore che dichiara guerra se più forte): Fronte I 3 vittorie su 4; Fronte III senza potenziamenti
-  2 su 6, con HQ a metà 4 su 4; Fronte V con HQ al massimo 2 su 4. HQ + tutte le ricerche costano ~13.400 risorse.
+- Muro di difficoltà (sim con giocatore che dichiara guerra se più forte, con assalti e logistica): Fronte I 4 vittorie su 4;
+  Fronte III senza potenziamenti 2 su 6, con HQ a metà 4 su 4; Fronte V con HQ al massimo 2 su 5 (IA dei fronti III–VI più forti:
+  crescita ×1,2/1,28/1,5/1,56). Bottino ~1000–2500 al Fronte I. HQ + tutte le ricerche costano ~13.400 risorse.
 
 ## Regole di design
 - Max 5–6 scelte a schermo. Mappa sempre libera al centro, comandi negli angoli in basso.
@@ -104,6 +105,21 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 ## Note del developer (stato e comandi)
 
+- **Assalti, logistica, mappa da vicino, pedine** (ultima richiesta di Nico): le province di una fazione **non si prendono
+  subito**: paghi le truppe e parte un assalto di 3–15 s (`battle` in `balance.ts`, `RunState.startBattle/battlesTick`;
+  anello che si riempie con le sciabole sulla mappa); alla fine si vince se il difensore non si è rinforzato oltre ~18%
+  (conta solo la sua difesa, non la sovraestensione di chi attacca), altrimenti "respinti" e truppe perse. Le province libere
+  restano immediate. Vale per le IA (che scelgono un altro bersaglio se uno è già sotto assalto) e per le pedine, che
+  **assediano** la provincia (restano ferme, perdono vita alla fine). **Capitale e logistica alla HOI4** (`logistics`): si parte
+  dalla propria capitale (doppio anello d'oro); rifornimento pieno fino a 8 passi lungo il proprio territorio, poi cala, le sacche
+  tagliate fuori scendono al 25% → meno crescita e produzione (al massimo la metà), difesa più debole, attacchi da lì più cari;
+  province mal rifornite più scure; se la capitale cade se ne sceglie un'altra. Rifornimento nella tabella della provincia.
+  **Da vicino** (zoom ≥ 5): territorio un po' trasparente sul terreno, alone lungo il tuo fronte, ombre morbide sui confini
+  delle province, grana da carta stampata. **Pedine**: scivolano alla velocità vera del terreno, colpi tracciati con vampa,
+  scintille, sobbalzo e danno che sale, caduta con esplosione e scossa, anello d'arrivo sull'ordine, passano attraverso le
+  amiche. Immagini nuove di Nico nei caricamenti (nave sul ghiaccio, festa della Concordia), le altre restano segnaposto
+  sgranati finché non arrivano gli originali (il download da Figma è bloccato dalla rete dell'ambiente).
+  Bilanciamento rifatto con i nuovi sistemi (vedi "Tempi di gioco").
 - **Caricamento con la lore e tabella in fondo** (ultima richiesta di Nico): il caricamento è un documento dell'archivio che si scrive
   lettera per lettera (telescrivente legata al tempo vero, `CHAR_MS`) in font da terminale (Share Tech Mono, `FONT_MONO`, azzurro chiaro che brilla come le scritte
   sull'immagine della nave) sopra l'immagine a tutto schermo, con un flusso di dati che scorre di lato; sotto solo la barra; dura apposta 6,5–11 s (`MIN_MS`/`MAX_MS` in `LoadScene.ts`), si salta toccando
