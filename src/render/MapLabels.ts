@@ -9,7 +9,7 @@ import { FONT, FONT_TITLE, textStyle } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
 
 export interface WorldLabel { x: number; y: number; text: string; color: number }
-export interface NationLabel { x: number; y: number; name: string; size: number; tile: number; known?: boolean }
+export interface NationLabel { x: number; y: number; name: string; size: number; width: number; tile: number; known?: boolean }
 export interface FactionTag { x: number; y: number; visible: boolean; scale: number }
 
 /** Quello che la scena della mappa espone alle etichette. */
@@ -59,22 +59,29 @@ export class MapLabels {
     const showNames = zoom < BALANCE.provinces.namesMaxZoom;
     let n = 0;
     if (showNames) {
+      const placed: number[][] = []; // riquadri già occupati (dai paesi più grandi): niente nomi sovrapposti
       for (const l of src.nationLabels) {
         const [sx, sy] = this.toScreen(cam, l.x, l.y);
         if (!inView(sx, sy)) continue;
+        // corpo del nome in proporzione alla larghezza del paese sullo schermo; troppo piccolo = niente nome
+        const screenW = (l.width * cam.zoom) / UI(), chars = l.name.length;
+        const size = Math.floor(Phaser.Math.Clamp(((0.75 * screenW) / chars - 2) / 0.62, 0, 13));
+        if (size < 9) continue;
+        const tw = chars * (0.62 * size + 2), bx = [sx - tw / 2 - 4, sy - size / 2 - 3, sx + tw / 2 + 4, sy + size / 2 + 3];
+        if (placed.some((q) => bx[0] < q[2] && bx[2] > q[0] && bx[1] < q[3] && bx[3] > q[1])) continue;
+        placed.push(bx);
         let t = this.names[n];
         if (!t) {
           t = this.scene.add.text(0, 0, '', {
             fontFamily: FONT_TITLE, fontSize: '13px', fontStyle: '600', color: hex(PALETTE.mappa.nome), resolution: UI(),
-            stroke: hex(PALETTE.inchiostro), strokeThickness: 3,
-          }).setOrigin(0.5).setLetterSpacing(3).setAlpha(0.8);
+            stroke: hex(PALETTE.inchiostro), strokeThickness: 2,
+          }).setOrigin(0.5).setLetterSpacing(2).setAlpha(0.8);
           this.layer.add(t);
           this.names.push(t);
         }
-        const size = Math.round(Phaser.Math.Clamp(l.size * (0.7 + zoom * 0.35), 12, 20));
         if (t.text !== l.name) t.setText(l.name);
         if (t.style.fontSize !== `${size}px`) t.setFontSize(size);
-        t.setPosition(Math.round(sx), Math.round(sy)).setVisible(true).setAlpha(l.known === false ? 0.22 : 0.8); // sotto la nebbia appena accennati
+        t.setPosition(Math.round(sx), Math.round(sy)).setVisible(true).setAlpha(l.known === false ? 0.2 : 0.7); // sotto la nebbia appena accennati
         n++;
       }
     }
@@ -101,9 +108,9 @@ export class MapLabels {
     src.factionTags.forEach((tag, k) => {
       const c = this.tags[k];
       if (!c) return;
-      if (!tag.visible) return void c.setVisible(false);
-      const [sx, sy] = this.toScreen(cam, tag.x, tag.y);
-      c.setPosition(Math.round(sx), Math.round(sy)).setScale(Phaser.Math.Clamp(tag.scale, 0.9, 1.6)).setVisible(inView(sx, sy));
+      if (!tag.visible || (FACTION_INFO[k]?.kind === 'bot' && zoom < 3)) return void c.setVisible(false); // milizie: solo da vicino
+      const [sx, sy] = this.toScreen(cam, tag.x, tag.y), far = Phaser.Math.Clamp(zoom / 4, 0.6, 1);
+      c.setPosition(Math.round(sx), Math.round(sy)).setScale(Phaser.Math.Clamp(tag.scale, 0.9, 1.6) * far).setVisible(inView(sx, sy));
     });
 
     // barra di stato da terminale: centro della vista e zoom

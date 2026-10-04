@@ -868,9 +868,17 @@ export class RunScene extends Phaser.Scene {
 
   /** Nomi delle nazioni: li disegna l'interfaccia in giallo terminale (vedi MapLabels). */
   private drawNationNames() {
-    this.nationLabels = this.map.nations.filter((n) => n.size >= BALANCE.provinces.nameMinTiles).map((n) => {
-      const { x, y } = center(n.label);
-      return { x, y, name: n.name.toUpperCase(), size: Phaser.Math.Clamp(8 + Math.sqrt(n.size) * 0.45, 9, 16), tile: n.label };
+    // larghezza della nazione sulla carta (dalle sagome delle province): il nome si adatta e non esce dai confini
+    const box = new Map<number, [number, number]>();
+    this.map.provinces.forEach((p, k) => {
+      const s = this.shapes.provinces[k];
+      if (!s?.parts.length) return;
+      const b = box.get(p.country);
+      box.set(p.country, b ? [Math.min(b[0], s.x0), Math.max(b[1], s.x1)] : [s.x0, s.x1]);
+    });
+    this.nationLabels = this.map.nations.filter((n) => n.size >= BALANCE.provinces.nameMinTiles).sort((a, b) => b.size - a.size).map((n) => {
+      const { x, y } = center(n.label), b = box.get(n.id) ?? [x - 10, x + 10];
+      return { x, y, name: n.name.toUpperCase(), size: 0, width: b[1] - b[0], tile: n.label };
     });
   }
 
@@ -940,7 +948,7 @@ export class RunScene extends Phaser.Scene {
       if (this.map.tiles[p.city]!.capital) {
         const star: Phaser.Types.Math.Vector2Like[] = [];
         for (let k = 0; k < 10; k++) {
-          const a = -Math.PI / 2 + (k * Math.PI) / 5, r = (k % 2 ? 2.6 : 6.2) * px;
+          const a = -Math.PI / 2 + (k * Math.PI) / 5, r = (k % 2 ? 2.6 : 6.2) * px * Phaser.Math.Clamp(z / 4, 0.6, 1); // da lontano più piccole
           star.push({ x: x + r * Math.cos(a), y: y + r * Math.sin(a) });
         }
         g.fillStyle(MP.capitale, 1).fillPoints(star, true).lineStyle(1 * px, 0x000000, 0.6).strokePoints(star, true, true);
@@ -1093,15 +1101,37 @@ export class RunScene extends Phaser.Scene {
     for (const l of this.nationLabels) l.known = !!st.seen[l.tile];
     const tex = this.fogTex;
     if (!F.shade || !tex) return;
-    const ctx = tex.getContext(), { cols, rows } = BALANCE.map;
+    const ctx = tex.getContext(), { cols, rows } = BALANCE.map, n = cols * rows;
+    // opacità di base per casella, poi sfocata (due passate di media mobile): il bordo della nebbia sfuma su più caselle
+    const a = new Float32Array(n);
+    for (let i = 0; i < n; i++) a[i] = st.visible[i] ? 0 : st.seen[i] ? F.seenAlpha : F.unseenAlpha;
+    const R = F.blur, tmp = new Float32Array(n);
+    for (let pass = 0; pass < 2; pass++) {
+      for (let r = 0; r < rows; r++) { // orizzontale
+        let sum = 0;
+        const row = r * cols;
+        for (let c = -R; c <= R; c++) sum += a[row + Math.min(cols - 1, Math.max(0, c))];
+        for (let c = 0; c < cols; c++) {
+          tmp[row + c] = sum / (2 * R + 1);
+          sum += a[row + Math.min(cols - 1, c + R + 1)] - a[row + Math.max(0, c - R)];
+        }
+      }
+      for (let c = 0; c < cols; c++) { // verticale
+        let sum = 0;
+        for (let r = -R; r <= R; r++) sum += tmp[Math.min(rows - 1, Math.max(0, r)) * cols + c];
+        for (let r = 0; r < rows; r++) {
+          a[r * cols + c] = sum / (2 * R + 1);
+          sum += tmp[Math.min(rows - 1, r + R + 1) * cols + c] - tmp[Math.max(0, r - R) * cols + c];
+        }
+      }
+    }
     const img = ctx.createImageData(cols, rows), d = img.data;
     const cr = (F.color >> 16) & 255, cg = (F.color >> 8) & 255, cb = F.color & 255;
-    for (let i = 0; i < cols * rows; i++) {
-      if (st.visible[i]) continue;
-      const n = this.fogNoise[i];
-      const a = st.seen[i] ? F.seenAlpha * (0.85 + 0.3 * n) : F.unseenAlpha * (0.9 + 0.12 * n);
-      const k = i * 4, lift = st.seen[i] ? 0 : Math.round(n * 14); // nuvole appena più chiare
-      d[k] = cr + lift; d[k + 1] = cg + lift; d[k + 2] = cb + lift; d[k + 3] = Math.min(255, Math.round(a * 255));
+    for (let i = 0; i < n; i++) {
+      if (a[i] < 0.01) continue;
+      const nz = this.fogNoise[i], k = i * 4, lift = Math.round(nz * 16 * a[i]); // nuvole appena più chiare dove è fitta
+      d[k] = cr + lift; d[k + 1] = cg + lift; d[k + 2] = cb + lift;
+      d[k + 3] = Math.min(255, Math.round(a[i] * (0.88 + 0.24 * nz) * 255));
     }
     ctx.putImageData(img, 0, 0);
     tex.refresh();

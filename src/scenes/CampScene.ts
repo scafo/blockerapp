@@ -26,13 +26,13 @@ import { uiCamera, view } from '../ui/screen';
 import { drawPatch } from '../ui/symbols';
 import { drawUnitIcon } from '../ui/unitIcons';
 import { civImage, coverImage, fade } from '../ui/images';
+import { ashFall, drawBuilding, drawCompound, drawGround, drawLot, drawRoad, drawScaffold, drawTower, truck } from '../ui/baseArt';
 
 const PAD = 12;
 const maxLvl = (id: BuildingId) => BALANCE.camp.buildings[id].length;
 const SKY = PALETTE.inchiostro; // l'HQ è una planimetria sul tavolo dello stato maggiore, di notte
 const INK = PALETTE.carta; // testi chiari sul fondo scuro
 const LINE = PALETTE.linea; // tratti della planimetria
-const ICON = 0x9fb3c8; // simboli dentro i moduli
 
 type Spot = BuildingId | 'spedizione' | 'gioca' | 'test'; // 'gioca' = preparazione della campagna, 'test' = modalità test
 type MapSpot = BuildingId | 'spedizione'; // le postazioni sulla planimetria
@@ -84,7 +84,7 @@ export class CampScene extends Phaser.Scene {
     this.plan = this.portrait ? { x: PAD, y: 164, w: width - 2 * PAD, h: height - 164 - 150 } : { x: PAD, y: 114, w: width - 2 * PAD, h: height - 114 - 76 };
     this.k = this.portrait ? Math.min(this.plan.w / 400, 1.2) : Math.min(this.plan.w / 820, this.plan.h / 230, 1.6);
     const frac: Record<MapSpot, [number, number]> = this.portrait
-      ? { comando: [0.5, 0.42], laboratorio: [0.27, 0.13], radar: [0.73, 0.13], arsenale: [0.27, 0.7], deposito: [0.73, 0.7], spedizione: [0.5, 0.93] }
+      ? { comando: [0.5, 0.41], laboratorio: [0.27, 0.13], radar: [0.73, 0.13], arsenale: [0.27, 0.68], deposito: [0.73, 0.68], spedizione: [0.5, 0.88] }
       : { comando: [0.5, 0.5], laboratorio: [0.3, 0.16], radar: [0.7, 0.16], arsenale: [0.16, 0.66], deposito: [0.84, 0.66], spedizione: [0.5, 0.95] };
     this.spotPos = Object.fromEntries(Object.entries(frac).map(([id, [fx, fy]]) => [id, { x: this.plan.x + this.plan.w * fx, y: this.plan.y + this.plan.h * fy }])) as typeof this.spotPos;
     this.drawBackdrop();
@@ -183,169 +183,109 @@ export class CampScene extends Phaser.Scene {
   private drawBackdrop() {
     const { width, height } = view(this);
     this.cameras.main.setBackgroundColor(SKY);
-    const img = coverImage(this, civImage(activeCiv(this.profile)), 0, 0, width, height, 0.35).setTint(0x9fb4cc).setAlpha(0.55);
-    this.tweens.add({ targets: img, alpha: 0.42, duration: 5000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    this.add.rectangle(0, 0, width, height, SKY, 0.55).setOrigin(0);
-    fade(this, 0, 0, width, height * 0.3, SKY, 0.85, 0);
-    fade(this, 0, height * 0.6, width, height * 0.4, SKY, 0, 0.9);
+    drawGround(this, width, height);
+    // l'immagine della potenza appena accennata, come un riflesso sul vetro della sala operativa
+    const img = coverImage(this, civImage(activeCiv(this.profile)), 0, 0, width, height, 0.35).setTint(0x9fb4cc).setAlpha(0.12);
+    this.tweens.add({ targets: img, alpha: 0.06, duration: 6000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    fade(this, 0, 0, width, height * 0.22, SKY, 0.9, 0);
+    fade(this, 0, height * 0.78, width, height * 0.22, SKY, 0, 0.85);
   }
 
-  /** Planimetria: recinto tratteggiato, corridoi dal Centro di Comando a ogni postazione, alloggi lungo il recinto. */
+  /** La base: piazzale recintato, torrette coi fari, strade dal Centro di Comando a ogni postazione, alloggi. */
   private drawCenter() {
+    const b = this.plan, c = this.spotPos.comando, k = this.k;
     const g = this.add.graphics();
-    const b = this.plan, c = this.spotPos.comando;
-    // recinto a otto lati, tratteggiato
-    const cut = 30 * this.k;
-    const pts = [[b.x + cut, b.y], [b.x + b.w - cut, b.y], [b.x + b.w, b.y + cut], [b.x + b.w, b.y + b.h - cut], [b.x + b.w - cut, b.y + b.h], [b.x + cut, b.y + b.h], [b.x, b.y + b.h - cut], [b.x, b.y + cut]];
-    for (let i = 0; i < pts.length; i++) {
-      const [x0, y0] = pts[i], [x1, y1] = pts[(i + 1) % pts.length];
-      const len = Math.hypot(x1 - x0, y1 - y0), n = Math.floor(len / 10);
-      for (let k = 0; k < n; k += 2) g.lineStyle(1, ICON, 0.35).lineBetween(x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n, x0 + ((x1 - x0) * (k + 1)) / n, y0 + ((y1 - y0) * (k + 1)) / n);
-    }
-    // corridoi (doppia linea)
-    for (const [id, p] of Object.entries(this.spotPos)) {
-      if (id === 'comando') continue;
-      const ang = Math.atan2(p.y - c.y, p.x - c.x), nx = -Math.sin(ang) * 4, ny = Math.cos(ang) * 4;
-      g.lineStyle(1, ICON, 0.22).lineBetween(c.x + nx, c.y + ny, p.x + nx, p.y + ny).lineBetween(c.x - nx, c.y - ny, p.x - nx, p.y - ny);
-    }
-    // alloggi: uno ogni tenda, lungo il lato basso del recinto
-    const n = tents(this.profile);
-    // in verticale vanno in alto a sinistra (in basso c'è il convoglio)
-    const ay = this.portrait ? b.y + cut + 14 : b.y + b.h - 18 * this.k;
+    const corners = drawCompound(g, b, k);
+    for (const [id, p] of Object.entries(this.spotPos)) if (id !== 'comando') drawRoad(g, c.x, c.y, p.x, p.y, k);
+    // uscita del convoglio verso il bordo
+    const sp = this.spotPos.spedizione;
+    drawRoad(g, sp.x, sp.y, sp.x, b.y + b.h + 30, k);
+    corners.forEach((q, i) => drawTower(this, q.x, q.y, k, [Math.PI * 0.15, Math.PI * 0.65, Math.PI * 1.15, Math.PI * 1.65][i]));
+    // alloggi: una baracca ogni tenda, in fila in un angolo libero
+    // in verticale a metà del lato sinistro (in basso c'è la rimessa), in orizzontale in basso a sinistra
+    const n = tents(this.profile), ax = b.x + (this.portrait ? 14 : 40) * k, ay = this.portrait ? c.y + 16 * k : b.y + b.h - 30 * k;
     for (let i = 0; i < n; i++) {
-      const x = b.x + cut + 12 + i * 16 * this.k;
-      g.lineStyle(1, ICON, 0.6).strokeRect(x, ay, 11 * this.k, 8 * this.k);
+      const x = ax + i * 15 * k;
+      g.fillStyle(0x000000, 0.4).fillRect(x + 2, ay + 2, 11 * k, 7 * k);
+      g.fillStyle(0x3a4a3a, 1).fillRect(x, ay, 11 * k, 7 * k).lineStyle(1, 0x55684f, 1).lineBetween(x, ay + 3.5 * k, x + 11 * k, ay + 3.5 * k);
     }
-    this.add.text(b.x + cut + 12, ay - 14, `ALLOGGI ${n} · CAMPAGNE ${this.profile.runs}`, textStyle(10, PALETTE.ocra, false)).setAlpha(0.9);
-    // intestazione con l'ora (aggiornata in update)
-    this.clock = this.add.text(b.x + b.w - 30, b.y - 14, '', textStyle(10, PALETTE.ocra, false)).setOrigin(1, 0.5);
+    this.add.text(ax, ay - 4, `ALLOGGI ${n}${this.portrait ? '\n' : ' · '}CAMPAGNE ${this.profile.runs}`, textStyle(9, PALETTE.ocra, false)).setOrigin(0, 1).setAlpha(0.85);
+    // intestazione con l'ora (aggiornata in update); in verticale non c'è posto
+    if (!this.portrait) this.clock = this.add.text(b.x + b.w - 30, b.y - 14, '', textStyle(10, PALETTE.ocra, false)).setOrigin(1, 0.5);
+    else this.clock = null;
+    ashFall(this, view(this).width, view(this).height);
+  }
+
+  /** Ingombro dell'edificio di una postazione (punti). */
+  private footprint(id: MapSpot) {
+    const k = this.k;
+    return id === 'comando' ? { w: 160 * k, h: 88 * k } : id === 'spedizione' ? { w: 112 * k, h: 60 * k } : { w: 122 * k, h: 70 * k };
   }
 
   private makeSpot(id: MapSpot, x: number, y: number) {
-    const k = this.k, big = id === 'comando';
-    const w = (big ? 168 : 132) * k, h = (big ? 84 : 66) * k;
+    const { w, h } = this.footprint(id);
     const g = this.add.graphics();
-    const label = this.add.text(x - w / 2 + 8, y - h / 2 + 6, id === 'spedizione' ? 'ESTRAZIONE' : buildingText[id].name.toUpperCase(), textStyle(10, PALETTE.carta, false));
-    const timer = this.add.text(x, y + h / 2 + 4, '', textStyle(10, PALETTE.allerta)).setOrigin(0.5, 0);
+    const label = this.add.text(x, y + h / 2 + 12, id === 'spedizione' ? 'ESTRAZIONE' : buildingText[id].name.toUpperCase(), textStyle(10, PALETTE.carta))
+      .setOrigin(0.5).setDepth(6);
+    const timer = this.add.text(x, y + h / 2 + 24, '', textStyle(10, PALETTE.allerta)).setOrigin(0.5, 0).setDepth(6);
     this.timerTexts.set(id, timer);
     this.spots.set(id, { x, y, g, deco: [], label });
-    const hit = this.add.rectangle(x, y, w, h, 0xffffff, 0.001).setInteractive({ useHandCursor: true });
+    const hit = this.add.rectangle(x, y + 8, w + 16, h + 36, 0xffffff, 0.001).setInteractive({ useHandCursor: true }).setDepth(7);
     // il Laboratorio costruito apre direttamente l'albero della ricerca
     hit.on('pointerup', () => (id === 'laboratorio' && this.profile.buildings.laboratorio > 0 ? this.openTree('esercito') : this.openPanel(id)));
   }
 
-  /** Modulo della planimetria: contorno ad angoli tagliati se costruito, tratteggio se lotto libero, tratteggio obliquo se in cantiere. */
+  /** Edificio della postazione: lotto libero, cantiere o costruito (più dettagli col livello); targa col nome e livello. */
   private redrawSpot(id: MapSpot) {
     const spot = this.spots.get(id)!;
     spot.deco.forEach((d) => d.destroy());
     spot.deco = [];
     const g = spot.g.clear();
-    const k = this.k, x = spot.x, y = spot.y, big = id === 'comando';
-    const w = (big ? 168 : 132) * k, h = (big ? 84 : 66) * k, l = x - w / 2, t = y - h / 2, cut = 10 * k;
+    const k = this.k, x = spot.x, y = spot.y, { w, h } = this.footprint(id);
     const lvl = id === 'spedizione' ? 1 : this.profile.buildings[id];
     const building = id !== 'spedizione' && this.profile.construction?.id === id;
-    const built = lvl > 0 || building;
-    const outline = [{ x: l + cut, y: t }, { x: l + w, y: t }, { x: l + w, y: t + h - cut }, { x: l + w - cut, y: t + h }, { x: l, y: t + h }, { x: l, y: t + cut }];
-    if (built) {
-      g.fillStyle(PALETTE.pannello, 0.92).fillPoints(outline, true);
-      g.lineStyle(1, LINE, 1).strokePoints(outline, true, true);
-      g.fillStyle(PALETTE.ocra, 1).fillRect(l + cut, t, w - cut, 2); // filo d'oro
-      g.lineStyle(1, LINE, 0.9).lineBetween(l + 6, t + 20 * k, l + w - 6, t + 20 * k);
-      spot.label.setAlpha(1);
-    } else {
-      for (let i = 0; i < outline.length; i++) {
-        const p0 = outline[i], p1 = outline[(i + 1) % outline.length];
-        const n = Math.max(2, Math.floor(Math.hypot(p1.x - p0.x, p1.y - p0.y) / 6));
-        for (let s = 0; s < n; s += 2) g.lineStyle(1, ICON, 0.45).lineBetween(p0.x + ((p1.x - p0.x) * s) / n, p0.y + ((p1.y - p0.y) * s) / n, p0.x + ((p1.x - p0.x) * (s + 1)) / n, p0.y + ((p1.y - p0.y) * (s + 1)) / n);
-      }
-      spot.label.setAlpha(0.55);
-      spot.deco.push(this.add.text(x, y + 8 * k, '[ + ] LOTTO LIBERO', textStyle(9, PALETTE.ocra, false)).setOrigin(0.5).setAlpha(0.7));
-    }
-    if (building) {
-      g.lineStyle(1, PALETTE.allerta, 0.35);
-      for (let i = -h; i < w; i += 9 * k) g.lineBetween(l + Math.max(0, i), t + Math.max(0, -i), l + Math.min(w, i + h), t + Math.min(h, h - (i + h - w > 0 ? i + h - w : 0)));
-    }
-    if (built && id !== 'spedizione') this.drawModule(spot, g, id, x, y + 6 * k, w, h);
-    if (id === 'spedizione') this.drawConvoy(spot, g, x, y + 6 * k, w);
-    // livello: quadratini in basso a destra e distintivo col numero nell'angolo (alla Clash)
+    const ctx = { scene: this as Phaser.Scene, g, deco: spot.deco, k };
+    const civ = CIV_STYLE[activeCiv(this.profile)];
+    if (lvl > 0) drawBuilding(ctx, id, x, y, w, h, lvl, civ);
+    else drawLot(ctx, x, y, w, h);
+    if (building) drawScaffold(ctx, x, y, w, h);
+    if (id === 'spedizione') this.drawConvoy(spot, g, x, y, w, h);
+    // targa: nome sotto l'edificio, livello nel distintivo (alla Clash)
+    const lw = spot.label.width + 22;
+    g.fillStyle(PALETTE.inchiostro, 0.88).fillRoundedRect(x - lw / 2, y + h / 2 + 4, lw, 17, 4).lineStyle(1, lvl > 0 ? PALETTE.ocra : PALETTE.linea, 0.8)
+      .strokeRoundedRect(x - lw / 2, y + h / 2 + 4, lw, 17, 4);
+    spot.label.setAlpha(lvl > 0 || building ? 1 : 0.6);
+    if (lvl === 0 && !building) spot.deco.push(this.add.text(x, y, '[ + ] LOTTO LIBERO', textStyle(10, PALETTE.ocra)).setOrigin(0.5).setAlpha(0.8));
     if (id !== 'spedizione') {
       const n = maxLvl(id);
-      for (let i = 0; i < n; i++) {
-        const px = l + w - 10 * k - (n - 1 - i) * 7 * k, py = t + h - 9 * k;
-        g.fillStyle(i < lvl ? PALETTE.ocra : LINE, 1).fillRect(px - 2.5 * k, py - 2.5 * k, 5 * k, 5 * k);
-      }
       if (lvl > 0) {
-        const bx = l + w - 2 * k, by = t + 2 * k, r = 11 * k;
+        const bx = x - lw / 2 - 2, by = y + h / 2 + 12, r = 10;
         g.fillStyle(lvl >= n ? PALETTE.ocra : PALETTE.inchiostro, 1).fillCircle(bx, by, r).lineStyle(1.5, PALETTE.ocra, 1).strokeCircle(bx, by, r);
-        spot.deco.push(this.add.text(bx, by, String(lvl), textStyle(12, lvl >= n ? PALETTE.inchiostro : PALETTE.ocra)).setOrigin(0.5).setDepth(5));
+        spot.deco.push(this.add.text(bx, by, String(lvl), textStyle(11, lvl >= n ? PALETTE.inchiostro : PALETTE.ocra)).setOrigin(0.5).setDepth(6));
       }
-      // si può migliorare adesso: freccia che pulsa
+      // si può migliorare adesso: freccia verde che pulsa sulla targa
       if (lvl < n && !building && !buildBlock(this.profile, id)) {
-        const up = this.add.text(l + 8, t + h - 8 * k, '▲ migliorabile', textStyle(9, PALETTE.ok, false)).setOrigin(0, 1);
-        this.tweens.add({ targets: up, alpha: 0.35, duration: 700, yoyo: true, repeat: -1 });
+        const up = this.add.text(x + lw / 2 + 4, y + h / 2 + 12, '▲', textStyle(13, PALETTE.ok)).setOrigin(0, 0.5).setDepth(6);
+        this.tweens.add({ targets: up, y: up.y - 3, alpha: 0.4, duration: 600, yoyo: true, repeat: -1 });
         spot.deco.push(up);
       }
     }
+    void k;
   }
 
-  /** Simboli da planimetria dentro ogni modulo (+ animazioni: radar che spazza, antenna che lampeggia, laboratorio acceso). */
-  private drawModule(spot: { deco: Phaser.GameObjects.GameObject[] }, g: Phaser.GameObjects.Graphics, id: BuildingId, x: number, y: number, w: number, _h: number) {
-    const k = this.k, C = ICON;
-    if (id === 'comando') {
-      g.lineStyle(1, C, 0.8).strokeCircle(x, y + 4 * k, 18 * k).strokeCircle(x, y + 4 * k, 10 * k);
-      g.lineBetween(x - 26 * k, y + 4 * k, x + 26 * k, y + 4 * k).lineBetween(x, y - 18 * k, x, y + 26 * k);
-      const light = this.add.circle(x, y + 4 * k, 3 * k, PALETTE.allerta);
-      this.tweens.add({ targets: light, alpha: 0.15, duration: 700, yoyo: true, repeat: -1 });
-      spot.deco.push(light);
-      const civ = activeCiv(this.profile), st = CIV_STYLE[civ];
-      const pg = this.add.graphics();
-      drawPatch(pg, x - w / 2 + 22 * k, y + 8 * k, 13 * k, st.fill, st.symbol);
-      spot.deco.push(pg);
-    } else if (id === 'arsenale') {
-      for (let i = 0; i < 4; i++) g.lineStyle(1, C, 0.5).strokeRect(x - 50 * k + i * 16 * k, y - 4 * k, 12 * k, 22 * k); // rastrelliere
-      drawUnitIcon(g, 'corazzati', x + 34 * k, y + 8 * k, 13 * k, C);
-    } else if (id === 'laboratorio') {
-      g.lineStyle(1, C, 0.9).strokeEllipse(x, y + 6 * k, 44 * k, 14 * k).strokeEllipse(x, y + 6 * k, 14 * k, 34 * k);
-      const core = this.add.circle(x, y + 6 * k, 4 * k, PALETTE.radioattivo);
-      this.tweens.add({ targets: core, scale: { from: 0.7, to: 1.4 }, alpha: { from: 1, to: 0.4 }, duration: 900, yoyo: true, repeat: -1 });
-      spot.deco.push(core);
-    } else if (id === 'radar') {
-      const r = 22 * k;
-      g.lineStyle(1, C, 0.7).strokeCircle(x, y + 4 * k, r).strokeCircle(x, y + 4 * k, r * 0.55);
-      const sweep = this.add.graphics({ x, y: y + 4 * k });
-      sweep.fillStyle(C, 0.25).slice(0, 0, r, -0.5, 0, false).fillPath();
-      sweep.lineStyle(1.5, C, 1).lineBetween(0, 0, r, 0);
-      this.tweens.add({ targets: sweep, rotation: Math.PI * 2, duration: 2600, repeat: -1 });
-      const blip = this.add.circle(x + r * 0.5, y - r * 0.2, 2 * k, PALETTE.allerta);
-      this.tweens.add({ targets: blip, alpha: 0, duration: 1300, yoyo: true, repeat: -1 });
-      spot.deco.push(sweep, blip);
-    } else if (id === 'deposito') {
-      for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) {
-        const cx = x - 30 * k + i * 22 * k, cy = y - 4 * k + j * 14 * k;
-        g.lineStyle(1, C, 0.7).strokeRect(cx, cy, 18 * k, 11 * k).lineBetween(cx, cy, cx + 18 * k, cy + 11 * k);
-      }
-    }
-  }
-
-  /** Convoglio delle squadre di estrazione: in garage, oppure fuori (rotta tratteggiata verso il bordo). */
-  private drawConvoy(spot: { deco: Phaser.GameObjects.GameObject[] }, g: Phaser.GameObjects.Graphics, x: number, y: number, w: number) {
-    const k = this.k;
-    const e = this.profile.expedition;
-    const away = e && e.until > Date.now();
-    if (away) {
-      for (let i = 0; i < 6; i++) g.lineStyle(1, PALETTE.allerta, 0.6).lineBetween(x - w / 2 + 10 + i * 18 * k, y + 6 * k, x - w / 2 + 18 + i * 18 * k, y + 6 * k);
-      const dot = this.add.circle(x - w / 2 + 10, y + 6 * k, 3 * k, PALETTE.allerta);
-      this.tweens.add({ targets: dot, x: x + w / 2 - 10, duration: 2400, repeat: -1 });
-      spot.deco.push(dot, this.add.text(x, y - 10 * k, 'IN MISSIONE', textStyle(9, PALETTE.allerta, false)).setOrigin(0.5));
-      return;
-    }
-    const ready = e && e.until <= Date.now();
-    g.fillStyle(PALETTE.ocra, 1);
-    for (const dx of [-26, 4]) {
-      drawUnitIcon(g, 'corazzati', x + dx * k, y + 4 * k, 11 * k, ready ? PALETTE.allerta : PALETTE.ocra);
+  /** Squadre di estrazione: camion in rimessa, oppure in missione (uno corre sulla strada d'uscita) o di ritorno (!). */
+  private drawConvoy(spot: { deco: Phaser.GameObjects.GameObject[] }, g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number) {
+    const k = this.k, e = this.profile.expedition, away = e && e.until > Date.now(), ready = e && e.until <= Date.now();
+    const ctx = { scene: this as Phaser.Scene, g, deco: spot.deco, k };
+    if (!away) {
+      for (let i = 0; i < 2; i++) truck(ctx, x + w * 0.2, y - h * 0.18 + i * h * 0.36, k, ready ? 0x8a7a3e : 0x5b6e57);
+    } else {
+      const dot = this.add.rectangle(x, y + h * 0.2, 10 * k, 5 * k, 0x5b6e57).setStrokeStyle(1, 0x7d8f74);
+      this.tweens.add({ targets: dot, y: this.plan.y + this.plan.h + 24, alpha: 0.2, duration: 2600, repeat: -1 });
+      spot.deco.push(dot, this.add.text(x + w * 0.22, y - 6 * k, 'IN MISSIONE', textStyle(9, PALETTE.allerta, false)).setOrigin(0.5));
     }
     if (ready) {
-      const bang = this.add.text(x + 44 * k, y - 4 * k, '!', textStyle(20, PALETTE.allerta)).setOrigin(0.5);
+      const bang = this.add.text(x + w / 2 + 8, y - h * 0.3, '!', textStyle(22, PALETTE.allerta)).setOrigin(0.5);
       this.tweens.add({ targets: bang, alpha: 0.2, duration: 400, yoyo: true, repeat: -1 });
       spot.deco.push(bang);
     }
@@ -410,8 +350,7 @@ export class CampScene extends Phaser.Scene {
       const res = new Button(this, this.profile.research ? 'RICERCA ⏱' : 'RICERCA', rw, P ? 44 : 56, () => this.openTree('armamenti'), P ? 14 : 16);
       res.setPosition(P ? (width - rw) / 2 : width - PAD - bw - 10 - rw, P ? height - PAD - 56 - 52 : height - PAD - 56).setDepth(20);
     }
-    this.add.text(P ? width / 2 : PAD, P ? height - PAD - 116 : height - PAD, 'Tocca una postazione o il convoglio', textStyle(11, INK, false))
-      .setOrigin(P ? 0.5 : 0, 1);
+    if (!P) this.add.text(PAD, height - PAD, 'Tocca una postazione o il convoglio', textStyle(11, INK, false)).setOrigin(0, 1);
   }
 
   private closePanel() {
@@ -506,11 +445,8 @@ export class CampScene extends Phaser.Scene {
       // testata: illustrazione animata del modulo, livello, potenza che guadagni migliorando
       const ig = this.add.graphics();
       ig.fillStyle(PALETTE.pannello, 1).fillRect(x0 + 16, y0 + 14, 132, 88).lineStyle(1, LINE, 1).strokeRect(x0 + 16, y0 + 14, 132, 88);
-      const ill = { deco: [] as Phaser.GameObjects.GameObject[] };
-      const k0 = this.k;
-      this.k = 0.85;
-      this.drawModule(ill, ig, spot, x0 + 82, y0 + 54, 132, 88);
-      this.k = k0;
+      const ill = { scene: this as Phaser.Scene, g: ig, deco: [] as Phaser.GameObjects.GameObject[], k: 0.8 };
+      drawBuilding(ill, spot, x0 + 82, y0 + 56, 104, 60, Math.max(1, lvl), CIV_STYLE[activeCiv(this.profile)]); // com'è (o sarà) dall'alto
       items.push(ig, ...ill.deco);
       const pw = BALANCE.power[spot as keyof typeof BALANCE.power] ?? 0;
       items.push(this.add.text(x0 + 162, y0 + 14, T.name.toUpperCase(), textStyle(T.name.length > 14 ? 16 : 20, INK)),

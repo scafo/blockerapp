@@ -144,6 +144,11 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   RICERCA): ramo Armamenti (unità e abilità si ricercano, l'Arsenale decide fin dove) + Esercito/Logistica/Economia/Difesa/La Caduta
   con prerequisiti (`tech.*.req`). **HQ alla Clash**: Deposito con capienza (`depositoCap`, oltre si perde), barre di riempimento,
   potenza e fronte, cantiere e ricerca in corso, distintivi di livello e "migliorabile" sui moduli, schede postazione con illustrazione.
+- **Home e mappa più belle** (ultima richiesta di Nico): la home è la base vista dall'alto, di notte (`src/ui/baseArt.ts`: terreno,
+  recinto con torrette e fari, strade, edifici con tetti, ombre, luci e dettagli che crescono col livello, cantiere con gru, cenere
+  che scende); nebbia più leggera e sfumata (`fog.blur`, opacità 0,7/0,26, vista iniziale più ampia); nomi delle nazioni in
+  proporzione alla larghezza del paese sullo schermo, senza sovrapposizioni (max 13 pt), insegne e capitali più piccole da lontano,
+  milizie solo da vicino.
 - **Mappa tripla + sistemi alla HOI4** (ultime richieste di Nico): carta da **17.925 province** su griglia invisibile **960×480
   (hexSize 5/3)**, salvata in binario compatto (varint, base64 in `src/data/worldmap.ts`, 2,4 MB; `npm run build:map` la rigenera);
   vicini delle caselle calcolati al volo (`neighbors(i)`); zoom iniziale 8. **Disegno**: da vicino terra, mare, rilievo e territorio

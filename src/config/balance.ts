@@ -159,13 +159,14 @@ export const BALANCE = {
   // Nebbia di guerra: vedi solo vicino a territorio, pedine e navi (caselle). Nelle prime campagne copre quasi tutta la mappa:
   // la Sala Radar allarga la vista e la zona già nota attorno alla partenza (camp.radarFogBonus, camp.radarIntel).
   fog: {
-    territory: 7,
-    unit: 7,
-    boat: 4,
-    intel: 10, // raggio già noto attorno alla partenza (esplorato, non sorvegliato)
+    territory: 9,
+    unit: 8,
+    boat: 5,
+    intel: 18, // raggio già noto attorno alla partenza (esplorato, non sorvegliato)
     shade: true, // velo sulle zone non viste
-    seenAlpha: 0.42, // già esplorato ma ora fuori vista
-    unseenAlpha: 0.9, // mai visto
+    seenAlpha: 0.26, // già esplorato ma ora fuori vista
+    unseenAlpha: 0.7, // mai visto: la carta si intravede
+    blur: 4, // caselle di sfumatura sul bordo della nebbia
     color: 0x0a121c,
   },
   // Milizie provinciali (bot deboli alla OpenFront): poche province ciascuna, difendono e crescono piano; gli imperi
