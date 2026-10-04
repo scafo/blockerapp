@@ -1,7 +1,7 @@
 // Genera la mappa di una run a partire dal seed: rovine, partenze (terreno e province vengono dalla carta pronta).
 import { BALANCE, type Resource, type Terrain, type TileType } from '../config/balance';
 import { createRng, randInt, type Rng } from './rng';
-import { neighbors, center } from './hexGrid';
+import { neighbors, center, hexDistance } from './hexGrid';
 import type { WorldAsset } from './worldAsset';
 
 export interface Tile {
@@ -39,11 +39,15 @@ export interface Nation {
   label: number; // casella dove scrivere il nome
 }
 
+/** Giocatore, impero (IA forte che si espande) o milizia provinciale (bot debole che difende la sua zona). */
+export type FactionKind = 'player' | 'empire' | 'bot';
+
 export interface RunMap {
   seed: string;
   tiles: (Tile | null)[]; // null = mare
   land: number[]; // indici delle caselle di terra
-  starts: number[]; // [giocatore, ...IA]
+  starts: number[]; // [giocatore, ...imperi, ...milizie]
+  kinds: FactionKind[]; // tipo di ogni fazione (stesso ordine di starts)
   regionSize: number; // caselle attraversabili raggiungibili dalla partenza del giocatore
   provinces: Province[];
   nations: Nation[];
@@ -55,7 +59,7 @@ const M = BALANCE.map;
  * Mappa alla Call of War: ogni casella di terra appartiene a una provincia (unità di conquista) dentro la sua nazione reale.
  * La griglia esagonale resta sotto, invisibile: serve per le forme, le pedine e le navi.
  */
-export function generateMap(seed: string, world: WorldAsset, aiCount: number = BALANCE.ai.count): RunMap {
+export function generateMap(seed: string, world: WorldAsset, aiCount: number = BALANCE.ai.count, botCount: number = BALANCE.bots.count): RunMap {
   const rng = createRng(seed);
   const tp = world.tileProv;
   const tiles: (Tile | null)[] = new Array(tp.length).fill(null);
@@ -90,6 +94,9 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
   const starts = pickStarts(rng, tiles, land, aiCount, provinces);
   const dist = bfs(tiles, starts[0]);
   const region = land.filter((i) => dist[i] >= 0);
+  const bots = pickBots(rng, tiles, land, botCount, starts, dist);
+  const kinds: FactionKind[] = [...starts.map((_, k): FactionKind => (k === 0 ? 'player' : 'empire')), ...bots.map((): FactionKind => 'bot')];
+  starts.push(...bots);
   // città e capitali più difese
   const P = BALANCE.provinces;
   for (const p of provinces) {
@@ -97,7 +104,7 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
     const t = tiles[p.city]!;
     t.defense = Math.round(t.defense * P.cityDefenseMult) + P.cityDefenseBonus + (t.capital ? P.capitalDefenseBonus : 0);
   }
-  return { seed, tiles, land, starts, regionSize: region.length, provinces, nations };
+  return { seed, tiles, land, starts, kinds, regionSize: region.length, provinces, nations };
 }
 
 /**
@@ -178,6 +185,34 @@ function pickWeighted<K extends string>(rng: Rng, weights: Record<K, number>): K
   let r = rng() * keys.reduce((a, k) => a + weights[k], 0);
   for (const k of keys) if ((r -= weights[k]) <= 0) return k;
   return keys[0];
+}
+
+/**
+ * Milizie provinciali (alla OpenFront): tante piccole forze sparse con molta terra libera attorno. La maggior parte nella
+ * regione del giocatore, a distanze diverse (le prime prede), le altre nel resto del mondo.
+ */
+function pickBots(rng: Rng, tiles: (Tile | null)[], land: number[], count: number, starts: number[], dist: Int32Array): number[] {
+  const B = BALANCE.bots;
+  if (count <= 0) return [];
+  const all = land.filter((i) => goodStart(tiles, i));
+  const near = all.filter((i) => dist[i] >= B.near[0] && dist[i] <= B.near[1]);
+  const out: number[] = [];
+  const used = new Set(starts.map((s) => tiles[s]!.province));
+  const apart = (i: number) => [...starts, ...out].every((s) => hexDistance(s, i) >= B.minApart);
+  const take = (pool: number[], n: number) => {
+    for (let k = 0; k < n && pool.length; k++) {
+      for (let t = 0; t < 30; t++) {
+        const i = pool[Math.floor(rng() * pool.length)];
+        if (used.has(tiles[i]!.province) || !apart(i)) continue;
+        used.add(tiles[i]!.province);
+        out.push(i);
+        break;
+      }
+    }
+  };
+  take(near, Math.round(count * B.nearShare));
+  take(all, count - out.length);
+  return out;
 }
 
 function rollDefense(rng: Rng, type: TileType): number {

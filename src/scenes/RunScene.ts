@@ -1,33 +1,32 @@
 import Phaser from 'phaser';
 import { BALANCE, type AbilityType, type Resource, type UnitType } from '../config/balance';
 import buildingText from '../data/buildings.json';
-import { RESOURCE_INFO } from '../game/resources';
+import { RESOURCES, RESOURCE_INFO } from '../game/resources';
 import { runOptions, settle, type RunOptions } from '../game/camp';
 import { loadPrefs, loadProfile, saveProfile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
 import { PALETTE } from '../config/palette';
 import { generateMap, type RunMap } from '../map/generate';
-import { neighbors, WORLD_H, WORLD_W, center, corners, pixelToIndex } from '../map/hexGrid';
+import { neighbors, HEX_W, WORLD_H, WORLD_W, center, pixelToIndex } from '../map/hexGrid';
 import { buildShapes, provinceAtPoint, type MapShapes } from '../map/provinceShapes';
 import { loadWorld } from '../map/worldAsset';
 import { TerritoryLayer, fillProvince, type TerritoryFill } from '../render/TerritoryLayer';
 import { NEUTRAL, PLAYER, RunState, WORKS } from '../game/RunState';
 import { WORK_NAME, drawWorkIcon } from '../ui/workIcons';
-import { FACTION_INFO, assignFactions } from '../game/factions';
+import { FACTION_INFO, setupFactions } from '../game/factions';
 import { textStyle } from '../ui/style';
-import { drawSymbol } from '../ui/symbols';
 import { DPR, LOW_END, UI } from '../ui/screen';
 import type { FactionTag, NationLabel, WorldLabel } from '../render/MapLabels';
 import { buzz } from '../ui/haptics';
-import { drawAbilityIcon, drawUnitIcon } from '../ui/unitIcons';
+import { drawAbilityIcon } from '../ui/unitIcons';
+import { drawUnitHp, drawUnitSymbol } from '../ui/unitSymbols';
 import { isNaval, unitInfo, type Unit } from '../game/units';
 import type { Boat } from '../game/boats';
 import type { HudScene } from './HudScene';
 
 const S = BALANCE.map.hexSize;
 // profondità dei livelli della mappa
-const D = { owned: 1, borders: 2, front: 3, marks: 4, path: 7, units: 8, fx: 9 };
-const FOG_RES = 0.5; // la nebbia non ha bisogno di dettaglio: mezza risoluzione, bordi morbidi
+const D = { owned: 1, borders: 2, fog: 2.5, front: 3, marks: 4, path: 7, units: 8, fx: 9 };
 const CAM = BALANCE.camera;
 
 
@@ -39,7 +38,7 @@ export class RunScene extends Phaser.Scene {
   private territory!: TerritoryLayer;
   private frontOk = new Map<number, boolean>(); // province attaccabili → abbordabili
   private landColor = new Int32Array(0); // tono di ogni provincia sulla carta
-  private relief!: Phaser.GameObjects.RenderTexture;
+  private relief!: Phaser.GameObjects.Image;
   private glow!: Phaser.GameObjects.RenderTexture; // acque basse a bassa risoluzione (resta per lo strato vettoriale)
   private seaGfx!: Phaser.GameObjects.Graphics;
   private landMode = false; // da vicino la terra la disegna lo strato vettoriale (nitida), da lontano basta la carta cotta
@@ -53,19 +52,21 @@ export class RunScene extends Phaser.Scene {
   nationLabels: NationLabel[] = [];
   frontLabels: WorldLabel[] = [];
   factionTags: FactionTag[] = [];
-  private burst!: Phaser.GameObjects.Particles.ParticleEmitter;
   private labelTimer = 0;
   private lastAffordable = '';
   private ownedDirty = false;
   private nameTimer = 0;
   private lastHitFx = 0;
-  private fogRT!: Phaser.GameObjects.RenderTexture;
-  private fogBrush!: Phaser.GameObjects.Graphics;
+  private fogTex: Phaser.Textures.CanvasTexture | null = null; // un pixel per casella, ingrandito e sfumato
+  private fogNoise = new Float32Array(0);
   private fogVersion = -1;
   private boatSprites = new Map<number, Phaser.GameObjects.Container>();
   private nationNames: Phaser.GameObjects.Text[] = [];
   private namesShown = true;
   private flowMarker!: Phaser.GameObjects.Graphics;
+  private markerPulse = { k: 1 };
+  private pressTimer: Phaser.Time.TimerEvent | null = null;
+  private longPressed = false; // pulsazione di anello di selezione e bersaglio dell'avanzata
   private nextMilestone = 0;
   private tapFxTile = -1;
   private dragMode: 'pan' | 'paint' = 'pan';
@@ -79,7 +80,7 @@ export class RunScene extends Phaser.Scene {
   selectedCard: UnitType | null = null;
   selectedAbility: AbilityType | null = null;
   private selectedUnit: number | null = null;
-  private unitSprites = new Map<number, { c: Phaser.GameObjects.Container; hp: Phaser.GameObjects.Graphics; tile: number; hpShown: number }>();
+  private unitSprites = new Map<number, { c: Phaser.GameObjects.Container; hp: Phaser.GameObjects.Graphics; tile: number; hpShown: number; pop: { k: number } }>();
   private pathGfx!: Phaser.GameObjects.Graphics;
   private selRing!: Phaser.GameObjects.Graphics;
   // input
@@ -97,8 +98,11 @@ export class RunScene extends Phaser.Scene {
     const profile = loadProfile();
     if (settle(profile, Date.now())) saveProfile(profile);
     const opts = data.opts ?? runOptions(profile);
-    this.map = generateMap(data.seed, loadWorld(), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count);
-    assignFactions(opts.civ); // fazione 0 = civiltà scelta, le IA sono le altre potenze
+    // la puntata esce dal Deposito adesso: è in gioco
+    if (!opts.tutorial) for (const r of RESOURCES) profile.stash[r] = Math.max(0, profile.stash[r] - opts.stake[r]);
+    if (!opts.tutorial && RESOURCES.some((r) => opts.stake[r] > 0)) saveProfile(profile);
+    this.map = generateMap(data.seed, loadWorld(), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count, opts.tutorial ? 0 : BALANCE.bots.count);
+    setupFactions(this.map.kinds, opts.civ, opts.playerName, data.seed); // tu, imperi con nomi casuali, milizie provinciali
     this.state = new RunState(this.map, opts);
     this.state.initFog();
     analytics.runStart(opts.tutorial, data.seed);
@@ -147,22 +151,14 @@ export class RunScene extends Phaser.Scene {
     // nebbia sopra i colori delle fazioni ma sotto pedine e segni
     this.fogVersion = -1;
     this.namesShown = true;
-    this.fogRT = this.add.renderTexture(0, 0, Math.ceil(WORLD_W * FOG_RES), Math.ceil(WORLD_H * FOG_RES)).setOrigin(0).setScale(1 / FOG_RES)
-      .setVisible(opts.fog);
-    this.fogBrush = this.make.graphics({}, false);
+    this.makeFog(opts.fog);
     this.boatSprites = new Map();
     this.drawNationNames();
     this.flowMarker = this.add.graphics().setDepth(D.units).setVisible(false);
-    this.flowMarker.lineStyle(2.5, 0xffffff, 1).strokeCircle(0, 0, S * 0.9).lineStyle(1.5, 0xffffff, 0.8).strokeCircle(0, 0, S * 0.45);
-    this.tweens.add({ targets: this.flowMarker, scale: { from: 0.8, to: 1.25 }, duration: 380, yoyo: true, repeat: -1 });
+    this.flowMarker.lineStyle(2.5, 0xffffff, 1).strokeCircle(0, 0, 12).lineStyle(1.5, 0xffffff, 0.8).strokeCircle(0, 0, 6);
+    this.markerPulse = { k: 1 };
+    this.tweens.add({ targets: this.markerPulse, k: { from: 0.85, to: 1.2 }, duration: 420, yoyo: true, repeat: -1 });
     this.ending = false;
-    this.burst = this.add.particles(0, 0, 'dot', {
-      speed: { min: 40, max: 140 },
-      lifespan: 450,
-      scale: { start: 0.9, end: 0 },
-      alpha: { start: 1, end: 0 },
-      emitting: false,
-    }).setDepth(D.fx + 1);
 
     this.nameTimer = 0;
 
@@ -171,8 +167,7 @@ export class RunScene extends Phaser.Scene {
     this.unitSprites = new Map();
     this.pathGfx = this.add.graphics().setDepth(D.path);
     this.selRing = this.add.graphics().setDepth(D.units).setVisible(false);
-    this.selRing.lineStyle(2.5, PALETTE.radioattivo, 1).strokeCircle(0, 0, S * 0.95);
-    this.tweens.add({ targets: this.selRing, scale: 1.15, duration: 450, yoyo: true, repeat: -1 });
+    this.selRing.lineStyle(2.2, PALETTE.radioattivo, 1).strokeCircle(0, 0, 20);
 
     this.redrawOwned();
     this.redrawFrontier(true);
@@ -239,12 +234,22 @@ export class RunScene extends Phaser.Scene {
           } else this.floatText(x, y - 6, `cantiere: ${name.toLowerCase()}`, PALETTE.allerta);
         }
         this.hud.refreshProvince();
+      } else if (e.type === 'diplomacy') {
+        this.ownedDirty = true; // il fronte attaccabile cambia con la guerra e la pace
+        this.hud.onDiplomacy(e.faction, e.what, e.byPlayer, e.amount ?? 0);
+      } else if (e.type === 'encircled') {
+        if (e.by === PLAYER || e.from === PLAYER) {
+          for (const p of e.provinces.slice(0, 12)) this.flashProvince(p, e.by === PLAYER ? PALETTE.radioattivo : PALETTE.ko, 0.6, 700);
+          this.hud.onEncircled(e.by, e.from, e.provinces.length);
+          if (e.by === PLAYER) buzz([20, 30, 20]);
+        }
       } else {
         this.hud.onEliminated(e.faction, e.by, e.loot);
       }
     }
     this.syncUnits();
     this.syncBoats();
+    this.scaleMarkers();
     if (this.state.opts.fog && this.state.fogVersion !== this.fogVersion) this.redrawFog();
     this.tapFxTile = -1;
     // nomi delle nazioni solo nella vista strategica: da vicino si combatte, non si legge l'atlante
@@ -454,37 +459,37 @@ export class RunScene extends Phaser.Scene {
    * Sotto i colori delle fazioni: sopra il territorio parlano i simboli del terreno.
    */
   private drawRelief() {
-    const R = 0.75; // pixel di texture per pixel-mondo
-    const rt = (this.relief = this.add.renderTexture(0, 0, Math.ceil(WORLD_W * R), Math.ceil(WORLD_H * R)).setOrigin(0).setScale(1 / R).setDepth(0.5));
-    const g = this.make.graphics({}, false);
-    // niente rilievo a ridosso del mare: le macchie finirebbero sull'acqua
-    const tiles = this.map.tiles, coast = new Uint8Array(tiles.length);
-    let ring = this.map.land.filter((i) => neighbors(i).some((n) => n < 0 || !tiles[n]));
-    for (const i of ring) coast[i] = 1;
-    for (let d = 2; d <= 2; d++) {
-      const next: number[] = [];
-      for (const i of ring) for (const n of neighbors(i)) if (n >= 0 && tiles[n] && !coast[n]) { coast[n] = d; next.push(n); }
-      ring = next;
-    }
-    // macchie sfumate (tre cerchi concentrici): sovrapposte tra caselle vicine fanno un rilievo morbido, non un mosaico
-    const blob = (x: number, y: number, r: number, color: number, a: number) => {
-      for (const k of [1, 0.66, 0.33]) g.fillStyle(color, a / 3).fillCircle(x * R, y * R, r * k * R);
-    };
+    // ombreggiatura del rilievo calcolata per casella (un pixel per casella), poi ingrandita e sfumata: costa pochissimo
+    const { cols, rows } = BALANCE.map, key = 'relief', tiles = this.map.tiles;
+    if (this.textures.exists(key)) this.textures.remove(key);
+    const tex = this.textures.createCanvas(key, cols, rows)!;
+    const ctx = tex.getContext(), img = ctx.createImageData(cols, rows), d = img.data;
+    const h0 = new Float32Array(cols * rows);
+    for (const i of this.map.land) { const t = tiles[i]!.terrain; h0[i] = t === 'montagne' ? 1 : t === 'colline' ? 0.45 : 0; }
+    // quota ammorbidita con i vicini
+    const h = new Float32Array(cols * rows);
     for (const i of this.map.land) {
-      const t = tiles[i]!.terrain;
-      if (t === 'pianura' || coast[i]) continue;
-      const { x, y } = center(i);
-      if (t === 'deserto') {
-        blob(x, y, S * 2.2, 0xe8cf95, 0.07);
+      let sum = h0[i] * 2, n = 2;
+      for (const q of neighbors(i)) if (q >= 0) { sum += h0[q]; n++; }
+      h[i] = sum / n;
+    }
+    for (const i of this.map.land) {
+      const nb = neighbors(i), nw = nb[3], se = nb[0];
+      const shade = ((nw >= 0 ? h[nw] : h[i]) - (se >= 0 ? h[se] : h[i])) * 1.6 + h[i] * 0.12; // luce da nord-ovest
+      const k = i * 4;
+      if (tiles[i]!.terrain === 'deserto' && Math.abs(shade) < 0.05) {
+        d[k] = 232; d[k + 1] = 207; d[k + 2] = 149; d[k + 3] = 18; // sabbia appena accennata
         continue;
       }
-      const k = t === 'montagne' ? 1 : 0.45;
-      blob(x - S * 0.6, y - S * 0.65, S * 2.4, 0xe4ebf2, 0.08 * k);
-      blob(x + S * 0.65, y + S * 0.7, S * 2.2, 0x000000, 0.1 * k);
+      const v = shade > 0 ? 228 : 0;
+      d[k] = v; d[k + 1] = v + (shade > 0 ? 7 : 0); d[k + 2] = v + (shade > 0 ? 14 : 0);
+      d[k + 3] = Math.min(255, Math.round(Math.abs(shade) * (shade > 0 ? 70 : 95)));
     }
-    rt.draw(g);
-    g.destroy();
+    ctx.putImageData(img, 0, 0);
+    tex.refresh();
+    this.relief = this.add.image(0, 0.25 * S, key).setOrigin(0).setScale(HEX_W, 1.5 * S).setDepth(0.5);
   }
+
 
   /** Territorio: un solo colore pieno per potenza (sagome tinte); i nemici nella nebbia non si vedono. */
   /** Colore pieno di ogni fazione sulla carta (un po' smorzato verso il blu notte, come inchiostro sulla mappa). */
@@ -548,10 +553,10 @@ export class RunScene extends Phaser.Scene {
   /** Il rilievo dentro lo strato vettoriale, tra la terra e il territorio. */
   private drawReliefInto(rt: Phaser.GameObjects.RenderTexture, x0: number, y0: number, _w: number, _h: number, z: number) {
     if (!this.landMode) return;
-    const r = this.relief, s = r.scaleX;
-    r.setVisible(true).setScale(s * z);
-    rt.draw(r, -x0 * z, -y0 * z);
-    r.setScale(s).setVisible(false);
+    const r = this.relief, sx = r.scaleX, sy = r.scaleY;
+    r.setVisible(true).setScale(sx * z, sy * z);
+    rt.draw(r, (r.x - x0) * z, (r.y - y0) * z);
+    r.setScale(sx, sy).setVisible(false);
   }
 
   /**
@@ -606,39 +611,44 @@ export class RunScene extends Phaser.Scene {
 
   /** Simbolo + nome di ogni fazione nel punto più interno del suo territorio, più grande se l'impero cresce. */
   private placeNameTags() {
-    const own = this.state.owner;
+    // per province (non per caselle): la provincia più lontana dal confine di ogni fazione
+    const own = this.state.provOwner, provs = this.map.provinces;
     const dist = new Int16Array(own.length).fill(-1);
     const queue: number[] = [];
-    for (let i = 0; i < own.length; i++) {
-      if (own[i] === NEUTRAL) continue;
-      if (neighbors(i).some((n) => n < 0 || own[n] !== own[i])) {
-        dist[i] = 0;
-        queue.push(i);
+    for (let p = 0; p < own.length; p++) {
+      if (own[p] === NEUTRAL) continue;
+      if (!provs[p].neighbors.length || provs[p].neighbors.some((q) => own[q] !== own[p])) {
+        dist[p] = 0;
+        queue.push(p);
       }
     }
     for (let h = 0; h < queue.length; h++) {
       const c = queue[h];
-      for (const n of neighbors(c)) {
-        if (n >= 0 && dist[n] < 0 && own[n] === own[c]) {
-          dist[n] = dist[c] + 1;
-          queue.push(n);
+      for (const q of provs[c].neighbors) {
+        if (dist[q] < 0 && own[q] === own[c]) {
+          dist[q] = dist[c] + 1;
+          queue.push(q);
         }
       }
     }
     const best = this.state.factions.map(() => -1);
-    for (let i = 0; i < own.length; i++) {
-      const o = own[i];
-      if (o !== NEUTRAL && (best[o] < 0 || dist[i] > dist[best[o]])) best[o] = i;
+    for (let p = 0; p < own.length; p++) {
+      const o = own[p];
+      if (o === NEUTRAL) continue;
+      const b = best[o];
+      if (b < 0 || dist[p] > dist[b] || (dist[p] === dist[b] && provs[p].tiles.length > provs[b].tiles.length)) best[o] = p;
     }
     this.state.factions.forEach((f, k) => {
       const tag = this.factionTags[k];
-      if (!f.alive || best[k] < 0 || !this.state.sees(best[k])) return void (tag.visible = false); // niente nomi nella nebbia
-      const { x, y } = center(best[k]);
-      const scale = Phaser.Math.Clamp(0.8 + Math.sqrt(f.tiles) * 0.03, 0.9, 1.6);
+      const a = best[k] >= 0 ? provs[best[k]].anchor : -1;
+      if (!f.alive || a < 0 || !this.state.sees(a)) return void (tag.visible = false); // niente nomi nella nebbia
+      const { x, y } = center(a);
+      const scale = f.kind === 'bot' ? 0.9 : Phaser.Math.Clamp(0.8 + Math.sqrt(f.tiles) * 0.03, 0.9, 1.6);
       if (!tag.visible) Object.assign(tag, { x, y, scale, visible: true });
       else this.tweens.add({ targets: tag, x, y, scale, duration: 450, ease: 'Sine.easeInOut' });
     });
   }
+
 
   /** Evidenzia le province attaccabili: velo chiaro se abbordabili, appena accennato se no. */
   private redrawFrontier(force = false) {
@@ -772,6 +782,11 @@ export class RunScene extends Phaser.Scene {
 
     // pausa strategica: i tocchi sulla mappa preparano il piano, che parte quando il tempo riprende
     const p = this.state.provOf(i);
+    const holder = p >= 0 ? this.state.provOwner[p] : NEUTRAL;
+    if (holder !== NEUTRAL && holder !== PLAYER && !this.state.atWar(PLAYER, holder) && this.state.sees(i)) {
+      this.hud.showProfile(holder); // in pace (o alleati): non si attacca, si tratta
+      return;
+    }
     if (this.state.paused && !this.state.over) {
       if (!this.state.provPassable(p) || this.state.provOwner[p] === PLAYER) return;
       const added = this.state.togglePlan(p);
@@ -800,7 +815,7 @@ export class RunScene extends Phaser.Scene {
             this.usage.navi++;
             return;
           }
-          const msg = { locked: 'irraggiungibile', notCoast: 'sbarca su una costa', far: 'troppo mare', max: 'troppe navi in mare', troops: 'servono più truppe' }[why];
+          const msg = { locked: 'irraggiungibile', notCoast: 'sbarca su una costa', far: 'troppo mare', max: 'troppe navi in mare', troops: 'servono più truppe', peace: 'in pace: dichiara guerra prima' }[why];
           return this.failFx(x, y, msg);
         }
         this.flowMarker.setPosition(x, y).setVisible(true);
@@ -855,7 +870,7 @@ export class RunScene extends Phaser.Scene {
   private drawNationNames() {
     this.nationLabels = this.map.nations.filter((n) => n.size >= BALANCE.provinces.nameMinTiles).map((n) => {
       const { x, y } = center(n.label);
-      return { x, y, name: n.name.toUpperCase(), size: Phaser.Math.Clamp(8 + Math.sqrt(n.size) * 0.45, 9, 16) };
+      return { x, y, name: n.name.toUpperCase(), size: Phaser.Math.Clamp(8 + Math.sqrt(n.size) * 0.45, 9, 16), tile: n.label };
     });
   }
 
@@ -975,8 +990,7 @@ export class RunScene extends Phaser.Scene {
 
   private conquestFx(x: number, y: number, cost: number, loot: number, lootType: Resource = 'metallo', p = -1) {
     if (p >= 0) this.flashProvince(p, 0xffffff, 0.75, 480);
-    this.burst.setParticleTint(loot ? RESOURCE_INFO[lootType].color : PALETTE.carta);
-    this.burst.explode(loot ? 18 : 10, x, y);
+    this.burstAt(x, y, loot ? 18 : 10, loot ? RESOURCE_INFO[lootType].color : PALETTE.carta);
     this.floatText(x, y - 4, `-${cost}`, PALETTE.carta);
     if (loot) {
       this.floatText(x, y + 8, `+${loot} ${RESOURCE_INFO[lootType].name.toLowerCase()}`, RESOURCE_INFO[lootType].color, 160);
@@ -987,18 +1001,24 @@ export class RunScene extends Phaser.Scene {
   // ---------- pedine: disegno ----------
 
   private makeUnitSprite(u: Unit) {
-    const f = FACTION_INFO[u.owner];
+    const f = FACTION_INFO[u.owner], mine = u.owner === PLAYER;
     const g = this.add.graphics();
-    g.fillStyle(f.fill, 1).fillCircle(0, 0, S * 0.72);
-    g.lineStyle(1.8, u.owner === PLAYER ? PALETTE.carta : f.border, 1).strokeCircle(0, 0, S * 0.72);
-    drawUnitIcon(g, u.type, 0, 0, S * 0.42, PALETTE.carta);
-    drawSymbol(g, f.symbol, S * 0.62, -S * 0.62, S * 0.26, f.fill, PALETTE.carta);
+    drawUnitSymbol(g, u.type, mine, mine ? PALETTE.radioattivo : f.fill);
     const hp = this.add.graphics();
     const { x, y } = center(u.tile);
-    const c = this.add.container(x, y, [g, hp]).setDepth(8);
-    c.setScale(0.2);
-    this.tweens.add({ targets: c, scale: 1.4, duration: 260, ease: 'Back.easeOut' }); // pedine leggibili sopra le province
-    return { c, hp, tile: u.tile, hpShown: -1 };
+    const c = this.add.container(x, y, [g, hp]).setDepth(D.units);
+    const pop = { k: 0.2 };
+    this.tweens.add({ targets: pop, k: 1, duration: 260, ease: 'Back.easeOut' });
+    return { c, hp, tile: u.tile, hpShown: -1, pop };
+  }
+
+  /** Pedine, navi e segnalini a grandezza costante sullo schermo (come i contatti su un radar). */
+  private scaleMarkers() {
+    const s = UI() / this.cameras.main.zoom;
+    for (const sp of this.unitSprites.values()) sp.c.setScale(s * sp.pop.k);
+    for (const b of this.boatSprites.values()) b.setScale(s * 0.9);
+    this.selRing.setScale(s * this.markerPulse.k);
+    this.flowMarker.setScale(s * this.markerPulse.k);
   }
 
   /** Allinea gli sprite delle pedine allo stato (creazione, movimento, vita). */
@@ -1018,8 +1038,7 @@ export class RunScene extends Phaser.Scene {
       const hpPct = Math.round((u.hp / u.maxHp) * 10);
       if (hpPct !== sp.hpShown) {
         sp.hpShown = hpPct;
-        sp.hp.clear().fillStyle(PALETTE.inchiostro, 0.9).fillRect(-S * 0.7, S * 0.82, S * 1.4, 2.6);
-        sp.hp.fillStyle(hpPct > 4 ? PALETTE.radioattivo : PALETTE.ko, 1).fillRect(-S * 0.7, S * 0.82, S * 1.4 * (hpPct / 10), 2.6);
+        drawUnitHp(sp.hp, hpPct / 10, u.owner === PLAYER);
       }
     }
     for (const [id, sp] of this.unitSprites) {
@@ -1030,15 +1049,15 @@ export class RunScene extends Phaser.Scene {
     if (this.selectedUnit !== null && !alive.has(this.selectedUnit)) this.selectUnit(null);
 
     // percorsi delle nostre pedine + anello di selezione
-    const g = this.pathGfx.clear();
+    const g = this.pathGfx.clear(), px = UI() / this.cameras.main.zoom; // un punto sullo schermo, in pixel-mondo
     for (const u of this.state.unitsOf(PLAYER)) {
       if (!u.path.length) continue;
       const sel = u.id === this.selectedUnit;
-      g.lineStyle(sel ? 2 : 1.4, PALETTE.radioattivo, sel ? 0.9 : 0.45);
+      g.lineStyle((sel ? 2 : 1.4) * px, PALETTE.radioattivo, sel ? 0.9 : 0.45);
       const pts = [u.tile, ...u.path].map(center);
       g.strokePoints(pts, false);
       const end = pts[pts.length - 1];
-      g.fillStyle(PALETTE.radioattivo, sel ? 0.9 : 0.5).fillCircle(end.x, end.y, 2.5);
+      g.fillStyle(PALETTE.radioattivo, sel ? 0.9 : 0.5).fillCircle(end.x, end.y, 3.5 * px);
     }
     if (this.selectedUnit !== null) {
       const sp = this.unitSprites.get(this.selectedUnit);
@@ -1049,20 +1068,43 @@ export class RunScene extends Phaser.Scene {
   // ---------- nebbia e navi ----------
 
   /** Nebbia in una texture a mezza risoluzione (bordi morbidi, costa poco): si ridisegna solo quando la vista cambia. */
+  /** Nebbia: una texture con un pixel per casella (alpha = mai visto / esplorato / in vista), ingrandita e sfumata. */
+  private makeFog(on: boolean) {
+    const { cols, rows } = BALANCE.map, key = 'fog';
+    if (this.textures.exists(key)) this.textures.remove(key);
+    this.fogTex = this.textures.createCanvas(key, cols, rows);
+    this.add.image(0, 0.25 * S, key).setOrigin(0).setScale(HEX_W, 1.5 * S).setDepth(D.fog).setVisible(on && BALANCE.fog.shade);
+    // nuvole: rumore morbido a due scale, fisso per la partita
+    const hash = (x: number, y: number) => { let h = (x * 374761393 + y * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
+    const vnoise = (x: number, y: number, c: number) => {
+      const gx = x / c, gy = y / c, ix = Math.floor(gx), iy = Math.floor(gy), fx = gx - ix, fy = gy - iy;
+      const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+      const a = hash(ix, iy), b = hash(ix + 1, iy), d = hash(ix, iy + 1), e = hash(ix + 1, iy + 1);
+      return a + (b - a) * sx + (d - a) * sy + (a - b - d + e) * sx * sy;
+    };
+    this.fogNoise = new Float32Array(cols * rows);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) this.fogNoise[r * cols + c] = 0.65 * vnoise(c, r, 14) + 0.35 * vnoise(c + 99, r, 5);
+  }
+
   private redrawFog() {
     const st = this.state, F = BALANCE.fog;
     this.fogVersion = st.fogVersion;
     this.ownedDirty = true; // i nemici compaiono/spariscono con la vista
-    if (!F.shade) return; // niente velo scuro: l'ignoto si vede, ma senza nemici
-    const g = this.fogBrush.clear().setScale(FOG_RES);
-    for (const i of this.map.land) {
+    for (const l of this.nationLabels) l.known = !!st.seen[l.tile];
+    const tex = this.fogTex;
+    if (!F.shade || !tex) return;
+    const ctx = tex.getContext(), { cols, rows } = BALANCE.map;
+    const img = ctx.createImageData(cols, rows), d = img.data;
+    const cr = (F.color >> 16) & 255, cg = (F.color >> 8) & 255, cb = F.color & 255;
+    for (let i = 0; i < cols * rows; i++) {
       if (st.visible[i]) continue;
-      const { x, y } = center(i);
-      g.fillStyle(PALETTE.oceano, st.seen[i] ? F.seenAlpha : F.unseenAlpha);
-      g.fillPoints(corners(x, y, S + 0.6), true);
+      const n = this.fogNoise[i];
+      const a = st.seen[i] ? F.seenAlpha * (0.85 + 0.3 * n) : F.unseenAlpha * (0.9 + 0.12 * n);
+      const k = i * 4, lift = st.seen[i] ? 0 : Math.round(n * 14); // nuvole appena più chiare
+      d[k] = cr + lift; d[k + 1] = cg + lift; d[k + 2] = cb + lift; d[k + 3] = Math.min(255, Math.round(a * 255));
     }
-    this.fogRT.clear();
-    this.fogRT.draw(g);
+    ctx.putImageData(img, 0, 0);
+    tex.refresh();
   }
 
   private makeBoat(b: Boat) {
@@ -1073,7 +1115,7 @@ export class RunScene extends Phaser.Scene {
     g.fillStyle(PALETTE.carta, 1).fillRect(-3, -7, 6, 5); // cabina
     const lbl = this.add.text(0, -14, String(b.troops), textStyle(9, PALETTE.carta)).setOrigin(0.5).setResolution(3);
     const { x, y } = center(b.from);
-    const c = this.add.container(x, y, [g, lbl]).setDepth(8).setScale(0.6); // esagoni piccoli: nave in scala
+    const c = this.add.container(x, y, [g, lbl]).setDepth(D.units); // grandezza costante: vedi scaleMarkers
     this.tweens.add({ targets: g, y: 1.2, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }); // rollio
     return c;
   }
@@ -1115,12 +1157,21 @@ export class RunScene extends Phaser.Scene {
   private unitDeathFx(u: Unit) {
     const sp = this.unitSprites.get(u.id);
     const { x, y } = sp ? { x: sp.c.x, y: sp.c.y } : center(u.tile);
-    this.burst.setParticleTint(FACTION_INFO[u.owner].fill);
-    this.burst.explode(14, x, y);
+    this.burstAt(x, y, 14, FACTION_INFO[u.owner].fill);
     if (u.owner === PLAYER) {
       this.floatText(x, y - 6, `${unitInfo(u.type).short} caduta`, PALETTE.ko);
       buzz(40);
     }
+  }
+
+  /** Scintille a misura di schermo (velocità e grandezza seguono lo zoom). */
+  private burstAt(x: number, y: number, n: number, tint: number) {
+    const s = UI() / this.cameras.main.zoom;
+    const e = this.add.particles(x, y, 'dot', {
+      speed: { min: 30 * s, max: 95 * s }, lifespan: 450, scale: { start: 1.1 * s, end: 0 }, alpha: { start: 1, end: 0 }, tint, emitting: false,
+    }).setDepth(D.fx + 1);
+    e.explode(n);
+    this.time.delayedCall(600, () => e.destroy());
   }
 
   /** Provincia appena presa (avanzata, pittura, pedine): lampo leggero sulla sagoma. */
@@ -1188,6 +1239,17 @@ export class RunScene extends Phaser.Scene {
       .reduce((a, b) => (Math.hypot(center(b).x - x, center(b).y - y) < Math.hypot(center(a).x - x, center(a).y - y) ? b : a));
   }
 
+  /** Scheda di chi possiede la casella: la tua provincia, oppure il profilo di un impero o di una milizia. */
+  private openOwnerCard(i: number) {
+    const p = this.state.provOf(i);
+    if (p < 0) return;
+    const o = this.state.provOwner[p];
+    if (o === PLAYER) this.hud.showProvince(p);
+    else if (o !== NEUTRAL && (this.state.sees(i) || this.state.relation[o] !== 'guerra')) this.hud.showProfile(o);
+    else return;
+    buzz(12);
+  }
+
   /** Casella → coordinate schermo in punti CSS (per frecce e guida nell'HUD). */
   tileToScreen(i: number): { x: number; y: number } {
     const cam = this.cameras.main;
@@ -1204,6 +1266,14 @@ export class RunScene extends Phaser.Scene {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (this.hud.hitUi(p.x / UI(), p.y / UI())) return;
       if (this.activePointers().length === 1) {
+        // tenere premuto apre la scheda di chi possiede la provincia (impero, milizia o la tua)
+        this.pressTimer?.remove();
+        this.longPressed = false;
+        this.pressTimer = this.time.delayedCall(450, () => {
+          if (!this.down || this.dragging || this.activePointers().length !== 1) return;
+          this.longPressed = true;
+          this.openOwnerCard(this.tileAt(p.x, p.y));
+        });
         this.down = { x: p.x, y: p.y };
         this.last = { x: p.x, y: p.y };
         this.dragging = false;
@@ -1236,6 +1306,7 @@ export class RunScene extends Phaser.Scene {
       if (!this.down || !p.isDown) return;
       if (!this.dragging && Phaser.Math.Distance.Between(p.x, p.y, this.down.x, this.down.y) > CAM.dragThreshold * DPR) {
         this.dragging = true;
+        this.pressTimer?.remove();
       }
       if (this.dragging) {
         if (this.dragMode === 'paint') {
@@ -1250,7 +1321,14 @@ export class RunScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
-      if (this.down && !this.dragging && this.activePointers().length === 0) this.tapTile(this.tileAt(p.x, p.y));
+      this.pressTimer?.remove();
+      if (this.longPressed) {
+        this.longPressed = false; // tenuto premuto: la scheda è già aperta
+      } else if (this.down && !this.dragging && this.activePointers().length === 0) {
+        const tag = this.hud.tagAt(p.x / UI(), p.y / UI());
+        if (tag > 0 && !this.selectedCard && this.selectedUnit === null && !this.selectedAbility) this.hud.showProfile(tag);
+        else this.tapTile(this.tileAt(p.x, p.y));
+      }
       if (this.activePointers().length === 0) this.down = null;
       this.pinchDist = 0;
       this.lastMid = null;

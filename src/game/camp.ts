@@ -12,6 +12,10 @@ const C = BALANCE.camp;
 
 /** Opzioni di una run decise dall'accampamento. */
 export interface RunOptions {
+  stake: Bag; // risorse messe in gioco (già tolte dal Deposito all'avvio)
+  stakeMult: number; // moltiplicatore del guadagno oltre la puntata
+  exitFee: number; // ritirata: quota dello zaino persa
+  playerName: string; // nome del comandante ('' = TU)
   units: UnitType[];
   unitHpMult: number;
   events: number; // 0 nessuno, 1 comuni, 2 anche rari
@@ -36,7 +40,7 @@ export interface RunOptions {
 export const DEFAULT_OPTIONS: RunOptions = {
   units: ['fanteria', 'ricognitori', 'artiglieria'], unitHpMult: 1, events: 0,
   eliminatedLoss: BALANCE.end.eliminatedLoss, retreatBonus: 0, tutorial: false, fog: false,
-  civ: 'republica', campaign: 'standard', endMs: BALANCE.campaigns.standard.durationMs, campaignLootMult: 1, mods: BASE_MODS,
+  civ: 'republica', campaign: 'standard', playerName: '', stake: { metallo: 0, benzina: 0, cibo: 0 }, stakeMult: 1, exitFee: 0, endMs: BALANCE.campaigns.standard.durationMs, campaignLootMult: 1, mods: BASE_MODS,
   front: BALANCE.fronts[0], frontIndex: 0, techs: [],
   abilities: [], maxUnitsBonus: 0, abilityCdMult: 1,
 };
@@ -80,12 +84,31 @@ export function playerPower(p: Profile): number {
     + p.techs.filter((id) => id in BALANCE.tech).length * W.tech;
 }
 
+const emptyStake = (): Bag => ({ metallo: 0, benzina: 0, cibo: 0 });
+
+/** Puntata scelta, ridotta a quella che il Deposito può coprire. */
+export function stakeIndex(p: Profile): number {
+  let k = Math.min(p.stake ?? 0, BALANCE.stake.options.length - 1);
+  while (k > 0 && !canStake(p, k)) k--;
+  return k;
+}
+
+/** Risorse di una puntata: divise in parti uguali tra le tre risorse. */
+export function stakeOf(k: number): Bag {
+  const n = Math.floor(BALANCE.stake.options[k] / 3);
+  return { metallo: n, benzina: n, cibo: n };
+}
+
+export const canStake = (p: Profile, k: number) => canAfford(p.stash, stakeOf(k));
+
+export const stakeBag = (p: Profile): Bag => stakeOf(stakeIndex(p));
+
 export function runOptions(p: Profile): RunOptions {
   const { arsenale, comando, deposito, radar } = p.buildings;
   const tutorial = p.runs === 0;
   const civ = activeCiv(p), campaign = activeCampaign(p), front = tutorial ? 0 : activeFront(p);
   // la run guidata resta semplice: niente bonus
-  const mods = tutorial ? { ...BASE_MODS } : combine(...civMods(civ), ...techMods(p), { fogBonus: C.radarFogBonus[radar] });
+  const mods = tutorial ? { ...BASE_MODS } : combine(...civMods(civ), ...techMods(p), { fogBonus: C.radarFogBonus[radar], fogIntel: C.radarIntel[radar] });
   const units = deckOf(p, civ);
   if (p.test) Object.assign(mods, { startTroops: mods.startTroops + BALANCE.test.startTroops });
   if (!tutorial) mods.growthMult *= C.comandoGrowthMult[comando]; // il Centro di Comando organizza la leva
@@ -93,7 +116,9 @@ export function runOptions(p: Profile): RunOptions {
     abilities: tutorial ? [] : unlockedAbilities(p),
     maxUnitsBonus: C.comandoMaxUnitsBonus[comando],
     abilityCdMult: C.comandoAbilityCdMult[comando] * (p.test ? BALANCE.test.abilityCdMult : 1),
-    civ, campaign, mods,
+    civ, campaign, mods, playerName: p.name ?? '',
+    stake: tutorial ? emptyStake() : stakeBag(p), stakeMult: tutorial ? 1 : BALANCE.stake.mult[stakeIndex(p)],
+    exitFee: tutorial ? 0 : Math.max(0, BALANCE.stake.exitFee - C.depositoRetreatBonus[deposito]),
     endMs: BALANCE.campaigns[campaign].durationMs + C.comandoTimeBonusMs[comando],
     campaignLootMult: BALANCE.campaigns[campaign].lootMult * BALANCE.fronts[front].lootMult,
     front: BALANCE.fronts[front],

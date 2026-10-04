@@ -1,0 +1,11 @@
+{
+  "places": ["Kessel", "Vardar", "Mirena", "Orsk", "Halm", "Vesna", "Thule", "Aurora", "Valdorn", "Kestria", "Ravel", "Brenn", "Ostral", "Carpania", "Lunea", "Sarnia", "Morvan", "Teskar", "Ilvan", "Dorova", "Nerva", "Arken", "Selmar", "Varos", "Corvia", "Belgard", "Esker", "Malvin", "Tarsa", "Edra"],
+  "forms": {
+    "imperium": ["Impero di {P}", "Dominio di {P}", "Trono di {P}", "Corona di {P}"],
+    "aristocrazia": ["Casata {P}", "Signoria di {P}", "Granducato di {P}", "Principato di {P}"],
+    "cabal": ["Consiglio di {P}", "Lega di {P}", "Compagnia di {P}", "Concordato di {P}"],
+    "republica": ["Repubblica di {P}", "Unione di {P}", "Federazione di {P}", "Senato di {P}"]
+  },
+  "botForms": ["Milizia {S}", "Brigata {S}", "Banda {S}", "Legione {S}", "Fratellanza {S}", "Clan {S}", "Guarnigione di {P}", "Comune di {P}", "Libera {P}"],
+  "surnames": ["Varga", "Moreau", "Tessaro", "Brenner", "Okafor", "Ruiz", "Halvorsen", "Novak", "Kowal", "Ferreira", "Lindqvist", "Mancuso", "Dragan", "Petrov", "Sato", "Mbeki", "Haddad", "Castillo", "Weiss", "Orsini", "Kane", "Dumont", "Szabo", "Rossi", "Ivanova", "Nakamura", "Oduya", "Larsen", "Bianchi", "Kerr"]
+}

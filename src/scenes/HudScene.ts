@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
 import { BALANCE, type UnitType } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
-import { PLAYER, WORKS, type Outcome, type VictoryReason } from '../game/RunState';
+import { PLAYER, WORKS, type DiploWhat, type Outcome, type VictoryReason } from '../game/RunState';
 import { techInfo } from '../game/tech';
 import { WORK_NAME, drawWorkIcon, workDesc } from '../ui/workIcons';
 import { buzz } from '../ui/haptics';
-import { FACTION_INFO } from '../game/factions';
+import { FACTION_INFO, majorCount } from '../game/factions';
+import civText from '../data/civs.json';
 import { RESOURCES, RESOURCE_INFO, bagTotal, type Bag } from '../game/resources';
 import type { GameEvent } from '../game/events';
 import { EventCard } from '../ui/EventCard';
@@ -44,6 +45,7 @@ export class HudScene extends Phaser.Scene {
   private stats!: Phaser.GameObjects.Text;
   private resTexts: Phaser.GameObjects.Text[] = [];
   private resLabel!: Phaser.GameObjects.Text;
+  private recruitBtn!: Phaser.GameObjects.Text;
   private pauseBtn!: Button;
   /** Pausa strategica: cornice + cartello, la mappa resta comandabile. */
   private pauseUi: Phaser.GameObjects.Container | null = null;
@@ -51,6 +53,9 @@ export class HudScene extends Phaser.Scene {
   private provCard: Phaser.GameObjects.Container | null = null;
   private provCardP = -1;
   private buildHint = false;
+  private profile: Phaser.GameObjects.Container | null = null;
+  private profileF = -1;
+  private profileAcc = 0;
   private provCardAcc = 0;
   private pauseFrame!: Phaser.GameObjects.Graphics;
   private stormText!: Phaser.GameObjects.Text;
@@ -113,16 +118,31 @@ export class HudScene extends Phaser.Scene {
     this.resIcons = this.add.graphics();
     // bottino: icone e numeri grandi, ognuno nel colore della sua risorsa
     this.resTexts = RESOURCES.map((r) => this.add.text(0, 0, '0', textStyle(20, RESOURCE_INFO[r].color)).setOrigin(0, 0.5));
-    this.resLabel = this.add.text(0, 0, 'BOTTINO', textStyle(10, PALETTE.ocra));
+    const stake = bagTotal(this.run.state.opts.stake);
+    this.resLabel = this.add.text(0, 0, stake ? `BOTTINO · puntata ${stake}` : 'BOTTINO', textStyle(10, PALETTE.ocra));
+    // ARRUOLA: risorse dello zaino in truppe subito (la puntata si può spendere per partire forte)
+    this.recruitBtn = this.add.text(0, 0, `＋ ARRUOLA ${BALANCE.stake.recruitTroops}`, textStyle(10, PALETTE.radioattivo))
+      .setPadding(4, 1, 4, 1).setBackgroundColor('#13202e').setInteractive({ useHandCursor: true });
+    this.recruitBtn.on('pointerup', () => {
+      const n = this.run.state.recruit();
+      if (!n) return this.toast(`SERVONO ${BALANCE.stake.recruitCost} RISORSE NELLO ZAINO`, PALETTE.ko);
+      this.toast(`+${n} TRUPPE ARRUOLATE · −${BALANCE.stake.recruitCost} risorse`, PALETTE.radioattivo);
+      buzz(10);
+    });
+    this.recruitBtn.setVisible(!this.run.state.opts.tutorial);
     // entrate al minuto sotto ogni risorsa: si vede cosa rende l'impero
     this.incTexts = RESOURCES.map(() => this.add.text(0, 0, '', textStyle(9, PALETTE.tenue, false)).setOrigin(0, 0));
     this.stormText = this.add.text(0, 0, '', textStyle(12, PALETTE.ocra));
 
     // pannello destro: fazioni
-    this.rightPanel = this.add.rectangle(0, PAD, RIGHT_W, FACTION_INFO.length * ROW_H + 10, PALETTE.inchiostro, 0.88)
+    this.rightPanel = this.add.rectangle(0, PAD, RIGHT_W, majorCount() * ROW_H + 10, PALETTE.inchiostro, 0.88)
       .setOrigin(0).setStrokeStyle(1, PALETTE.linea);
     this.symbols = this.add.graphics();
-    this.rows = FACTION_INFO.map(() => this.add.text(0, 0, '', textStyle(12, PALETTE.carta)).setOrigin(0, 0.5));
+    this.rows = FACTION_INFO.slice(0, majorCount()).map((_, k) => {
+      const t = this.add.text(0, 0, '', textStyle(12, PALETTE.carta)).setOrigin(0, 0.5);
+      if (k > 0) t.setInteractive({ useHandCursor: true }).on('pointerup', () => this.showProfile(k)); // scheda dell'impero
+      return t;
+    });
 
     this.seed = this.add.text(0, 0, '', textStyle(11, PALETTE.ocra, false)).setOrigin(1, 1);
     this.hint = this.add.text(0, 0, 'Tocca una provincia evidenziata per conquistarla', textStyle(14, PALETTE.carta))
@@ -219,7 +239,8 @@ export class HudScene extends Phaser.Scene {
       this.run.ritirata();
       return;
     }
-    this.retreatBtn.setLabel('CONFERMI?').setOn(true);
+    const fee = Math.round(this.run.state.opts.exitFee * 100);
+    this.retreatBtn.setLabel(fee ? `ESCI −${fee}%?` : 'CONFERMI?').setOn(true); // uscire prima della fine costa
     this.retreatArmed = this.time.delayedCall(2500, () => {
       this.retreatArmed = null;
       this.retreatBtn.setLabel('RITIRATA').setOn(false);
@@ -254,7 +275,7 @@ export class HudScene extends Phaser.Scene {
       this.stats.setPosition(width - PAD - 10, PAD + 8).setOrigin(1, 0).setAlign('right');
       this.stormText.setPosition(width - PAD - 10, PAD + 56).setOrigin(1, 0);
       this.layoutResources(PAD + 16, PAD + 92, (width - 2 * PAD - 40) / 3);
-      const sy = PAD + TOP_H + 6, slot = (width - 2 * PAD) / FACTION_INFO.length;
+      const sy = PAD + TOP_H + 6, slot = (width - 2 * PAD) / majorCount();
       this.rightPanel.setPosition(PAD, sy).setSize(width - 2 * PAD, STRIP_H);
       const half = (width - 2 * PAD) / 2;
       this.rows.forEach((r, k) => r.setPosition(PAD + (k % 2) * half + 26, sy + 12 + Math.floor(k / 2) * 22));
@@ -279,11 +300,11 @@ export class HudScene extends Phaser.Scene {
       const step = Math.min(96, Math.max(74, (barW - 400) / 3));
       this.layoutResources(PAD + barW - 3 * step - 4, PAD + 42, step);
       const rx = width - PAD - RIGHT_W;
-      this.rightPanel.setPosition(rx, PAD).setSize(RIGHT_W, FACTION_INFO.length * ROW_H + 10);
+      this.rightPanel.setPosition(rx, PAD).setSize(RIGHT_W, majorCount() * ROW_H + 10);
       this.rows.forEach((r, k) => r.setPosition(rx + 26, PAD + 5 + ROW_H * (k + 0.5)));
       this.symPos = this.rows.map((r) => ({ x: rx + 14, y: r.y }));
       this.unitPos = this.rows.map((r) => ({ x: rx + RIGHT_W - 14, y: r.y }));
-      this.topBottom = PAD + Math.max(BAR_H, FACTION_INFO.length * ROW_H + 10);
+      this.topBottom = PAD + Math.max(BAR_H, majorCount() * ROW_H + 10);
       this.speedBtn.setPosition(width - PAD - 56, height - PAD - 44);
       this.pauseBtn.setPosition(width - PAD - 56 - 8 - 56, height - PAD - 44);
       this.retreatBtn.setPosition(width - PAD - 56 - 8 - 56 - 8 - 112, height - PAD - 44);
@@ -318,6 +339,7 @@ export class HudScene extends Phaser.Scene {
   private layoutResources(x: number, y: number, step: number) {
     this.resIcons.clear();
     this.resLabel.setPosition(x - 6, y - 24);
+    this.recruitBtn.setPosition(x + this.resLabel.width + 4, y - 26);
     RESOURCES.forEach((r, k) => {
       drawResourceIcon(this.resIcons, r, x + 4 + k * step, y, 9);
       this.resTexts[k].setPosition(x + 18 + k * step, y);
@@ -345,6 +367,10 @@ export class HudScene extends Phaser.Scene {
         this.setHint(msg);
         this.time.delayedCall(8000, () => { if (this.hint.text === msg) this.setHint(null); });
       }
+    }
+    if (this.profile && (this.profileAcc -= delta) <= 0) {
+      this.profileAcc = 1000;
+      this.renderProfile();
     }
     if (this.provCard && (this.provCardAcc -= delta) <= 0) {
       this.provCardAcc = 500;
@@ -383,6 +409,7 @@ export class HudScene extends Phaser.Scene {
       this.aliveKey = key;
       const g = this.symbols.clear();
       st.factions.forEach((f, k) => {
+        if (k >= this.rows.length) return; // le milizie non sono nell'elenco
         const info = FACTION_INFO[k];
         const sp = this.symPos[k], up = this.unitPos[k];
         drawSymbol(g, info.symbol, sp.x, sp.y, 6, f.alive ? info.fill : 0x555555, PALETTE.carta);
@@ -392,6 +419,7 @@ export class HudScene extends Phaser.Scene {
     }
     st.factions.forEach((f, k) => {
       const r = this.rows[k];
+      if (!r) return;
       r.setText(f.alive ? `${FACTION_INFO[k].short} ${f.provinces}` : `${FACTION_INFO[k].short} ✝`).setAlpha(f.alive ? 1 : 0.4);
     });
     const sel = this.run.selectedCard;
@@ -416,8 +444,133 @@ export class HudScene extends Phaser.Scene {
     else this.toast(lost ? `OFFENSIVA FINITA · perso il ${Math.round((lost / Math.max(1, lost + this.run.state.player.tiles)) * 100)}% del territorio` : 'OFFENSIVA RESPINTA', lost > 40 ? PALETTE.ko : PALETTE.ocra);
   }
 
+  /** Diplomazia: dichiarazioni, paci, alleanze, rifiuti, doni. */
+  onDiplomacy(f: number, what: DiploWhat, byPlayer: boolean, amount = 0) {
+    const who = FACTION_INFO[f]?.name.toUpperCase() ?? 'IL NEMICO';
+    if (what === 'war' && !byPlayer) {
+      this.banner(`${who} TI DICHIARA GUERRA`, PALETTE.ko, 'i confini non sono più sicuri');
+      buzz([40, 30, 40]);
+    } else if (what === 'war') this.toast(`GUERRA A ${who}`, PALETTE.ko);
+    else if (what === 'peace') this.toast(`PACE CON ${who}`, PALETTE.ocra);
+    else if (what === 'alliance') this.banner(`ALLEANZA CON ${who}`, PALETTE.radioattivo, 'non vi attaccherete, vedete insieme');
+    else if (what === 'broken') this.toast(`ALLEANZA ROTTA CON ${who}`, PALETTE.allerta);
+    else if (what === 'refused') this.toast(`${who} RIFIUTA`, PALETTE.ko);
+    else if (what === 'tribute') this.toast(`TRIBUTO DA ${who} · +${amount} risorse`, PALETTE.ocra);
+    else if (what === 'gift') this.toast(`DONO A ${who} · opinione in salita`, PALETTE.radioattivo);
+    if (this.profileF === f) this.renderProfile();
+  }
+
+  /** Accerchiamento: una sacca si arrende. */
+  onEncircled(by: number, from: number, n: number) {
+    if (by === PLAYER) this.banner(`ACCERCHIAMENTO · +${n} ${n === 1 ? 'PROVINCIA' : 'PROVINCE'}`, PALETTE.radioattivo, 'la sacca si arrende');
+    else if (from === PLAYER) this.toast(`SACCA PERDUTA · ${n} ${n === 1 ? 'provincia' : 'province'} a ${FACTION_INFO[by]?.short ?? '?'}`, PALETTE.ko);
+  }
+
+  // ---------- scheda di un impero ----------
+
+  /** Insegna di fazione toccata sulla mappa (punti CSS), −1 se nessuna. */
+  tagAt(x: number, y: number): number {
+    return this.mapLabels.tagAt(x, y);
+  }
+
+  showProfile(f: number) {
+    if (f <= 0 || !FACTION_INFO[f]) return;
+    this.profileF = f;
+    this.hideProvince();
+    this.renderProfile();
+  }
+
+  hideProfile() {
+    this.profile?.destroy();
+    this.profile = null;
+    this.profileF = -1;
+  }
+
+  /** Profilo alla HOI4: chi sono, quanto pesano, che rapporti avete e cosa puoi fare (al massimo quattro scelte). */
+  private renderProfile() {
+    const st = this.run.state, f = this.profileF, info = FACTION_INFO[f], fac = st.factions[f];
+    this.profile?.destroy();
+    this.profile = null;
+    if (!info || !fac) return;
+    const { width, height } = view(this);
+    const W = Math.min(380, width - 2 * PAD), H = 300;
+    const items: Phaser.GameObjects.GameObject[] = [
+      this.add.rectangle(0, 0, W, H, PALETTE.inchiostro, 0.97).setOrigin(0).setStrokeStyle(1, PALETTE.linea),
+      this.add.rectangle(0, 0, W, 3, info.fill).setOrigin(0),
+    ];
+    const g = this.add.graphics();
+    drawSymbol(g, info.symbol, 22, 26, 9, info.fill, PALETTE.carta);
+    items.push(g, this.add.text(40, 14, info.name.toUpperCase(), textStyle(16, PALETTE.carta)).setWordWrapWidth(W - 80));
+    const close = this.add.text(W - 10, 8, '✕', textStyle(18, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+    close.on('pointerup', () => this.hideProfile());
+    items.push(close);
+    const civ = info.civ ? (civText as Record<string, { name: string; regime: string; classe: string }>)[info.civ] : null;
+    const kind = info.kind === 'bot' ? 'MILIZIA PROVINCIALE · forza locale, difende la sua zona'
+      : `IMPERO · potenza ${civ?.name ?? ''} · ${civ?.regime.toLowerCase() ?? ''}`;
+    items.push(this.add.text(14, 46, kind, textStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
+    if (civ) items.push(this.add.text(14, 64, `classe dirigente: ${civ.classe}`, textStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
+    // peso militare
+    const ratio = fac.troops / Math.max(1, st.troops);
+    const force = !fac.alive ? 'eliminati' : ratio > 1.25 ? 'più forti di te' : ratio < 0.8 ? 'più deboli di te' : 'forza pari alla tua';
+    const troops = fac.alive ? `≈${Math.max(10, Math.round(fac.troops / 10) * 10)}` : '0';
+    items.push(this.add.text(14, 90, `${fac.provinces} ${fac.provinces === 1 ? 'provincia' : 'province'} · truppe ${troops} · ${force}`, textStyle(13, PALETTE.carta)));
+    // rapporto e opinione
+    const rel = st.relation[f], op = Math.round(st.opinion[f]);
+    const relTxt = rel === 'guerra' ? 'IN GUERRA' : rel === 'alleanza' ? 'ALLEATI' : 'IN PACE';
+    const relCol = rel === 'guerra' ? PALETTE.ko : rel === 'alleanza' ? PALETTE.radioattivo : PALETTE.ocra;
+    items.push(this.add.text(14, 118, relTxt, textStyle(15, relCol)));
+    const bx = 120, bw = W - bx - 16, by = 126;
+    const bar = this.add.graphics();
+    bar.fillStyle(PALETTE.pannello, 1).fillRect(bx, by, bw, 8).lineStyle(1, PALETTE.linea, 1).lineBetween(bx + bw / 2, by - 2, bx + bw / 2, by + 10);
+    const half = (bw / 2) * Math.min(1, Math.abs(op) / 100);
+    bar.fillStyle(op >= 0 ? 0x7ee2a8 : PALETTE.ko, 1).fillRect(op >= 0 ? bx + bw / 2 : bx + bw / 2 - half, by, half, 8);
+    items.push(bar, this.add.text(bx, by + 12, `opinione ${op > 0 ? '+' : ''}${op}`, textStyle(10, PALETTE.tenue, false)));
+    // azioni
+    const acts: { label: string; color: number; run: () => void }[] = [];
+    const D = BALANCE.diplomacy;
+    const gift = Math.floor(Math.max(D.donateMin, st.troops * D.donateShare));
+    const why = (r: string) => this.toast(r.toUpperCase(), PALETTE.ko);
+    if (fac.alive) {
+      if (rel === 'guerra') {
+        acts.push({ label: 'PROPONI PACE', color: PALETTE.ocra, run: () => {
+          const r = st.proposePeace(f);
+          if (r === 'cooldown') why('aspetta prima di riproporre');
+        } });
+      } else {
+        acts.push({ label: 'DICHIARA GUERRA', color: PALETTE.ko, run: () => { if (!st.declareWar(f)) why('tregua in corso'); } });
+      }
+      if (rel === 'pace' && info.kind === 'empire') {
+        acts.push({ label: 'PROPONI ALLEANZA', color: PALETTE.radioattivo, run: () => {
+          const r = st.proposeAlliance(f);
+          if (r === 'opinion') why(`serve opinione +${D.allyOpinion}: fai un dono`);
+          else if (r === 'cooldown') why('aspetta prima di riproporre');
+        } });
+      }
+      if (rel === 'alleanza') acts.push({ label: 'ROMPI ALLEANZA', color: PALETTE.allerta, run: () => st.breakAlliance(f) });
+      acts.push({ label: `DONA ${gift} TRUPPE`, color: PALETTE.carta, run: () => { if (!st.donateTroops(f)) why('truppe insufficienti'); } });
+      if (info.kind === 'bot') {
+        acts.push({ label: 'CHIEDI TRIBUTO', color: PALETTE.ocra, run: () => {
+          if (st.diploBlock(f) === 'cooldown') return why('aspetta prima di riproporre');
+          st.demandTribute(f);
+        } });
+      } else {
+        acts.push({ label: `DONA ${D.donateLoot} RISORSE`, color: PALETTE.carta, run: () => { if (!st.donateLoot(f)) why('zaino troppo vuoto'); } });
+      }
+    }
+    const cw = (W - 28 - 8) / 2, ch = 40;
+    acts.slice(0, 4).forEach((a, k) => {
+      const x = 14 + (k % 2) * (cw + 8), y = 160 + Math.floor(k / 2) * (ch + 8);
+      const r = this.add.rectangle(x, y, cw, ch, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, a.color).setInteractive({ useHandCursor: true });
+      r.on('pointerup', () => { a.run(); buzz(10); this.renderProfile(); });
+      items.push(r, this.add.text(x + cw / 2, y + ch / 2, a.label, textStyle(12, a.color)).setOrigin(0.5));
+    });
+    items.push(this.add.text(14, H - 34, 'In pace non vi attaccate. Tieni premuto su una provincia per aprire la sua scheda.', textStyle(9, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
+    this.profile = this.add.container((width - W) / 2, Math.max(PAD, (height - H) / 2), items).setDepth(46);
+  }
+
   onEliminated(faction: number, by: number, loot: Bag) {
     if (faction === PLAYER) return;
+    if (by !== PLAYER && FACTION_INFO[faction]?.kind === 'bot') return; // milizie spazzate via altrove: niente avvisi
     const who = FACTION_INFO[faction].name.toUpperCase();
     const got = bagTotal(loot);
     const msg = by === PLAYER
@@ -592,7 +745,7 @@ export class HudScene extends Phaser.Scene {
     if (p < 0 || st.provOwner[p] !== PLAYER || st.over) return void (this.provCardP = -1);
     const prov = st.map.provinces[p];
     const { width, height } = view(this);
-    const W = Math.min(400, width - 2 * PAD), H = 146;
+    const W = Math.min(420, width - 2 * PAD), H = st.workOf(p) || st.workInProgress(p) ? 120 : 196;
     const ly = height - PAD - CARD_H - 8 - 36;
     const y0 = this.portrait ? (this.abilityCards.length ? height - PAD - CARD_H * 2 - 22 : ly - 8) - H : this.topBottom + 8;
     const T = BALANCE.terrain[prov.terrain];
@@ -618,30 +771,31 @@ export class HudScene extends Phaser.Scene {
       items.push(ig, this.add.text(58, 70, WORK_NAME[w].toUpperCase(), textStyle(14, ready ? PALETTE.ocra : PALETTE.allerta)),
         this.add.text(58, 92, ready ? workDesc(w, resName) : `in costruzione · ${mmss(prog!.leftMs)}`, textStyle(11, PALETTE.carta, false)));
     } else {
-      const bw = (W - 24 - 12) / 3;
+      // sette costruzioni su due righe: icona, nome, effetto, prezzo in truppe
+      const cols = 4, bw = (W - 24 - (cols - 1) * 6) / cols, bh = 62;
       WORKS.forEach((w, k) => {
-        const D = BALANCE.works[w], block = st.workBlock(p, w), x = 12 + k * (bw + 6), y = 56;
-        const price = st.workPrice(w), cost = `${price} truppe · ${Math.round(D.timeMs / 1000)} s`;
-        const bg = this.add.rectangle(x, y, bw, 80, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, block ? PALETTE.linea : PALETTE.ocra)
+        const D = BALANCE.works[w], block = st.workBlock(p, w), x = 12 + (k % cols) * (bw + 6), y = 56 + Math.floor(k / cols) * (bh + 6);
+        const price = st.workPrice(w);
+        const bg = this.add.rectangle(x, y, bw, bh, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, block ? PALETTE.linea : PALETTE.ocra)
           .setInteractive({ useHandCursor: true });
         const ig = this.add.graphics();
-        drawWorkIcon(ig, w, x + 15, y + 16, 8, block ? PALETTE.tenue : PALETTE.ocra);
-        const name = this.add.text(x + 28, y + 8, WORK_NAME[w].toUpperCase(), textStyle(11, block ? PALETTE.tenue : PALETTE.carta));
-        const sub = this.add.text(x + 8, y + 30, block === 'tech' ? `🔒 ${techInfo(D.tech).name}` : workDesc(w, resName), textStyle(9, PALETTE.carta, false))
-          .setWordWrapWidth(bw - 12);
-        const priceTxt = this.add.text(x + 8, y + 74, cost, textStyle(9, block === 'troops' ? PALETTE.ko : PALETTE.tenue, false))
-          .setOrigin(0, 1).setWordWrapWidth(bw - 12);
-        if (block === 'tech') priceTxt.setVisible(false);
+        drawWorkIcon(ig, w, x + 12, y + 13, 7, block ? PALETTE.tenue : PALETTE.ocra);
+        const name = this.add.text(x + 24, y + 6, WORK_NAME[w].toUpperCase(), textStyle(10, block ? PALETTE.tenue : PALETTE.carta));
+        const lock = block === 'tech' ? `🔒 ${techInfo(D.tech).name}` : block === 'coast' ? 'solo sul mare' : workDesc(w, resName);
+        const sub = this.add.text(x + 6, y + 23, lock, textStyle(9, PALETTE.carta, false)).setWordWrapWidth(bw - 10);
+        const priceTxt = this.add.text(x + 6, y + bh - 4, `${price} truppe`, textStyle(9, block === 'troops' ? PALETTE.ko : PALETTE.tenue, false))
+          .setOrigin(0, 1);
+        if (block === 'tech' || block === 'coast') priceTxt.setVisible(false);
         bg.on('pointerup', () => {
           const now = st.workBlock(p, w); // lo stato può essere cambiato dopo il disegno della scheda
           if (now) {
             const why = now === 'tech' ? `serve la ricerca ${techInfo(D.tech).name}` : now === 'troops' ? `servono ${st.workPrice(w)} truppe`
-              : now === 'busy' ? 'c\'è già una costruzione' : 'provincia non tua';
+              : now === 'busy' ? 'c\'è già una costruzione' : now === 'coast' ? 'il porto va sul mare' : 'provincia non tua';
             return this.toast(why.toUpperCase(), PALETTE.ko);
           }
           if (st.build(PLAYER, p, w)) {
             analytics.design(['costruzione', w]);
-            this.toast(`${WORK_NAME[w].toUpperCase()} IN COSTRUZIONE`, PALETTE.ocra);
+            this.toast(`${WORK_NAME[w].toUpperCase()} IN COSTRUZIONE · ${Math.round(D.timeMs / 1000)} s`, PALETTE.ocra);
             buzz(12);
           }
           this.renderProvince();
@@ -663,6 +817,7 @@ export class HudScene extends Phaser.Scene {
     if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
     if (this.pauseUi && inRect(this.pauseUi.list[0] as Phaser.GameObjects.Rectangle, this.pauseUi.x, this.pauseUi.y)) return true;
     if (this.provCard && inRect(this.provCard.list[0] as Phaser.GameObjects.Rectangle, this.provCard.x, this.provCard.y)) return true;
+    if (this.profile && inRect(this.profile.list[0] as Phaser.GameObjects.Rectangle, this.profile.x, this.profile.y)) return true;
     const btns = [this.speedBtn, this.pauseBtn, this.retreatBtn, ...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn].filter((b) => b !== null);
     return btns.some((b) => b.contains(x, y));
   }

@@ -156,14 +156,61 @@ export const BALANCE = {
     maxInFlight: 3,
     minTroops: 10,
   },
-  // Nebbia di guerra: vedi solo vicino a territorio, pedine e navi. Le anomalie si vedono sempre (emettono il segnale).
+  // Nebbia di guerra: vedi solo vicino a territorio, pedine e navi (caselle). Nelle prime campagne copre quasi tutta la mappa:
+  // la Sala Radar allarga la vista e la zona già nota attorno alla partenza (camp.radarFogBonus, camp.radarIntel).
   fog: {
-    territory: 10,
-    unit: 9,
-    boat: 5,
-    shade: false, // velo scuro sulle zone non viste (tolto: la nebbia nasconde solo i nemici)
-    seenAlpha: 0.45, // già esplorato ma ora fuori vista
-    unseenAlpha: 0.88, // mai visto
+    territory: 7,
+    unit: 7,
+    boat: 4,
+    intel: 10, // raggio già noto attorno alla partenza (esplorato, non sorvegliato)
+    shade: true, // velo sulle zone non viste
+    seenAlpha: 0.42, // già esplorato ma ora fuori vista
+    unseenAlpha: 0.9, // mai visto
+    color: 0x0a121c,
+  },
+  // Milizie provinciali (bot deboli alla OpenFront): poche province ciascuna, difendono e crescono piano; gli imperi
+  // (ai.*) si espandono molto di più. All'inizio la terra è quasi tutta libera.
+  bots: {
+    count: 36,
+    nearShare: 0.65, // quota nella regione del giocatore
+    near: [12, 110] as [number, number], // distanza dalla partenza del giocatore (passi esagonali)
+    minApart: 14, // tra una partenza e l'altra
+    provinces: [1, 3] as [number, number], // province iniziali
+    startTroops: [25, 70] as [number, number],
+    growthMult: 0.4,
+    actChance: 0.004, // per tick: si allargano piano, solo su terra libera vicina
+    homeRadius: 10, // non si allontanano oltre (passi dalla partenza)
+  },
+  // Diplomazia alla HOI4 (rapporti col giocatore): gli imperi partono in pace e possono dichiararti guerra quando vi toccate,
+  // le milizie sono ostili. Donazioni = opinione; con l'opinione alta accettano pace e alleanze.
+  diplomacy: {
+    checkMs: 5000,
+    warChance: 0.1, // per controllo: impero confinante in pace, dopo la tregua del fronte
+    peaceBase: 0.2, // probabilità di base che accettino la pace
+    allyOpinion: 40, // opinione minima per proporre un'alleanza
+    donateShare: 0.15, // quota di truppe donate
+    donateMin: 20,
+    donateLoot: 20, // risorse donate dallo zaino
+    opinionPerTroop: 0.25, // opinione per truppa donata (massimo 25 a dono)
+    truceMs: 60_000, // dopo una pace nessuno può dichiarare guerra per un po'
+    askCooldownMs: 15_000,
+    tributeRatio: 3, // una milizia paga se hai il triplo delle sue truppe
+    tribute: 15,
+  },
+  // Accerchiamenti (alla OpenFront): una sacca circondata da una sola fazione in guerra con lei si arrende.
+  encircle: {
+    maxNeutral: 10, // province libere al massimo in una sacca
+    maxPocket: 6, // province di una fazione tagliate fuori (senza capitale, o fazione piccola)
+  },
+  // Puntata (alla poker / estrazione): prima della campagna metti in gioco risorse del Deposito. Finiscono nello zaino,
+  // le puoi spendere per arruolare truppe; più punti, più rende il guadagno (solo la parte oltre la puntata).
+  // Uscire prima della fine costa una tassa (il Deposito liv. 3 la riduce), farsi eliminare costa quasi tutto.
+  stake: {
+    options: [0, 60, 180, 450], // risorse in gioco (divise tra metallo, benzina, cibo)
+    mult: [1, 1.25, 1.6, 2], // moltiplicatore del guadagno oltre la puntata
+    exitFee: 0.25, // ritirata: quota dello zaino lasciata sul campo
+    recruitCost: 10, // ARRUOLA: risorse dallo zaino...
+    recruitTroops: 30, // ...per queste truppe subito
   },
   // Prima run guidata: 1 sola IA che non attacca, senza limite di tempo né eventi, si vince con goalProvinces province.
   tutorial: {
@@ -213,7 +260,8 @@ export const BALANCE = {
         { cost: { metallo: 220, benzina: 90, cibo: 0 }, timeSec: 300 },
       ],
     },
-    radarFogBonus: [0, 0, 1, 2], // vista in più nelle campagne (liv. 1 = registro delle campagne)
+    radarFogBonus: [0, 1, 2, 3], // vista in più nelle campagne
+    radarIntel: [0, 10, 22, 36], // raggio in più già noto attorno alla partenza
     // effetti per livello (indice = livello, 0 = non costruito)
     // Arsenale: ogni livello apre ricerche del ramo Armamenti (tech.*.arsenale); al liv. 6 unità +25% vita
     arsenaleHpMult: [1, 1, 1, 1, 1, 1, 1.25],
@@ -250,12 +298,12 @@ export const BALANCE = {
   // Fronti (difficoltà crescente, alla Clash): il successivo si sblocca vincendo il precedente. Le IA si rafforzano (crescita,
   // truppe, unità, difese, bunker, offensive): per andare avanti servono Arsenale, ricerche e postazioni. power = potenza consigliata.
   fronts: [
-    { name: 'Prima linea', power: 0, lootMult: 1, aiGrowthMult: 0.85, aiStartTroops: 40, aiActChance: 0.07, aiUnits: ['fanteria'], aiUnitHpMult: 0.9, aiDefenseMult: 1, aiBunkers: 0, aiBunkerEveryMs: 0, graceMs: 240_000, offensiveFirstMs: 420_000, offensiveEveryMs: 210_000, maxAiUnits: 1 },
-    { name: 'Valichi del Nord', power: 20, lootMult: 1.3, aiGrowthMult: 0.95, aiStartTroops: 55, aiActChance: 0.085, aiUnits: ['fanteria', 'ricognitori'], aiUnitHpMult: 1, aiDefenseMult: 1.05, aiBunkers: 1, aiBunkerEveryMs: 0, graceMs: 210_000, offensiveFirstMs: 380_000, offensiveEveryMs: 190_000, maxAiUnits: 2 },
-    { name: 'Terre di cenere', power: 45, lootMult: 1.7, aiGrowthMult: 1.05, aiStartTroops: 75, aiActChance: 0.1, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio'], aiUnitHpMult: 1.1, aiDefenseMult: 1.12, aiBunkers: 2, aiBunkerEveryMs: 180_000, graceMs: 180_000, offensiveFirstMs: 330_000, offensiveEveryMs: 165_000, maxAiUnits: 2 },
-    { name: 'Fronte del Lume', power: 75, lootMult: 2.2, aiGrowthMult: 1.15, aiStartTroops: 100, aiActChance: 0.115, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.2, aiDefenseMult: 1.2, aiBunkers: 4, aiBunkerEveryMs: 140_000, graceMs: 150_000, offensiveFirstMs: 280_000, offensiveEveryMs: 145_000, maxAiUnits: 3 },
-    { name: 'Cielo aperto', power: 110, lootMult: 2.8, aiGrowthMult: 1.25, aiStartTroops: 130, aiActChance: 0.13, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.35, aiDefenseMult: 1.3, aiBunkers: 6, aiBunkerEveryMs: 110_000, graceMs: 120_000, offensiveFirstMs: 240_000, offensiveEveryMs: 125_000, maxAiUnits: 3 },
-    { name: "L'Avvento", power: 150, lootMult: 3.5, aiGrowthMult: 1.35, aiStartTroops: 170, aiActChance: 0.145, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.5, aiDefenseMult: 1.4, aiBunkers: 9, aiBunkerEveryMs: 90_000, graceMs: 100_000, offensiveFirstMs: 200_000, offensiveEveryMs: 110_000, maxAiUnits: 4 },
+    { name: 'Prima linea', power: 0, lootMult: 1, aiGrowthMult: 0.77, aiStartTroops: 40, aiActChance: 0.042, aiUnits: ['fanteria'], aiUnitHpMult: 0.9, aiDefenseMult: 1, aiBunkers: 0, aiBunkerEveryMs: 0, graceMs: 240_000, offensiveFirstMs: 420_000, offensiveEveryMs: 210_000, maxAiUnits: 1 },
+    { name: 'Valichi del Nord', power: 20, lootMult: 1.3, aiGrowthMult: 0.85, aiStartTroops: 55, aiActChance: 0.051, aiUnits: ['fanteria', 'ricognitori'], aiUnitHpMult: 1, aiDefenseMult: 1.05, aiBunkers: 1, aiBunkerEveryMs: 0, graceMs: 210_000, offensiveFirstMs: 380_000, offensiveEveryMs: 190_000, maxAiUnits: 2 },
+    { name: 'Terre di cenere', power: 45, lootMult: 1.7, aiGrowthMult: 0.95, aiStartTroops: 75, aiActChance: 0.06, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio'], aiUnitHpMult: 1.1, aiDefenseMult: 1.12, aiBunkers: 2, aiBunkerEveryMs: 180_000, graceMs: 180_000, offensiveFirstMs: 330_000, offensiveEveryMs: 165_000, maxAiUnits: 2 },
+    { name: 'Fronte del Lume', power: 75, lootMult: 2.2, aiGrowthMult: 1.03, aiStartTroops: 100, aiActChance: 0.069, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.2, aiDefenseMult: 1.2, aiBunkers: 4, aiBunkerEveryMs: 140_000, graceMs: 150_000, offensiveFirstMs: 280_000, offensiveEveryMs: 145_000, maxAiUnits: 3 },
+    { name: 'Cielo aperto', power: 110, lootMult: 2.8, aiGrowthMult: 1.12, aiStartTroops: 130, aiActChance: 0.078, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.35, aiDefenseMult: 1.3, aiBunkers: 6, aiBunkerEveryMs: 110_000, graceMs: 120_000, offensiveFirstMs: 240_000, offensiveEveryMs: 125_000, maxAiUnits: 3 },
+    { name: "L'Avvento", power: 150, lootMult: 3.5, aiGrowthMult: 1.22, aiStartTroops: 170, aiActChance: 0.087, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.5, aiDefenseMult: 1.4, aiBunkers: 9, aiBunkerEveryMs: 90_000, graceMs: 100_000, offensiveFirstMs: 200_000, offensiveEveryMs: 110_000, maxAiUnits: 4 },
   ] as FrontDef[],
   // Potenza del giocatore: punti per livello di postazione e per ricerca (si confronta con quella consigliata del fronte)
   power: { arsenale: 8, comando: 6, laboratorio: 4, deposito: 3, radar: 2, tech: 3 },
@@ -266,6 +314,10 @@ export const BALANCE = {
     fabbrica: { troops: 35, timeMs: 30_000, prodAdd: 1, defenseMult: 1, growthTiles: 0, tech: '' },
     bunker: { troops: 45, timeMs: 40_000, prodAdd: 0, defenseMult: 1.7, growthTiles: 0, tech: '' },
     caserma: { troops: 60, timeMs: 45_000, prodAdd: 0, defenseMult: 1, growthTiles: 10, tech: 'addestramento' },
+    ospedale: { troops: 40, timeMs: 35_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', heal: 3 }, // pedine qui e accanto: cura ×3
+    radar: { troops: 30, timeMs: 30_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', vision: 7 }, // vista attorno alla provincia
+    porto: { troops: 50, timeMs: 40_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', coastal: true, seaMult: 1.5 }, // navi più lontane, +1 in mare
+    aeroporto: { troops: 70, timeMs: 50_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: 'ricognizione', abilityCdMult: 0.7 }, // abilità più rapide
   } as Record<WorkId, WorkDef>,
   worksPriceStep: 0.2,
   // Modalità test (HQ → tasto TEST): sblocca tutto e azzera i timer per provare il gioco senza aspettare
@@ -339,9 +391,10 @@ export interface TechDef {
 }
 
 export type TileType = 'terra' | 'rovine';
-export type WorkId = 'fabbrica' | 'bunker' | 'caserma';
+export type WorkId = 'fabbrica' | 'bunker' | 'caserma' | 'ospedale' | 'radar' | 'porto' | 'aeroporto';
 export interface WorkDef {
   troops: number; timeMs: number; prodAdd: number; defenseMult: number; growthTiles: number; tech: string;
+  heal?: number; vision?: number; coastal?: boolean; seaMult?: number; abilityCdMult?: number;
 }
 export interface FrontDef {
   name: string; power: number; lootMult: number;

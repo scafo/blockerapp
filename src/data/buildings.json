@@ -53,9 +53,9 @@
     "name": "Sala Radar",
     "desc": "Ascolta e registra. Tiene il registro delle campagne e allunga la vista sul campo.",
     "levels": [
-      "Registro: record e ultime campagne",
-      "Vista +1 nelle campagne",
-      "Vista +2 nelle campagne"
+      "Registro delle campagne · vista +1 · mappe della zona",
+      "Vista +2 · mappe più ampie attorno alla partenza",
+      "Vista +3 · la regione quasi tutta già nota"
     ]
   },
   "abilita": {

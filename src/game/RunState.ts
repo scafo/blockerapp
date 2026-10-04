@@ -7,10 +7,10 @@ import { isCoast, seaRoute, type Boat } from './boats';
 import { DEFAULT_OPTIONS, type RunOptions } from './camp';
 import { EVENTS, type EventChoice, type EventEffects, type GameEvent } from './events';
 import { createRng, type Rng } from '../map/rng';
-import type { RunMap, Tile } from '../map/generate';
+import type { FactionKind, RunMap, Tile } from '../map/generate';
 
 export const NEUTRAL = -1;
-export const WORKS: WorkId[] = ['fabbrica', 'bunker', 'caserma'];
+export const WORKS: WorkId[] = ['fabbrica', 'bunker', 'caserma', 'ospedale', 'radar', 'porto', 'aeroporto'];
 export const PLAYER = 0;
 
 export interface Faction {
@@ -23,6 +23,7 @@ export interface Faction {
   settlements: number; // rovine possedute
   provinces: number; // province possedute
   maxProvinces: number;
+  kind: FactionKind; // giocatore, impero o milizia provinciale
   workers: number; // quota di lavoratori (0..1)
   lootAcc: Record<Resource, number>; // frazioni di risorse prodotte dai lavoratori
 }
@@ -39,9 +40,14 @@ export type RunEvent =
   | { type: 'ability'; ability: AbilityType; tile: number; phase: 'launch' | 'impact'; hits?: number }
   | { type: 'provinceDone'; by: number; province: number; nation: string; troops: number; loot: Bag }
   | { type: 'offensive'; faction: number; phase: 'warn' | 'start' | 'end'; lost?: number }
-  | { type: 'eliminated'; faction: number; by: number; loot: Bag };
+  | { type: 'eliminated'; faction: number; by: number; loot: Bag }
+  | { type: 'diplomacy'; faction: number; what: DiploWhat; byPlayer: boolean; amount?: number }
+  | { type: 'encircled'; by: number; from: number; provinces: number[] };
 
 export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'timeout';
+/** Rapporto di una fazione col giocatore. */
+export type Relation = 'guerra' | 'pace' | 'alleanza';
+export type DiploWhat = 'war' | 'peace' | 'alliance' | 'broken' | 'refused' | 'tribute' | 'gift';
 export type VictoryReason = 'map' | 'time' | 'tutorial';
 
 export interface RunSummary {
@@ -53,6 +59,7 @@ export interface RunSummary {
   maxProvinces: number;
   backpack: Bag; // zaino a fine run
   kept: Bag; // portato a casa dopo perdite/bonus
+  stake: Bag; // puntata messa in gioco
   tutorial: boolean;
   civ: CivId;
   campaign: CampaignId;
@@ -62,6 +69,8 @@ export interface RunSummary {
 export type ConquerResult =
   | { ok: true; tile: Tile; cost: number; loot: number; lootType: Resource }
   | { ok: false; reason: 'not-adjacent' | 'impassable' | 'owned' | 'troops'; need?: number };
+
+const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 export class RunState {
   readonly owner: Int8Array;
@@ -92,7 +101,9 @@ export class RunState {
   readonly provWork: Int8Array;
   readonly provWorkAt: Float64Array;
   private nextAiBunkerAt: number[] = [];
-  private worksBuilt: number[] = []; // costruzioni avviate per fazione (fanno salire il prezzo)
+  private worksBuilt: number[] = [];
+  /** provincia sul mare (porto possibile) */
+  provCoastal = new Uint8Array(0); // costruzioni avviate per fazione (fanno salire il prezzo)
   /** per provincia: peso di crescita (caselle × terreno), risorsa e quantità prodotta a ogni tick */
   private provGrowthW: Float32Array;
   private provYield: Float32Array;
@@ -137,6 +148,14 @@ export class RunState {
   private tickAcc = 0;
   /** fazione → province attaccabili (confinanti, non sue) */
   private frontierCache = new Map<number, number[]>();
+  // diplomazia (rapporti col giocatore)
+  readonly relation: Relation[] = [];
+  readonly opinion: number[] = [];
+  private truceUntil: number[] = [];
+  private askedAt: number[] = [];
+  private warLosses: number[] = []; // province prese dal giocatore in questa guerra
+  private diploAt = 0;
+  private encircleAt = 0;
   private aiRng: Rng;
   private capitalsTaken = new Set<number>();
   private ruins: number[];
@@ -150,9 +169,12 @@ export class RunState {
     this.aiRng = createRng(map.seed + ':ia');
     this.ruins = map.land.filter((i) => map.tiles[i]!.type === 'rovine');
     this.evRng = createRng(map.seed + ':eventi');
+    const B = BALANCE.bots;
     this.factions = map.starts.map((_, id) => ({
       id,
-      troops: id === PLAYER ? BALANCE.start.troops + opts.mods.startTroops : opts.front.aiStartTroops,
+      kind: map.kinds[id],
+      troops: id === PLAYER ? BALANCE.start.troops + opts.mods.startTroops
+        : map.kinds[id] === 'bot' ? B.startTroops[0] + Math.round(this.aiRng() * (B.startTroops[1] - B.startTroops[0])) : opts.front.aiStartTroops,
       tiles: 0,
       maxTiles: 0,
       loot: emptyBag(),
@@ -163,8 +185,28 @@ export class RunState {
       workers: id === PLAYER ? (opts.tutorial ? 0 : BALANCE.workers.default) : BALANCE.ai.workers,
       lootAcc: emptyBag(),
     }));
+    this.factions[PLAYER].loot = { ...opts.stake }; // la puntata è nello zaino: si può spendere
+    this.factions.forEach((f) => {
+      this.relation.push(f.kind === 'bot' ? 'guerra' : 'pace'); // milizie ostili, imperi in pace finché non vi toccate
+      this.opinion.push(f.kind === 'bot' ? -20 : 0);
+      this.truceUntil.push(0);
+      this.askedAt.push(-1e9);
+      this.warLosses.push(0);
+    });
+    this.diploAt = BALANCE.diplomacy.checkMs;
     this.visible = new Uint8Array(map.tiles.length);
     this.seen = new Uint8Array(map.tiles.length);
+    if (opts.fog) {
+      // zona già nota attorno alla partenza: si vede la carta ma non chi la occupa (la Sala Radar la allarga)
+      const r0 = BALANCE.fog.intel + opts.mods.fogIntel, dist = new Map<number, number>([[map.starts[0], 0]]);
+      const queue = [map.starts[0]];
+      for (let h = 0; h < queue.length; h++) {
+        const c = queue[h], d = dist.get(c)!;
+        this.seen[c] = 1;
+        if (d >= r0) continue;
+        for (const n of neighbors(c)) if (n >= 0 && !dist.has(n)) { dist.set(n, d + 1); queue.push(n); }
+      }
+    }
     this.cooldowns = this.factions.map(() => Object.fromEntries(UNIT_TYPES.map((t) => [t, 0])) as Record<UnitType, number>);
     this.aiSpawnAt = this.factions.map(() => opts.front.graceMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
     this.nextOffensiveAt = opts.front.offensiveFirstMs;
@@ -174,15 +216,24 @@ export class RunState {
     this.provYield = Float32Array.from(map.provinces, (p) => (T[p.terrain].perMin * BALANCE.tick.ms) / 60_000);
     this.worksBuilt = map.starts.map(() => 0);
     this.provWork = new Int8Array(map.provinces.length).fill(-1);
+    this.provCoastal = Uint8Array.from(map.provinces, (pr) => (pr.tiles.some((i) => isCoast(map.tiles, i)) ? 1 : 0));
     this.provWorkAt = new Float64Array(map.provinces.length);
     this.gw = this.factions.map(() => 0);
     this.incomeTick = this.factions.map(() => emptyBag());
-    // si parte con la provincia della propria partenza
+    // si parte con la provincia della propria partenza; le milizie con qualcuna attorno
     map.starts.forEach((s, f) => this.claimProvince(f, this.provOf(s)));
+    map.starts.forEach((s, f) => {
+      if (map.kinds[f] !== 'bot') return;
+      let extra = B.provinces[0] - 1 + Math.floor(this.aiRng() * (B.provinces[1] - B.provinces[0] + 1));
+      for (const q of map.provinces[this.provOf(s)].neighbors) {
+        if (extra <= 0) break;
+        if (this.provOwner[q] === NEUTRAL && this.provPassable(q)) { this.claimProvince(f, q); extra--; }
+      }
+    });
     // fronti difficili: le IA partono con qualche bunker attorno alla capitale e ne costruiscono altri
     if (!opts.tutorial) {
       map.starts.forEach((s, f) => {
-        if (f === PLAYER) return;
+        if (map.kinds[f] !== 'empire') return;
         let ring = [this.provOf(s)];
         const seen = new Set(ring);
         let left = opts.front.aiBunkers;
@@ -280,7 +331,8 @@ export class RunState {
   /** Crescita lorda per tick (truppe + lavoratori): caselle × 0,1, gli insediamenti valgono qualche casella in più. */
   private growth(f: Faction): number {
     const boost = this.gameTimeMs < this.growthBoost.until ? this.growthBoost.mult : 1;
-    const mult = f.id === PLAYER ? boost * this.opts.mods.growthMult : this.opts.tutorial ? BALANCE.tutorial.aiGrowthMult : this.opts.front.aiGrowthMult;
+    const mult = f.id === PLAYER ? boost * this.opts.mods.growthMult : f.kind === 'bot' ? BALANCE.bots.growthMult
+      : this.opts.tutorial ? BALANCE.tutorial.aiGrowthMult : this.opts.front.aiGrowthMult;
     const perSettlement = BALANCE.settlements.growthTiles + (f.id === PLAYER ? this.opts.mods.settlementGrowth : 0);
     const tiles = this.gw[f.id] + f.settlements * perSettlement; // caselle pesate dal terreno + caserme + insediamenti
     return tiles * BALANCE.tick.troopsPerTile * mult;
@@ -345,6 +397,36 @@ export class RunState {
     return base * (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1);
   }
 
+  /** ARRUOLA: risorse dello zaino (le più abbondanti) in truppe subito. Ritorna le truppe arruolate (0 = zaino vuoto). */
+  recruit(): number {
+    const S = BALANCE.stake, bag = this.player.loot;
+    if (this.over || bag.metallo + bag.benzina + bag.cibo < S.recruitCost) return 0;
+    for (let left = S.recruitCost; left > 0;) {
+      const r = (Object.keys(bag) as Resource[]).reduce((a, c) => (bag[c] > bag[a] ? c : a));
+      const take = Math.min(left, bag[r]);
+      bag[r] -= take;
+      left -= take;
+    }
+    this.player.troops += S.recruitTroops;
+    return S.recruitTroops;
+  }
+
+  /** Costruzioni pronte di quel tipo nel territorio della fazione. */
+  worksOf(f: number, w: WorkId): number {
+    const k = WORKS.indexOf(w);
+    let n = 0;
+    for (let p = 0; p < this.provOwner.length; p++) if (this.provOwner[p] === f && this.provWork[p] === k && this.provWorkAt[p] === 0) n++;
+    return n;
+  }
+
+  /** Cura della pedina: ×3 con un tuo ospedale nella sua provincia o in una accanto. */
+  private healMult(u: Unit): number {
+    const k = WORKS.indexOf('ospedale'), p = this.provOf(u.tile);
+    if (p < 0) return 1;
+    const has = (q: number) => this.provOwner[q] === u.owner && this.provWork[q] === k && this.provWorkAt[q] === 0;
+    return has(p) || this.map.provinces[p].neighbors.some(has) ? BALANCE.works.ospedale.heal ?? 1 : 1;
+  }
+
   /** Costruzioni avviate dal giocatore in questa campagna. */
   get worksStarted(): number {
     return this.worksBuilt[PLAYER] ?? 0;
@@ -368,12 +450,13 @@ export class RunState {
   }
 
   /** Perché il giocatore non può costruire qui (null = si può). */
-  workBlock(p: number, w: WorkId, techs: string[] = this.opts.techs): null | 'owner' | 'busy' | 'tech' | 'troops' | 'over' {
+  workBlock(p: number, w: WorkId, techs: string[] = this.opts.techs): null | 'owner' | 'busy' | 'tech' | 'troops' | 'over' | 'coast' {
     const W = BALANCE.works[w];
     if (this.over) return 'over';
     if (this.provOwner[p] !== PLAYER) return 'owner';
     if (this.provWork[p] >= 0) return 'busy';
     if (W.tech && !techs.includes(W.tech)) return 'tech';
+    if (W.coastal && !this.provCoastal[p]) return 'coast';
     if (this.troops <= this.workPrice(w)) return 'troops';
     return null;
   }
@@ -399,6 +482,188 @@ export class RunState {
     const mine = this.frontier(PLAYER).filter((p) => this.provOwner[p] === f.id && this.provWork[p] < 0);
     if (!mine.length || f.troops < this.workPrice('bunker', f.id) * 2) return;
     this.build(f.id, mine[Math.floor(this.aiRng() * mine.length)], 'bunker');
+  }
+
+  // ---------- diplomazia (alla HOI4) ----------
+
+  /** Due fazioni si possono attaccare? Con la terra libera sempre; col giocatore solo in guerra; tra IA sempre. */
+  atWar(a: number, b: number): boolean {
+    if (a === b) return false;
+    if (a === NEUTRAL || b === NEUTRAL) return true;
+    if (a === PLAYER) return this.relation[b] === 'guerra';
+    if (b === PLAYER) return this.relation[a] === 'guerra';
+    return true;
+  }
+
+  private setRelation(f: number, r: Relation, byPlayer: boolean, what: DiploWhat) {
+    this.relation[f] = r;
+    if (r !== 'guerra') this.warLosses[f] = 0;
+    this.frontierCache.clear();
+    if (this.flowTarget !== null && !this.atWar(PLAYER, this.provOwner[this.flowTarget])) this.stopFlow('blocked');
+    this.events.push({ type: 'diplomacy', faction: f, what, byPlayer });
+  }
+
+  private bump(f: number, d: number) {
+    this.opinion[f] = clamp(this.opinion[f] + d, -100, 100);
+  }
+
+  /** Perché non si può fare ora un'azione diplomatica (null = si può). */
+  diploBlock(f: number): null | 'dead' | 'cooldown' | 'truce' {
+    if (f === PLAYER || f < 0 || !this.factions[f]?.alive || this.over) return 'dead';
+    if (this.gameTimeMs - this.askedAt[f] < BALANCE.diplomacy.askCooldownMs) return 'cooldown';
+    return null;
+  }
+
+  declareWar(f: number): boolean {
+    if (this.diploBlock(f) === 'dead' || this.relation[f] === 'guerra') return false;
+    if (this.gameTimeMs < this.truceUntil[f]) return false;
+    this.bump(f, -40);
+    // chi rompe la pace si fa una brutta fama
+    this.factions.forEach((o) => { if (o.kind === 'empire' && o.id !== f) this.bump(o.id, -6); });
+    this.setRelation(f, 'guerra', true, 'war');
+    return true;
+  }
+
+  /** Proposta di pace: accettano più volentieri se stanno perdendo, se sei più forte o se ti stimano. */
+  proposePeace(f: number): 'ok' | 'refused' | 'cooldown' | 'dead' {
+    const b = this.diploBlock(f);
+    if (b === 'dead' || this.relation[f] !== 'guerra') return 'dead';
+    if (b === 'cooldown') return 'cooldown';
+    this.askedAt[f] = this.gameTimeMs;
+    const D = BALANCE.diplomacy, them = this.factions[f];
+    const ratio = clamp(this.player.troops / Math.max(1, them.troops), 0.2, 4);
+    const chance = clamp(D.peaceBase + this.opinion[f] / 200 + (ratio - 1) * 0.15 + this.warLosses[f] * 0.04, 0.05, 0.95);
+    if (this.aiRng() > chance) {
+      this.bump(f, -4);
+      this.events.push({ type: 'diplomacy', faction: f, what: 'refused', byPlayer: true });
+      return 'refused';
+    }
+    this.bump(f, 10);
+    this.truceUntil[f] = this.gameTimeMs + D.truceMs;
+    this.setRelation(f, 'pace', true, 'peace');
+    return 'ok';
+  }
+
+  proposeAlliance(f: number): 'ok' | 'refused' | 'cooldown' | 'dead' | 'opinion' {
+    const b = this.diploBlock(f);
+    if (b === 'dead' || this.relation[f] !== 'pace' || this.factions[f].kind !== 'empire') return 'dead';
+    if (b === 'cooldown') return 'cooldown';
+    if (this.opinion[f] < BALANCE.diplomacy.allyOpinion) return 'opinion';
+    this.askedAt[f] = this.gameTimeMs;
+    if (this.aiRng() > 0.35 + this.opinion[f] / 150) {
+      this.events.push({ type: 'diplomacy', faction: f, what: 'refused', byPlayer: true });
+      return 'refused';
+    }
+    this.setRelation(f, 'alleanza', true, 'alliance');
+    return 'ok';
+  }
+
+  breakAlliance(f: number): boolean {
+    if (this.relation[f] !== 'alleanza') return false;
+    this.bump(f, -30);
+    this.setRelation(f, 'pace', true, 'broken');
+    return true;
+  }
+
+  /** Dona truppe: rinforzi per loro, opinione per te. Ritorna quante. */
+  donateTroops(f: number): number {
+    if (this.diploBlock(f) === 'dead') return 0;
+    const D = BALANCE.diplomacy;
+    const n = Math.floor(Math.max(D.donateMin, this.troops * D.donateShare));
+    if (this.troops <= n + 1) return 0;
+    this.troops -= n;
+    this.factions[f].troops += n;
+    this.bump(f, Math.min(25, n * D.opinionPerTroop));
+    this.events.push({ type: 'diplomacy', faction: f, what: 'gift', byPlayer: true, amount: n });
+    return n;
+  }
+
+  /** Dona risorse dallo zaino (la più abbondante). */
+  donateLoot(f: number): Resource | null {
+    if (this.diploBlock(f) === 'dead') return null;
+    const D = BALANCE.diplomacy, bag = this.player.loot;
+    const r = (Object.keys(bag) as Resource[]).reduce((a, c) => (bag[c] > bag[a] ? c : a));
+    if (bag[r] < D.donateLoot) return null;
+    bag[r] -= D.donateLoot;
+    this.factions[f].loot[r] += D.donateLoot;
+    this.bump(f, 12);
+    this.events.push({ type: 'diplomacy', faction: f, what: 'gift', byPlayer: true, amount: D.donateLoot });
+    return r;
+  }
+
+  /** Tributo da una milizia: paga se sei molto più forte, altrimenti si offende. */
+  demandTribute(f: number): number {
+    const b = this.diploBlock(f);
+    if (b || this.factions[f].kind !== 'bot') return 0;
+    this.askedAt[f] = this.gameTimeMs;
+    const D = BALANCE.diplomacy, them = this.factions[f];
+    if (this.troops < them.troops * D.tributeRatio) {
+      this.bump(f, -15);
+      this.events.push({ type: 'diplomacy', faction: f, what: 'refused', byPlayer: true });
+      return 0;
+    }
+    const n = D.tribute;
+    this.player.loot.metallo += Math.ceil(n / 2);
+    this.player.loot.cibo += Math.floor(n / 2);
+    this.bump(f, -10);
+    this.events.push({ type: 'diplomacy', faction: f, what: 'tribute', byPlayer: true, amount: n });
+    return n;
+  }
+
+  /** Ogni tanto: l'opinione torna verso lo zero; gli imperi in pace che ti toccano possono dichiararti guerra. */
+  private diploTick() {
+    if (this.opts.tutorial || this.over || this.gameTimeMs < this.diploAt) return;
+    const D = BALANCE.diplomacy;
+    this.diploAt = this.gameTimeMs + D.checkMs;
+    for (const f of this.factions) {
+      if (f.id === PLAYER || !f.alive) continue;
+      this.opinion[f.id] *= 0.97; // i ricordi sbiadiscono
+      if (f.kind !== 'empire' || this.relation[f.id] !== 'pace') continue;
+      if (this.gameTimeMs < this.opts.front.graceMs || this.gameTimeMs < this.truceUntil[f.id]) continue;
+      const borders = this.map.provinces.some((p, k) => this.provOwner[k] === f.id && p.neighbors.some((q) => this.provOwner[q] === PLAYER));
+      if (!borders) continue;
+      const strength = clamp(f.troops / Math.max(1, this.player.troops), 0.4, 2.5);
+      const chance = D.warChance * (0.4 + 0.2 * this.opts.frontIndex) * strength * clamp(1 - this.opinion[f.id] / 60, 0, 1.6); // fronti duri: più guerre
+      if (this.aiRng() < chance) this.setRelation(f.id, 'guerra', false, 'war');
+    }
+  }
+
+  // ---------- accerchiamenti ----------
+
+  /**
+   * Sacche: un gruppo di province (libere o di una fazione) circondato via terra da una sola fazione in guerra con lui
+   * passa a chi lo circonda. Una fazione non perde così il cuore del suo territorio (con la capitale) se è grande.
+   */
+  private encircleTick() {
+    if (this.opts.tutorial || this.over || this.gameTimeMs < this.encircleAt) return;
+    this.encircleAt = this.gameTimeMs + 2000;
+    const E = BALANCE.encircle, own = this.provOwner, provs = this.map.provinces;
+    const seen = new Uint8Array(own.length);
+    for (let p0 = 0; p0 < own.length; p0++) {
+      if (seen[p0] || !this.provPassable(p0)) continue;
+      const o = own[p0];
+      const comp = [p0];
+      seen[p0] = 1;
+      let by = -2, open = false;
+      for (let h = 0; h < comp.length; h++) {
+        for (const q of provs[comp[h]].neighbors) {
+          if (!this.provPassable(q)) continue;
+          if (own[q] === o) {
+            if (!seen[q]) { seen[q] = 1; comp.push(q); }
+            continue;
+          }
+          if (by === -2) by = own[q];
+          else if (by !== own[q]) open = true;
+        }
+      }
+      if (open || by < 0 || !this.atWar(by, o)) continue;
+      const max = o === NEUTRAL ? E.maxNeutral : E.maxPocket;
+      const hasCapital = o !== NEUTRAL && comp.includes(this.provOf(this.map.starts[o]));
+      if (comp.length > max && (o === NEUTRAL || hasCapital)) continue;
+      if (o !== NEUTRAL && hasCapital && comp.length > E.maxPocket) continue;
+      for (const p of comp) this.transferProvince(by, p, 0);
+      this.events.push({ type: 'encircled', by, from: o, provinces: comp });
+    }
   }
 
   // ---------- durata della campagna ----------
@@ -453,10 +718,14 @@ export class RunState {
     const outcome = this.over ?? 'retreat';
     const bag = this.player.loot;
     const k = outcome === 'victory' ? 1 + BALANCE.victory.bonus
-      : outcome === 'retreat' ? 1 + this.opts.retreatBonus : outcome === 'timeout' ? 1 : 1 - this.opts.eliminatedLoss;
+      : outcome === 'retreat' ? 1 - this.opts.exitFee : outcome === 'timeout' ? 1 : 1 - this.opts.eliminatedLoss;
+    // la puntata torna com'è; il guadagno oltre la puntata rende di più (puntata, fronte, durata)
+    const gain = this.opts.stakeMult * this.opts.campaignLootMult, S = this.opts.stake;
+    const kept = {} as Bag;
+    for (const r of Object.keys(bag) as Resource[]) kept[r] = Math.floor((Math.min(bag[r], S[r]) + Math.max(0, bag[r] - S[r]) * gain) * k);
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
-      maxTiles: this.player.maxTiles, maxProvinces: this.player.maxProvinces, backpack: { ...bag }, kept: scaleBag(bag, k * this.opts.campaignLootMult),
+      maxTiles: this.player.maxTiles, maxProvinces: this.player.maxProvinces, backpack: { ...bag }, kept, stake: { ...S },
       tutorial: this.opts.tutorial, civ: this.opts.civ, campaign: this.opts.campaign, front: this.opts.frontIndex,
     };
   }
@@ -467,6 +736,11 @@ export class RunState {
     for (const f of this.factions) if (f.alive) this.grow(f);
     for (const f of this.factions) {
       if (f.id === PLAYER || !f.alive) continue;
+      if (f.kind === 'bot') {
+        // milizie: difendono e si allargano piano, solo su terra libera vicino a casa
+        if (this.aiRng() <= BALANCE.bots.actChance) this.botExpand(f);
+        continue;
+      }
       const assault = this.offensive?.phase === 'on' && this.offensive.faction === f.id;
       this.aiBuild(f);
       if (assault || this.aiRng() <= (this.opts.tutorial ? 0.07 : this.opts.front.aiActChance)) {
@@ -476,6 +750,8 @@ export class RunState {
       this.aiUnits(f);
     }
     this.unitsTick();
+    this.diploTick();
+    this.encircleTick();
     this.offensiveTick();
     this.timerTick();
     this.checkVictory();
@@ -486,14 +762,16 @@ export class RunState {
   // ---------- navi ----------
 
   /** Nave verso una costa: parte dalla tua costa più vicina con la forza d'attacco. */
-  launchBoat(target: number): null | 'locked' | 'notCoast' | 'far' | 'max' | 'troops' {
+  launchBoat(target: number): null | 'locked' | 'notCoast' | 'far' | 'max' | 'troops' | 'peace' {
     const B = BALANCE.boats;
     if (this.opts.tutorial) return 'locked';
     if (!this.passable(target) || this.owner[target] === PLAYER || !isCoast(this.map.tiles, target)) return 'notCoast';
-    if (this.boats.filter((b) => b.owner === PLAYER).length >= B.maxInFlight) return 'max';
+    if (!this.atWar(PLAYER, this.owner[target])) return 'peace';
+    const port = this.worksOf(PLAYER, 'porto') > 0;
+    if (this.boats.filter((b) => b.owner === PLAYER).length >= B.maxInFlight + (port ? 1 : 0)) return 'max';
     const troops = Math.floor(this.troops * this.attackRatio);
     if (troops < B.minTroops) return 'troops';
-    const route = seaRoute(this.map.tiles, (i) => this.owner[i] === PLAYER, target, B.maxSea);
+    const route = seaRoute(this.map.tiles, (i) => this.owner[i] === PLAYER, target, Math.round(B.maxSea * (port ? BALANCE.works.porto.seaMult ?? 1 : 1)));
     if (!route) return 'far';
     this.troops -= troops;
     this.boats.push({ id: this.nextBoatId++, owner: PLAYER, from: route.from, path: route.path, pos: 0, troops, acc: 0 });
@@ -550,6 +828,15 @@ export class RunState {
     for (const u of this.unitsOf(PLAYER)) seed(u.tile, F.unit);
     for (const b of this.boats) if (b.owner === PLAYER) seed(b.path[b.pos], F.boat);
     for (const r of this.recons) seed(r.tile, BALANCE.abilities.ricognizione.radius);
+    const radarVision = BALANCE.works.radar.vision ?? 0, radar = WORKS.indexOf('radar');
+    for (let p = 0; p < this.provOwner.length; p++) {
+      if (this.provOwner[p] === PLAYER && this.provWork[p] === radar && this.provWorkAt[p] === 0) seed(this.map.provinces[p].anchor, radarVision + F.territory);
+    }
+    // alleati: si vede quello che vedono loro
+    for (const f of this.factions) {
+      if (this.relation[f.id] !== 'alleanza' || !f.alive) continue;
+      for (let p = 0; p < this.provOwner.length; p++) if (this.provOwner[p] === f.id) seed(this.map.provinces[p].anchor, 4);
+    }
     for (let h = 0; h < queue.length; h++) {
       const c = queue[h];
       vis[c] = 1;
@@ -588,16 +875,30 @@ export class RunState {
   /** Avanzata verso la provincia di `target`: il fronte prende da solo una provincia alla volta, verso il bersaglio. */
   startFlow(target: number): boolean {
     const T = this.provOf(target);
-    if (T < 0 || !this.provPassable(T) || this.provOwner[T] === PLAYER) return false;
-    let own = -1;
-    for (let i = 0; i < this.owner.length && own < 0; i++) if (this.owner[i] === PLAYER) own = i;
-    if (own < 0 || !findPath(own, target, (i) => this.passable(i)).length) return false;
+    if (T < 0 || !this.provPassable(T) || this.provOwner[T] === PLAYER || !this.atWar(PLAYER, this.provOwner[T])) return false;
+    if (!this.provReachable(T)) return false;
     this.flowTarget = T;
     this.flowAcc = BALANCE.flow.stepMs; // primo passo subito
     this.flowBestD = Infinity;
     this.flowSteps = 0;
     this.flowBudget = this.troops * (this.opts.tutorial ? 1 : this.attackRatio); // forza d'attacco
     return true;
+  }
+
+  /** Si arriva via terra alla provincia, dal proprio territorio? (ricerca sul grafo delle province) */
+  provReachable(T: number): boolean {
+    const own = this.provOwner, provs = this.map.provinces, seen = new Uint8Array(own.length);
+    const queue: number[] = [];
+    for (let p = 0; p < own.length; p++) if (own[p] === PLAYER) { seen[p] = 1; queue.push(p); }
+    for (let h = 0; h < queue.length; h++) {
+      for (const q of provs[queue[h]].neighbors) {
+        if (seen[q] || !this.provPassable(q)) continue;
+        if (q === T) return true;
+        seen[q] = 1;
+        queue.push(q);
+      }
+    }
+    return false;
   }
 
   /** Aggiunge o toglie una provincia dal piano; true se ora c'è. */
@@ -778,7 +1079,7 @@ export class RunState {
       u.lastOrderMs = this.gameTimeMs;
       return path.length > 0 || dest === u.tile;
     }
-    const path = findPath(u.tile, to, (i) => this.passable(i));
+    const path = findPath(u.tile, to, (i) => this.passable(i) && this.atWar(u.owner, this.owner[i]) || this.owner[i] === u.owner);
     u.path = path;
     u.lastOrderMs = this.gameTimeMs;
     return path.length > 0;
@@ -827,10 +1128,11 @@ export class RunState {
       } else if (this.owner[u.tile] !== u.owner) {
         // la pedina prende tutta la provincia in cui entra
         const p = this.provOf(u.tile);
-        u.hp -= this.provDefense(p) * stats.captureCost;
+        // in terra libera si avanza senza perdite: si combatte solo entrando nel territorio di qualcuno
+        if (this.provOwner[p] !== NEUTRAL) u.hp -= this.provDefense(p) * stats.captureCost;
         if (u.hp > 0) this.transferProvince(u.owner, p, 0, u.id);
       } else if (!u.inCombat) {
-        u.hp = Math.min(u.maxHp, u.hp + U.healPerTick);
+        u.hp = Math.min(u.maxHp, u.hp + U.healPerTick * this.healMult(u));
       }
     }
     this.removeDead();
@@ -869,8 +1171,10 @@ export class RunState {
 
   useAbility(a: AbilityType, tile: number): boolean {
     if (this.abilityBlock(a) || tile < 0 || this.over) return false;
+    if (a === 'bombardamento' && !this.atWar(PLAYER, this.owner[tile])) return false; // non si bombarda chi è in pace
     const A = BALANCE.abilities[a];
-    this.abilityReadyAt[a] = this.gameTimeMs + A.cooldownMs * this.opts.abilityCdMult;
+    const air = this.worksOf(PLAYER, 'aeroporto') > 0 ? BALANCE.works.aeroporto.abilityCdMult ?? 1 : 1; // aeroporto: abilità più rapide
+    this.abilityReadyAt[a] = this.gameTimeMs + A.cooldownMs * this.opts.abilityCdMult * air;
     if (a === 'ricognizione') {
       this.recons.push({ tile, until: this.gameTimeMs + BALANCE.abilities.ricognizione.durationMs });
       this.updateFog();
@@ -957,7 +1261,7 @@ export class RunState {
     const playerReady = !this.opts.tutorial && this.gameTimeMs >= this.opts.front.graceMs;
     for (let i = 0; i < this.owner.length; i++) {
       const o = this.owner[i];
-      if (o === NEUTRAL || o === f || (o === PLAYER && !playerReady)) continue;
+      if (o === NEUTRAL || o === f || (o === PLAYER && !playerReady) || !this.atWar(f, o)) continue;
       const d = hexDistance(from, i) * (o === PLAYER ? BALANCE.aiUnits.playerBias : 1);
       if (d < bestD) {
         bestD = d;
@@ -965,6 +1269,18 @@ export class RunState {
       }
     }
     return best;
+  }
+
+  /** Milizia: prende la provincia libera più economica vicino a casa, se se la può permettere. */
+  private botExpand(f: Faction) {
+    const home = this.map.starts[f.id];
+    let best = -1, bestCost = Infinity;
+    for (const p of this.frontier(f.id)) {
+      if (this.provOwner[p] !== NEUTRAL || hexDistance(this.map.provinces[p].anchor, home) > BALANCE.bots.homeRadius) continue;
+      const cost = this.provCost(f.id, p);
+      if (cost < bestCost) { best = p; bestCost = cost; }
+    }
+    if (best >= 0 && f.troops > bestCost * BALANCE.ai.reserve) this.attackProvince(f.id, best);
   }
 
   /** IA: attacca la provincia vicina più debole, se se lo può permettere. */
@@ -1053,7 +1369,7 @@ export class RunState {
   }
 
   isFrontierProv(p: number, f = PLAYER): boolean {
-    if (!this.provPassable(p) || this.provOwner[p] === f) return false;
+    if (!this.provPassable(p) || this.provOwner[p] === f || !this.atWar(f, this.provOwner[p])) return false;
     return this.map.provinces[p].neighbors.some((q) => this.provOwner[q] === f);
   }
 
@@ -1064,7 +1380,7 @@ export class RunState {
     const set = new Set<number>();
     this.map.provinces.forEach((prov, p) => {
       if (this.provOwner[p] !== f) return;
-      for (const q of prov.neighbors) if (this.provOwner[q] !== f && this.provPassable(q)) set.add(q);
+      for (const q of prov.neighbors) if (this.provOwner[q] !== f && this.provPassable(q) && this.atWar(f, this.provOwner[q])) set.add(q);
     });
     const out = [...set];
     this.frontierCache.set(f, out);
@@ -1193,7 +1509,7 @@ export class RunState {
     }
     if (o || this.gameTimeMs < this.nextOffensiveAt) return;
     // solo chi confina con te
-    const near = this.factions.filter((f) => f.id !== PLAYER && f.alive && this.frontier(f.id).some((p) => this.provOwner[p] === PLAYER));
+    const near = this.factions.filter((f) => f.kind === 'empire' && f.alive && this.relation[f.id] === 'guerra' && this.frontier(f.id).some((p) => this.provOwner[p] === PLAYER));
     if (!near.length) { this.nextOffensiveAt = this.gameTimeMs + 10_000; return; }
     const f = near[Math.floor(this.aiRng() * near.length)];
     this.offensive = { faction: f.id, phase: 'warn', until: this.gameTimeMs + O.warnMs, lostAtStart: 0 };

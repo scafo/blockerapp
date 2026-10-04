@@ -9,7 +9,7 @@ import { FONT, FONT_TITLE, textStyle } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
 
 export interface WorldLabel { x: number; y: number; text: string; color: number }
-export interface NationLabel { x: number; y: number; name: string; size: number }
+export interface NationLabel { x: number; y: number; name: string; size: number; tile: number; known?: boolean }
 export interface FactionTag { x: number; y: number; visible: boolean; scale: number }
 
 /** Quello che la scena della mappa espone alle etichette. */
@@ -31,9 +31,9 @@ export class MapLabels {
   constructor(private scene: Phaser.Scene) {
     this.layer = scene.add.container(0, 0).setDepth(-10); // sotto i pannelli dell'interfaccia
     this.tags = FACTION_INFO.map((f) => {
-      const g = scene.add.graphics();
-      drawSymbol(g, f.symbol, 0, -12, 6, f.fill, PALETTE.mappa.fondo);
-      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: hex(f.border), resolution: UI(), backgroundColor: '#0b1118dd', padding: { x: 4, y: 2 } }).setOrigin(0.5, 0);
+      const g = scene.add.graphics(), bot = f.kind === 'bot';
+      drawSymbol(g, f.symbol, 0, bot ? -10 : -12, bot ? 4.5 : 6, f.fill, PALETTE.mappa.fondo);
+      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT, fontSize: bot ? '11px' : '13px', fontStyle: 'bold', color: hex(f.border), resolution: UI(), backgroundColor: '#0b1118dd', padding: { x: 4, y: 2 } }).setOrigin(0.5, 0);
       const c = scene.add.container(0, 0, [g, t]).setVisible(false);
       this.layer.add(c);
       return c;
@@ -74,7 +74,7 @@ export class MapLabels {
         const size = Math.round(Phaser.Math.Clamp(l.size * (0.7 + zoom * 0.35), 12, 20));
         if (t.text !== l.name) t.setText(l.name);
         if (t.style.fontSize !== `${size}px`) t.setFontSize(size);
-        t.setPosition(Math.round(sx), Math.round(sy)).setVisible(true);
+        t.setPosition(Math.round(sx), Math.round(sy)).setVisible(true).setAlpha(l.known === false ? 0.22 : 0.8); // sotto la nebbia appena accennati
         n++;
       }
     }
@@ -109,6 +109,18 @@ export class MapLabels {
     // barra di stato da terminale: centro della vista e zoom
     const [lon, lat] = src.worldToLonLat(cam.scrollX + cam.width / 2, cam.scrollY + cam.height / 2);
     this.status.setText(`CENTRO ${lat.toFixed(2)}, ${lon.toFixed(2)}   ZOOM ${zoom.toFixed(2)}`).setPosition(width / 2, height - 4).setVisible(width >= 1100);
+  }
+
+  /** Insegna di fazione sotto il punto (punti CSS dello schermo), −1 se nessuna. */
+  tagAt(x: number, y: number): number {
+    for (let k = this.tags.length - 1; k >= 0; k--) {
+      const c = this.tags[k];
+      if (!c.visible) continue;
+      const t = c.list[1] as Phaser.GameObjects.Text, s = c.scaleX;
+      const w = (t.width / 2 + 6) * s, top = c.y - 20 * s, bottom = c.y + (t.height + 4) * s;
+      if (x >= c.x - w && x <= c.x + w && y >= top && y <= bottom) return k;
+    }
+    return -1;
   }
 
   /** Scritta che sale da un punto della mappa (bottino, costi, ordini). */

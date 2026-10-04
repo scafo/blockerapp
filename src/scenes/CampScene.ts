@@ -17,6 +17,8 @@ import { randomSeed } from '../map/rng';
 import { loadProfile, resetProfile, saveProfile, type BuildingId, type ExpeditionKind, type Profile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
 import { FPS_KEY, fpsEnabled } from '../ui/debug';
+import { askName } from '../ui/nameInput';
+import { canStake, runOptions, stakeIndex } from '../game/camp';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
@@ -68,6 +70,8 @@ export class CampScene extends Phaser.Scene {
   create() {
     uiCamera(this);
     this.profile = loadProfile();
+    // dopo la run guidata: il nome del comandante (una volta sola, si cambia toccandolo)
+    if (this.profile.runs >= 1 && !this.profile.name && !this.profile.nameAsked) this.time.delayedCall(600, () => this.editName(true));
     this.spots = new Map();
     this.timerTexts = new Map();
     this.panel = null;
@@ -392,7 +396,8 @@ export class CampScene extends Phaser.Scene {
     void testBtn;
     // potenza e fronte (alla Call of War: il punteggio della tua nazione)
     const power = playerPower(p), front = p.frontMax ?? 0;
-    this.add.text(titleX, PAD + 30, `⛨ POTENZA ${power} · FRONTE ${ROMAN[front]} · ${p.wins} vittorie`, textStyle(11, PALETTE.ocra)).setOrigin(titleO, 0);
+    this.add.text(titleX, PAD + 30, `⛨ ${(p.name || 'COMANDANTE').toUpperCase()} ✎  ·  POTENZA ${power} · FRONTE ${ROMAN[front]} · ${p.wins} vittorie`, textStyle(11, PALETTE.ocra))
+      .setOrigin(titleO, 0).setInteractive({ useHandCursor: true }).on('pointerup', () => this.editName());
     // GIOCA: in basso a destra (orizzontale) o grande in basso al centro (verticale, sotto il pollice)
     const bw = P ? Math.min(260, width - 2 * PAD) : 150;
     // dopo la run guidata GIOCA apre la preparazione: civiltà e durata della campagna
@@ -698,6 +703,19 @@ export class CampScene extends Phaser.Scene {
     items.push(this.add.text(x0 + 16, y + 2, 'ARMI NEMICHE', textStyle(9, PALETTE.tenue)));
     F.aiUnits.forEach((t, k) => drawUnitIcon(eg, t, x0 + 112 + k * 28, y + 10, 7, mine.includes(t) ? PALETTE.tenue : PALETTE.ko));
     items.push(eg);
+    // puntata (alla poker): risorse del Deposito in gioco; più punti, più rende il guadagno; uscire prima costa
+    y += 22;
+    const K = stakeIndex(p), SK = BALANCE.stake, fee = Math.round(runOptions(p).exitFee * 100);
+    row(y, 52, `PUNTATA · guadagno ×${String(SK.mult[K]).replace('.', ',')} · ritirata −${fee}% · eliminato −${Math.round(runOptions(p).eliminatedLoss * 100)}%`, null);
+    const cw = Math.min(70, (W - 64) / SK.options.length - 6);
+    SK.options.forEach((v, k) => {
+      const ok = canStake(p, k), cx = x0 + 24 + k * (cw + 6), cy = y + 22;
+      const chip = this.add.rectangle(cx, cy, cw, 24, k === K ? PALETTE.ocra : PALETTE.pannello).setOrigin(0)
+        .setStrokeStyle(1, ok ? PALETTE.ocra : PALETTE.linea);
+      if (ok) chip.setInteractive({ useHandCursor: true }).on('pointerup', () => { p.stake = k; saveProfile(p); this.openPanel('gioca', ''); });
+      items.push(chip, this.add.text(cx + cw / 2, cy + 12, v ? String(v) : 'NIENTE', textStyle(11, k === K ? PALETTE.inchiostro : ok ? PALETTE.carta : PALETTE.tenue)).setOrigin(0.5));
+    });
+    y += 36;
     // briefing del fronte: storia, obiettivi, cosa fanno i nemici
     const mm = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}`;
     const brief = [
@@ -769,6 +787,17 @@ export class CampScene extends Phaser.Scene {
     this.closePanel();
     this.scene.launch('Tree', { focus });
     this.scene.bringToTop('Tree');
+  }
+
+  /** Nome del comandante: si vede sulla mappa, nell'elenco delle potenze e nei rapporti. */
+  private editName(first = false) {
+    const p = this.profile;
+    askName(first ? 'COME TI CHIAMI, COMANDANTE?' : 'NOME DEL COMANDANTE', p.name ?? '', (name) => {
+      p.nameAsked = true;
+      if (name) p.name = name;
+      saveProfile(p);
+      if (name) this.scene.restart();
+    });
   }
 
   /** Dall'albero: apre la scheda di una postazione (per migliorarla). */

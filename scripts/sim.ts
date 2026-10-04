@@ -80,11 +80,22 @@ for (let r = 0; r < runs; r++) {
         else if (!st.workBlock(p, 'fabbrica')) st.build(PLAYER, p, 'fabbrica');
       }
     }
+    // diplomazia del giocatore simulato: guerra a un impero confinante se è più forte di lui, pace se perde terreno
+    if (ms % 30_000 === 0) {
+      for (const f of st.factions) {
+        if (f.kind !== 'empire' || !f.alive) continue;
+        if (st.relation[f.id] === 'pace' && st.troops > f.troops * 1.3 && st.frontier(f.id).some((p) => st.provOwner[p] === PLAYER)) st.declareWar(f.id);
+        else if (st.relation[f.id] === 'guerra' && st.troops < f.troops * 0.6) st.proposePeace(f.id);
+      }
+    }
     if (!marks.length && st.player.provinces >= 15) marks.push(`impero15 ${Math.round(ms / 1000)}s`);
     for (const e of st.drainEvents()) if (e.type === 'conquer' && e.from === PLAYER && firstContact < 0) firstContact = ms;
     if (ms % 120_000 === 0) {
       const z = st.player.loot, built = st.provWork.reduce((n, w, p) => n + (w >= 0 && st.provOwner[p] === PLAYER ? 1 : 0), 0);
-      snaps.push(st.factions.map((f) => (f.alive ? f.provinces : '✝')).join('/') + ` [${Math.round(z.metallo)}m ${Math.round(z.benzina)}b ${Math.round(z.cibo)}c ${built}🏭]`);
+      const bots = st.factions.filter((f) => f.kind === 'bot'), alive = bots.filter((f) => f.alive);
+      const major = st.factions.filter((f) => f.kind !== 'bot').map((f) => (f.alive ? f.provinces : '✝')).join('/');
+      const war = st.factions.filter((f) => f.kind === 'empire' && st.relation[f.id] === 'guerra').length;
+      snaps.push(`${major} m${alive.length}:${alive.reduce((n, f) => n + f.provinces, 0)} g${war} [${Math.round(z.metallo + z.benzina + z.cibo)}r ${built}🏭]`);
     }
   }
   const t = Math.round(st.gameTimeMs / 1000);

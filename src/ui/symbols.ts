@@ -1,10 +1,15 @@
 // Simboli piatti per fazione, disegnati (niente font: sempre identici su ogni telefono).
 import Phaser from 'phaser';
 
-export type SymbolKind = 'stella' | 'triangolo' | 'rombo' | 'quadrato';
+export type SymbolKind = 'stella' | 'triangolo' | 'rombo' | 'quadrato' | 'cerchio';
 
 export function drawSymbol(g: Phaser.GameObjects.Graphics, kind: SymbolKind, x: number, y: number, r: number, fill: number, stroke?: number) {
   const pts: { x: number; y: number }[] = [];
+  if (kind === 'cerchio') {
+    g.fillStyle(fill, 1).fillCircle(x, y, r * 0.75);
+    if (stroke !== undefined) g.lineStyle(Math.max(1, r * 0.18), stroke, 1).strokeCircle(x, y, r * 0.75);
+    return;
+  }
   if (kind === 'stella') {
     for (let k = 0; k < 10; k++) {
       const a = -Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? r * 0.45 : r;

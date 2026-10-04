@@ -103,6 +103,13 @@ export class ResultScene extends Phaser.Scene {
         .setOrigin(0, 0.5);
     });
     y += P ? 32 + 3 * 40 + 6 : 74;
+    // puntata: quanto avevi messo in gioco e com'è andata
+    const staked = bagTotal(sum.stake);
+    if (staked) {
+      const diff = kept - staked;
+      this.add.text(cx, y, `PUNTATA ${staked} → ${kept}  (${diff >= 0 ? '+' : ''}${diff})`, textStyle(13, diff >= 0 ? PALETTE.ocra : PALETTE.ko)).setOrigin(0.5);
+      y += 22;
+    }
     const s = profile.stash;
     this.add.text(cx, y, `Deposito: ${s.metallo} metallo · ${s.benzina} benzina · ${s.cibo} cibo${lostCap ? ` · PIENO: perse ${lostCap} (capienza ${stashCap(profile)})` : ''}`,
       textStyle(11, ink, false)).setOrigin(0.5).setAlign('center').setWordWrapWidth(W - 32);

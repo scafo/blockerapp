@@ -15,6 +15,7 @@ export interface Mods {
   capitalTroopsMult: number; // truppe dalle capitali conquistate
   expeditionTimeMult: number; // accampamento: durata delle spedizioni
   fogBonus: number; // caselle di vista in più
+  fogIntel: number; // raggio in più già esplorato attorno alla partenza
   startTroops: number;
   settlementGrowth: number; // caselle di crescita in più per insediamento
   settlementDefense: number; // difesa in più degli insediamenti
@@ -24,7 +25,7 @@ export interface Mods {
 export const BASE_MODS: Mods = {
   neutralCostMult: 1, ownedDefenseMult: 1, growthMult: 1, unitCostMult: 1, unitHpMult: 1, unitAttackMult: 1, attackCostMult: 1, prodMult: 1, bunkerMult: 1, lootMult: 1, flowSpeedMult: 1,
   capitalTroopsMult: 1, expeditionTimeMult: 1,
-  fogBonus: 0, startTroops: 0, settlementGrowth: 0, settlementDefense: 0, settlementLoot: 0,
+  fogBonus: 0, fogIntel: 0, startTroops: 0, settlementGrowth: 0, settlementDefense: 0, settlementLoot: 0,
 };
 
 export function combine(...parts: Partial<Mods>[]): Mods {

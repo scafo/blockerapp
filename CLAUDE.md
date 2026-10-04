@@ -57,19 +57,29 @@ forti + simboli (daltonismo).
   riconoscibile ma alterata (seed). Pausa strategica alla HOI4: il tempo si ferma, gli ordini no.
 - Truppe generiche (pool) che crescono col territorio; tap/avanzata per conquistare; unità come pedine.
 - Eventi a carta con 2 scelte ~ogni 90 s. Fine: allo scadere della durata scelta (10/20/30 min) vince chi ha più territorio, altrimenti
-  "fine delle operazioni" (bottino intatto). **Niente tempesta né zone tossiche** (Nico: mai chiesti). Ritirata = tieni il bottino; eliminato = perdi il 70%.
-- Vittoria: 60% della regione / 3 Frammenti (anomalie) / più territorio a fine campagna.
+  "fine delle operazioni" (bottino intatto). **Niente tempesta né zone tossiche** (Nico: mai chiesti). Ritirata = paghi la tassa d'uscita; eliminato = perdi il 70%.
+- Vittoria: 60% della regione / più territorio a fine campagna. **Niente anomalie sulla mappa** (Nico: tolte; i Frammenti restano nella lore).
 - **Terreno vero** (pianura, colline, montagne, deserto: regioni fisiche di Natural Earth) e **costruzioni nelle province**
-  (Fabbrica, Bunker, Caserma, alla Call of War). **Fronti I–VI** di difficoltà crescente: si entra, si fa il primo impero con poche
-  cose e si raccolgono risorse; poi i nemici diventano troppo forti e bisogna potenziare HQ, armi e ricerche per continuare.
+  (Fabbrica, Bunker, Caserma, Ospedale, Radar, Porto, Aeroporto). **Fronti I–VI** di difficoltà crescente: si entra, si fa il primo
+  impero con poche cose e si raccolgono risorse; poi i nemici diventano troppo forti e bisogna potenziare HQ, armi e ricerche.
+- **Fazioni**: tu (col tuo nome), 3 **imperi** con nomi casuali (la potenza Imperium/Aristocrazia/Cabal/Republica è solo una loro
+  caratteristica, come in Call of War) che si espandono, e ~36 **milizie provinciali** deboli (alla OpenFront) che difendono la
+  loro zona. All'inizio la terra è quasi tutta libera. **Diplomazia alla HOI4**: imperi in pace finché non vi toccate (poi possono
+  dichiararti guerra), milizie ostili; tocca un impero (elenco, insegna sulla mappa, sua provincia in pace o tieni premuto) → scheda
+  con potenza, forza, rapporto, opinione e azioni (guerra, pace, alleanza, doni di truppe/risorse, tributo dalle milizie).
+  **Accerchiamenti**: una sacca circondata da una sola fazione in guerra con lei si arrende. Pedine: nessun danno in terra libera.
+- **Puntata** (Nico: "tipo poker"): prima della campagna metti in gioco risorse del Deposito (0/60/180/450); finiscono nello zaino,
+  le puoi spendere (ARRUOLA = risorse in truppe); il guadagno oltre la puntata rende ×1,25–2. Ritirata −25% (il Deposito liv. 3
+  la riduce), eliminato −70%, fine campagna o vittoria senza tasse. **Nebbia**: nelle prime campagne copre quasi tutta la mappa;
+  la Sala Radar allarga vista e zona nota attorno alla partenza.
 
 ## Tempi di gioco (calcolati con `scripts/sim.ts`, giocatore attivo)
 - Run guidata: ~2–3 min di conquista (+ i passi della guida).
-- Campagna standard 20 min, Fronte I (carta da 6087 province): primo impero (15 province) a ~3:20; fine della tregua IA a 4:00;
-  primo contatto 5:30–9:00; prima offensiva a 7:00, poi ogni ~3:30; a 20:00 vince chi ha più territorio (60–160 province).
-  Bottino ~550–1150. Breve 10 min, lunga 30.
-- Muro di difficoltà: Fronte III senza potenziamenti 0 vittorie su 3, con HQ a metà 3 su 3; Fronte V con HQ a metà 0 su 3
-  (2 eliminazioni), con HQ al massimo 0 su 3 (si regge fino alla fine). HQ + tutte le ricerche costano ~13.400 risorse.
+- Campagna standard 20 min, Fronte I (carta da 17.925 province, 3 imperi + 36 milizie): primo impero (15 province) a 2:30–6:00;
+  tregua 4:00, poi gli imperi confinanti possono dichiarare guerra; a 20:00 vince chi ha più territorio (90–215 province tue,
+  milizie ~8 province l'una). Bottino ~380–1200. Breve 10 min, lunga 30.
+- Muro di difficoltà (sim con giocatore che dichiara guerra se più forte): Fronte I 2 vittorie su 3; Fronte III senza potenziamenti
+  0 su 3, con HQ a metà 3 su 3; Fronte V con HQ al massimo 1 su 3. HQ + tutte le ricerche costano ~13.400 risorse.
 
 ## Regole di design
 - Max 5–6 scelte a schermo. Mappa sempre libera al centro, comandi negli angoli in basso.
@@ -134,6 +144,19 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   RICERCA): ramo Armamenti (unità e abilità si ricercano, l'Arsenale decide fin dove) + Esercito/Logistica/Economia/Difesa/La Caduta
   con prerequisiti (`tech.*.req`). **HQ alla Clash**: Deposito con capienza (`depositoCap`, oltre si perde), barre di riempimento,
   potenza e fronte, cantiere e ricerca in corso, distintivi di livello e "migliorabile" sui moduli, schede postazione con illustrazione.
+- **Mappa tripla + sistemi alla HOI4** (ultime richieste di Nico): carta da **17.925 province** su griglia invisibile **960×480
+  (hexSize 5/3)**, salvata in binario compatto (varint, base64 in `src/data/worldmap.ts`, 2,4 MB; `npm run build:map` la rigenera);
+  vicini delle caselle calcolati al volo (`neighbors(i)`); zoom iniziale 8. **Disegno**: da vicino terra, mare, rilievo e territorio
+  in una texture vettoriale a risoluzione schermo (`src/render/TerritoryLayer.ts`, si ridisegna quando cambia il territorio o si esce
+  dal margine; attenzione: una RenderTexture ridimensionata in Phaser smette di disegnare, si ricrea), da lontano la carta cotta;
+  confini tra potenze con ombra scura + linea chiara; acque basse in texture a bassa risoluzione. **Nebbia** = una texture con un
+  pixel per casella, ingrandita e sfumata (`fog`, `camp.radarIntel`). **Pedine** in stile radar (`src/ui/unitSymbols.ts`: rettangolo
+  tue, rombo nemiche, cerchio navi; segni militari essenziali) a grandezza costante sullo schermo; scintille a misura di zoom.
+  **Nome** del comandante: campo HTML (`src/ui/nameInput.ts`), chiesto dopo la run guidata, si cambia toccandolo nell'HQ.
+  **Fazioni** in `src/game/factions.ts` (`setupFactions`, nomi in `src/data/names.json`), milizie in `generate.ts` (`pickBots`) e
+  `balance.ts` (`bots`); diplomazia in `RunState` (`relation`, `opinion`, `atWar`, `diploTick`; numeri in `diplomacy`), scheda in
+  `HudScene.renderProfile`; accerchiamenti in `encircleTick` (`encircle`). Costruzioni nuove in `works` (ospedale, radar, porto,
+  aeroporto). Puntata in `stake` (`camp.ts`: `stakeIndex`, `stakeOf`; formula in `RunState.summary`).
 - **Mappa ancora più grande + costruzioni sistemate** (ultima richiesta di Nico: "edifici non funzionano e fai mappa ancora più
   grande"): il tocco su Fabbrica/Bunker senza risorse mandava in errore la scheda (ora si pagano in truppe, avviso chiaro se mancano,
   suggerimento a 40 s se non hai costruito). Carta da **6087 province** su griglia invisibile **640×320 (hexSize 2,5)**, stessa
