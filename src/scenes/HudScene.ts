@@ -325,15 +325,20 @@ export class HudScene extends Phaser.Scene {
       c.baseY = height - PAD - CARD_H;
       c.setPosition(PAD + k * (CARD_W + 6), c.baseY);
     });
-    // abilità: dopo le carte in orizzontale, sopra le carte a destra in verticale
+    // abilità: dopo le carte in orizzontale; in verticale a destra, sopra il tasto RITIRATA
     this.abilityCards.forEach((c, k) => {
-      c.baseY = portrait ? height - PAD - CARD_H * 2 - 14 : height - PAD - CARD_H;
+      c.baseY = portrait ? this.portraitAbilityY() : height - PAD - CARD_H;
       c.setPosition(portrait ? width - PAD - (k + 1) * (CARD_W + 6) + 6 : PAD + (this.cards.length + k) * (CARD_W + 6) + 10, c.baseY);
     });
     // leve sopra le carte, nell'angolo in basso a sinistra
     const ly = height - PAD - CARD_H - 8 - 36;
     this.attackBtn?.setPosition(PAD, ly);
     this.workBtn?.setPosition(PAD + 112 + 6, ly);
+  }
+
+  /** Verticale: riga delle abilità, sopra RITIRATA (che sta sulla riga delle leve, sopra le carte). */
+  private portraitAbilityY(): number {
+    return view(this).height - PAD - CARD_H - 8 - 44 - 8 - CARD_H;
   }
 
   private layoutResources(x: number, y: number, step: number) {
@@ -386,8 +391,10 @@ export class HudScene extends Phaser.Scene {
       this.rate.setX(this.troops.x + this.troops.width + 10);
     }
     this.rate.setText(`+${st.troopsPerSecond.toFixed(1)}/s`);
-    const share = Math.round(st.mapShare * 100);
-    this.stats.setText(`${st.player.provinces} ${st.player.provinces === 1 ? 'provincia' : 'province'}\nregione ${share}%/${BALANCE.victory.mapShare * 100}%`);
+    // classifica per province: a fine campagna vince chi ne ha di più
+    const { pos, gap } = st.rank();
+    const lead = st.opts.tutorial ? `obiettivo ${BALANCE.tutorial.goalProvinces}` : pos === 1 ? `1° · +${gap} sul 2°` : `${pos}° · ${gap} dal 1°`;
+    this.stats.setText(`${st.player.provinces} ${st.player.provinces === 1 ? 'provincia' : 'province'}\n${lead}`);
     RESOURCES.forEach((r, k) => {
       const t = this.resTexts[k], v = String(st.backpack[r]);
       if (t.text !== v) {
@@ -581,7 +588,7 @@ export class HudScene extends Phaser.Scene {
 
   /** Ultimo minuto di campagna. */
   onTimer() {
-    this.toast('ULTIMO MINUTO\nallo scadere vince chi ha più territorio', PALETTE.allerta);
+    this.toast('ULTIMO MINUTO\nallo scadere vince chi ha più province', PALETTE.allerta);
   }
 
   private toast(msg: string, color: number) {
@@ -747,7 +754,7 @@ export class HudScene extends Phaser.Scene {
     const { width, height } = view(this);
     const W = Math.min(420, width - 2 * PAD), H = st.workOf(p) || st.workInProgress(p) ? 120 : 196;
     const ly = height - PAD - CARD_H - 8 - 36;
-    const y0 = this.portrait ? (this.abilityCards.length ? height - PAD - CARD_H * 2 - 22 : ly - 8) - H : this.topBottom + 8;
+    const y0 = this.portrait ? (this.abilityCards.length ? this.portraitAbilityY() - 8 : ly - 8) - H : this.topBottom + 8;
     const T = BALANCE.terrain[prov.terrain];
     const nation = st.map.nations.find((n) => n.id === prov.country)?.name ?? 'Terra di nessuno';
     const terrainName = { pianura: 'pianura', colline: 'colline', montagne: 'montagne', deserto: 'deserto' }[prov.terrain];

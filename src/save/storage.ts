@@ -25,6 +25,7 @@ export interface Profile {
   history: CampaignRecord[]; // registro della Sala Radar (più recenti per prime)
   test?: boolean; // modalità test: tutto sbloccato, timer istantanei
   stake?: number; // ultima puntata scelta (indice di stake.options)
+  activeStake?: { bag: Bag; fee: number } | null; // puntata della campagna in corso: se l'app si chiude a metà, rientra con la tassa
   name?: string; // nome del comandante (sulla mappa al posto di "TU")
   nameAsked?: boolean; // il nome è già stato chiesto una volta
   tree?: number; // 1 = armamenti già convertiti in ricerche (albero della ricerca)

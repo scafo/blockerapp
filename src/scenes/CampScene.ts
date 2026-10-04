@@ -18,7 +18,7 @@ import { loadProfile, resetProfile, saveProfile, type BuildingId, type Expeditio
 import { analytics } from '../analytics/analytics';
 import { FPS_KEY, fpsEnabled } from '../ui/debug';
 import { askName } from '../ui/nameInput';
-import { canStake, runOptions, stakeIndex } from '../game/camp';
+import { canStake, recoverStake, runOptions, stakeIndex } from '../game/camp';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
@@ -70,6 +70,12 @@ export class CampScene extends Phaser.Scene {
   create() {
     uiCamera(this);
     this.profile = loadProfile();
+    // campagna lasciata a metà (app chiusa): la puntata rientra come in una ritirata
+    const back = recoverStake(this.profile);
+    if (back) {
+      saveProfile(this.profile);
+      this.time.delayedCall(900, () => this.toast(`CAMPAGNA INTERROTTA · la puntata rientra: +${back} risorse (tassa di ritirata)`, PALETTE.allerta));
+    }
     // dopo la run guidata: il nome del comandante (una volta sola, si cambia toccandolo)
     if (this.profile.runs >= 1 && !this.profile.name && !this.profile.nameAsked) this.time.delayedCall(600, () => this.editName(true));
     this.spots = new Map();
@@ -642,7 +648,9 @@ export class CampScene extends Phaser.Scene {
     // puntata (alla poker): risorse del Deposito in gioco; più punti, più rende il guadagno; uscire prima costa
     y += 22;
     const K = stakeIndex(p), SK = BALANCE.stake, fee = Math.round(runOptions(p).exitFee * 100);
-    row(y, 52, `PUNTATA · guadagno ×${String(SK.mult[K]).replace('.', ',')} · ritirata −${fee}% · eliminato −${Math.round(runOptions(p).eliminatedLoss * 100)}%`, null);
+    // rischi della puntata (in verticale senza la ritirata, che la chiede comunque il tasto ESCI)
+    const risks = [`non vinci −${Math.round(SK.lossShare * 100)}%`, ...(this.portrait ? [] : [`ritirata −${fee}%`]), `eliminato −${Math.round(runOptions(p).eliminatedLoss * 100)}%`];
+    row(y, 52, `PUNTATA ×${String(SK.mult[K]).replace('.', ',')} · ${risks.join(' · ')}`, null);
     const cw = Math.min(70, (W - 64) / SK.options.length - 6);
     SK.options.forEach((v, k) => {
       const ok = canStake(p, k), cx = x0 + 24 + k * (cw + 6), cy = y + 22;
@@ -656,7 +664,7 @@ export class CampScene extends Phaser.Scene {
     const mm = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}`;
     const brief = [
       (frontText as { brief: string }[])[fi]?.brief ?? '',
-      `OBIETTIVI · ${Math.round(BALANCE.victory.mapShare * 100)}% della regione, o più territorio di tutti allo scadere.`,
+      'OBIETTIVI · più province di tutti allo scadere, o fai cadere i tre imperi rivali.',
       `INTEL · tregua ${mm(F.graceMs)} · prima offensiva a ${mm(F.offensiveFirstMs)} · bunker nemici ${F.aiBunkers} · crescita nemica ×${String(F.aiGrowthMult).replace('.', ',')}`,
     ].join('\n');
     const limit = y0 + H - 64 - (this.portrait ? 48 : 0);

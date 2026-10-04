@@ -1,12 +1,12 @@
 // Costruzioni nelle province: nomi e icone semplici (fabbrica, bunker, caserma).
 import type Phaser from 'phaser';
-import type { WorkId } from '../config/balance';
+import { BALANCE, type WorkId } from '../config/balance';
 
 export const WORK_NAME: Record<WorkId, string> = {
   fabbrica: 'Fabbrica', bunker: 'Bunker', caserma: 'Caserma', ospedale: 'Ospedale', radar: 'Radar', porto: 'Porto', aeroporto: 'Aeroporto',
 };
 export const WORK_DESC: Record<WorkId, string> = {
-  fabbrica: '+1 risorsa/min',
+  fabbrica: `+${BALANCE.works.fabbrica.prodAdd} risorse/min`,
   bunker: 'difesa ×1,7',
   caserma: 'più truppe',
   ospedale: 'cura ×3 qui',
@@ -16,7 +16,7 @@ export const WORK_DESC: Record<WorkId, string> = {
 };
 
 /** Effetto della costruzione col nome della risorsa della provincia (fabbrica: "+1 metallo/min"). */
-export const workDesc = (w: WorkId, res: string) => (w === 'fabbrica' ? `+1 ${res}/min` : WORK_DESC[w]);
+export const workDesc = (w: WorkId, res: string) => (w === 'fabbrica' ? `+${BALANCE.works.fabbrica.prodAdd} ${res}/min` : WORK_DESC[w]);
 
 export function drawWorkIcon(g: Phaser.GameObjects.Graphics, w: WorkId, x: number, y: number, r: number, color: number) {
   g.fillStyle(color, 1);

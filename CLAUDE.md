@@ -56,30 +56,35 @@ forti + simboli (daltonismo).
 - Mappa del mondo divisa in nazioni reali e **province vere alla Call of War** (forme irregolari, la provincia è l'unità di conquista),
   riconoscibile ma alterata (seed). Pausa strategica alla HOI4: il tempo si ferma, gli ordini no.
 - Truppe generiche (pool) che crescono col territorio; tap/avanzata per conquistare; unità come pedine.
-- Eventi a carta con 2 scelte ~ogni 90 s. Fine: allo scadere della durata scelta (10/20/30 min) vince chi ha più territorio, altrimenti
-  "fine delle operazioni" (bottino intatto). **Niente tempesta né zone tossiche** (Nico: mai chiesti). Ritirata = paghi la tassa d'uscita; eliminato = perdi il 70%.
-- Vittoria: 60% della regione / più territorio a fine campagna. **Niente anomalie sulla mappa** (Nico: tolte; i Frammenti restano nella lore).
+- Eventi a carta con 2 scelte ~ogni 90 s. Fine: allo scadere della durata scelta (10/20/30 min) vince chi ha più province, altrimenti
+  "fine delle operazioni" (bottino intatto, la puntata perde il 25%). **Niente tempesta né zone tossiche** (Nico: mai chiesti). Ritirata = paghi la tassa d'uscita; eliminato = perdi il 70%.
+- Vittoria: più province di tutti a fine campagna, o prima se cadono i tre imperi rivali (il 60% della regione era irraggiungibile
+  sulla carta grande: tolto). L'HUD mostra la classifica ("1° · +12 sul 2°"). **Niente anomalie sulla mappa** (Nico: tolte; i Frammenti restano nella lore).
 - **Terreno vero** (pianura, colline, montagne, deserto: regioni fisiche di Natural Earth) e **costruzioni nelle province**
   (Fabbrica, Bunker, Caserma, Ospedale, Radar, Porto, Aeroporto). **Fronti I–VI** di difficoltà crescente: si entra, si fa il primo
   impero con poche cose e si raccolgono risorse; poi i nemici diventano troppo forti e bisogna potenziare HQ, armi e ricerche.
 - **Fazioni**: tu (col tuo nome), 3 **imperi** con nomi casuali (la potenza Imperium/Aristocrazia/Cabal/Republica è solo una loro
   caratteristica, come in Call of War) che si espandono, e ~36 **milizie provinciali** deboli (alla OpenFront) che difendono la
-  loro zona. All'inizio la terra è quasi tutta libera. **Diplomazia alla HOI4**: imperi in pace finché non vi toccate (poi possono
+  loro zona. All'inizio la terra è quasi tutta libera. Partenze eque (tu e gli imperi in pianura o colline, `start.minGrowth`);
+  imperi lontani al Fronte I e sempre più vicini nei fronti alti (`fronts[].aiDistance`). **Diplomazia alla HOI4**: imperi in pace finché non vi toccate (poi possono
   dichiararti guerra), milizie ostili; tocca un impero (elenco, insegna sulla mappa, sua provincia in pace o tieni premuto) → scheda
   con potenza, forza, rapporto, opinione e azioni (guerra, pace, alleanza, doni di truppe/risorse, tributo dalle milizie).
-  **Accerchiamenti**: una sacca circondata da una sola fazione in guerra con lei si arrende. Pedine: nessun danno in terra libera.
+  **Accerchiamenti**: una sacca circondata da una sola fazione in guerra con lei si arrende (mai il cuore di una fazione: capitale o
+  più di metà delle sue province). Pedine: nessun danno in terra libera; in pace pedine e navi non combattono e non sbarcano.
 - **Puntata** (Nico: "tipo poker"): prima della campagna metti in gioco risorse del Deposito (0/60/180/450); finiscono nello zaino,
   le puoi spendere (ARRUOLA = risorse in truppe); il guadagno oltre la puntata rende ×1,25–2. Ritirata −25% (il Deposito liv. 3
-  la riduce), eliminato −70%, fine campagna o vittoria senza tasse. **Nebbia**: nelle prime campagne copre quasi tutta la mappa;
+  la riduce), eliminato −70%, fine campagna senza vincere = −25% della puntata (`stake.lossShare`: la puntata si può perdere),
+  vittoria senza tasse. App chiusa a metà campagna = la puntata rientra come in una ritirata (`recoverStake`). **Nebbia**: nelle prime campagne copre quasi tutta la mappa;
   la Sala Radar allarga vista e zona nota attorno alla partenza.
 
 ## Tempi di gioco (calcolati con `scripts/sim.ts`, giocatore attivo)
 - Run guidata: ~2–3 min di conquista (+ i passi della guida).
-- Campagna standard 20 min, Fronte I (carta da 17.925 province, 3 imperi + 36 milizie): primo impero (15 province) a 2:30–6:00;
-  tregua 4:00, poi gli imperi confinanti possono dichiarare guerra; a 20:00 vince chi ha più territorio (90–215 province tue,
-  milizie ~8 province l'una). Bottino ~380–1200. Breve 10 min, lunga 30.
-- Muro di difficoltà (sim con giocatore che dichiara guerra se più forte): Fronte I 2 vittorie su 3; Fronte III senza potenziamenti
-  0 su 3, con HQ a metà 3 su 3; Fronte V con HQ al massimo 1 su 3. HQ + tutte le ricerche costano ~13.400 risorse.
+- Campagna standard 20 min, Fronte I (carta da 17.925 province, 3 imperi + 36 milizie): primo impero (15 province) a 2:30–4:40;
+  tregua 4:00, primo confine con un impero a 6–9 min (Fronte III 3–10 min, Fronte V 1–3 min), poi possono dichiarare guerra;
+  a 20:00 vince chi ha più province (90–260 tue, milizie ~8 province l'una, 10–25 sacche prese). Bottino ~580–1650.
+  Breve 10 min, lunga 30.
+- Muro di difficoltà (sim con giocatore che dichiara guerra se più forte): Fronte I 3 vittorie su 4; Fronte III senza potenziamenti
+  2 su 6, con HQ a metà 4 su 4; Fronte V con HQ al massimo 2 su 4. HQ + tutte le ricerche costano ~13.400 risorse.
 
 ## Regole di design
 - Max 5–6 scelte a schermo. Mappa sempre libera al centro, comandi negli angoli in basso.
@@ -98,6 +103,15 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 ---
 
 ## Note del developer (stato e comandi)
+
+- **Bilanciamento e debug** (ultima richiesta di Nico): partenze eque (niente avvio in montagna o nel deserto: prima la prima
+  provincia di 15 arrivava tra 2:30 e 8:00 a seconda del seed), 180 truppe iniziali, Fabbrica +2 risorse/min, imperi più vicini
+  nei fronti alti e un po' più forti dal III (prima al Fronte III spesso non li incontravi mai), vittoria a tempo per province
+  e anticipata se cadono i tre imperi, puntata che si può perdere. Bug corretti: pedine che combattevano e conquistavano contro
+  chi era in pace con te, navi che sbarcavano dopo la pace, sacca che poteva prendersi il cuore del tuo territorio, puntata persa
+  chiudendo l'app a metà campagna, "+X% vittoria" mostrato anche senza vittoria, carta dell'abilità sotto RITIRATA in verticale,
+  pedine delle IA che cercavano il nemico tra tutte le 460.800 caselle a ogni tick (ora tra le province). `sim.ts` mostra anche
+  primo confine con un impero e sacche prese; `SIM_MIN=6` per simulare solo i primi minuti.
 
 - **Mappa a sezioni e sottosezioni** (richiesta di Nico): celle esagonali piene senza fessure; ogni provincia (sottosezione) ha la sua
   tinta e un bordo sottile, le nazioni (sezioni) un bordo spesso lungo i lati delle celle; coste vere vettoriali. Territorio conquistato =
@@ -138,7 +152,7 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   e in `worldmap.json`): difesa ×1–1,9, crescita ×0,45–1, pedine e avanzata più lente in montagna, ogni provincia produce la risorsa
   del suo terreno ogni minuto (pianura cibo, colline e montagne metallo, deserto benzina). **Costruzioni** (`works`): tocca una tua
   provincia → scheda (terreno, difesa, produzione) e tre cantieri pagati **solo in truppe** (il prezzo sale del 20% a ogni costruzione,
-  `worksPriceStep`; lo zaino resta bottino) in tempo di gioco: Fabbrica (+1 risorsa/min della provincia),
+  `worksPriceStep`; lo zaino resta bottino) in tempo di gioco: Fabbrica (+2 risorse/min della provincia),
   Bunker (difesa ×1,7), Caserma (+10 caselle di crescita, serve Addestramento); restano alla provincia se cambia padrone; le IA dei
   fronti alti hanno bunker. HUD: entrate al minuto sotto ogni risorsa. **Albero della ricerca** (`TreeScene`, Laboratorio e tasto
   RICERCA): ramo Armamenti (unità e abilità si ricercano, l'Arsenale decide fin dove) + Esercito/Logistica/Economia/Difesa/La Caduta

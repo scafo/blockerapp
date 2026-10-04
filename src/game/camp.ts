@@ -196,6 +196,16 @@ export function addToStash(p: Profile, bag: Bag): number {
   return lost;
 }
 
+/** Campagna lasciata a metà (app chiusa): la puntata rientra come in una ritirata. Ritorna quanto è rientrato (0 = niente). */
+export function recoverStake(p: Profile): number {
+  const a = p.activeStake;
+  if (!a) return 0;
+  p.activeStake = null;
+  const back = Object.fromEntries(RESOURCES.map((r) => [r, Math.floor(a.bag[r] * (1 - a.fee))])) as Bag;
+  addToStash(p, back);
+  return RESOURCES.reduce((n, r) => n + back[r], 0);
+}
+
 export function collectExpedition(p: Profile, now: number): Bag | null {
   if (!p.expedition || p.expedition.until > now) return null;
   const r = p.expedition.reward;

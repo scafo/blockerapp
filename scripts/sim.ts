@@ -26,14 +26,15 @@ const opts: RunOptions = {
   units: level ? ['fanteria', 'ricognitori', 'artiglieria', 'corazzati'] : ['fanteria'],
   techs: level ? ['addestramento'] : [],
 };
+const maxMin = Number(process.env.SIM_MIN ?? 31); // SIM_MIN=6: solo i primi minuti
 const world = loadWorld();
 for (let r = 0; r < runs; r++) {
-  const st = new RunState(generateMap('sim' + r, world), opts);
+  const st = new RunState(generateMap('sim' + r, world, undefined, undefined, opts.front.aiDistance), opts);
   let tapAcc = 0;
   const snaps: string[] = [];
-  let firstContact = -1;
+  let firstContact = -1, border = -1, pockets = 0;
   const marks: string[] = []; // tempi delle fasi: primo impero, primo contatto
-  for (let ms = 0; ms <= 31 * 60_000 && !st.over; ms += 100) {
+  for (let ms = 0; ms <= maxMin * 60_000 && !st.over; ms += 100) {
     st.update(100);
     tapAcc += tapsPerSec / 10;
     while (tapAcc >= 1) {
@@ -89,7 +90,13 @@ for (let r = 0; r < runs; r++) {
       }
     }
     if (!marks.length && st.player.provinces >= 15) marks.push(`impero15 ${Math.round(ms / 1000)}s`);
-    for (const e of st.drainEvents()) if (e.type === 'conquer' && e.from === PLAYER && firstContact < 0) firstContact = ms;
+    for (const e of st.drainEvents()) {
+      if (e.type === 'conquer' && e.from === PLAYER && firstContact < 0) firstContact = ms;
+      if (e.type === 'encircled' && (e.by === PLAYER || e.from === PLAYER)) pockets++;
+    }
+    // primo confine con un impero (da lì possono dichiarare guerra)
+    if (border < 0 && ms % 5000 === 0 && st.factions.some((f) => f.kind === 'empire' && f.alive
+      && st.map.provinces.some((p, k) => st.provOwner[k] === f.id && p.neighbors.some((q) => st.provOwner[q] === PLAYER)))) border = ms;
     if (ms % 120_000 === 0) {
       const z = st.player.loot, built = st.provWork.reduce((n, w, p) => n + (w >= 0 && st.provOwner[p] === PLAYER ? 1 : 0), 0);
       const bots = st.factions.filter((f) => f.kind === 'bot'), alive = bots.filter((f) => f.alive);
@@ -101,5 +108,5 @@ for (let r = 0; r < runs; r++) {
   const t = Math.round(st.gameTimeMs / 1000);
   const sum = st.summary();
   const kept = sum.kept.metallo + sum.kept.benzina + sum.kept.cibo;
-  console.log(`run ${r}: ${st.over ?? 'vivo'}${sum.reason ? '/' + sum.reason : ''} a ${t}s, porta a casa ${kept}, primo attacco subito ${firstContact < 0 ? '-' : Math.round(firstContact / 1000) + 's'} | ${marks.join(' ')} | province ogni 2 min ${snaps.join('  ')}`);
+  console.log(`run ${r}: ${st.over ?? 'vivo'}${sum.reason ? '/' + sum.reason : ''} a ${t}s, porta a casa ${kept}, primo attacco subito ${firstContact < 0 ? '-' : Math.round(firstContact / 1000) + 's'}, confine ${border < 0 ? '-' : Math.round(border / 1000) + 's'}, sacche ${pockets} | ${marks.join(' ')} | province ogni 2 min ${snaps.join('  ')}`);
 }

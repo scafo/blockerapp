@@ -20,7 +20,7 @@ const TITLES: Record<RunSummary['outcome'], string> = {
   timeout: 'FINE DELLE OPERAZIONI',
 };
 
-const REASONS = { map: 'Impero sul 60% della regione', time: 'Più territorio di tutti a fine campagna', tutorial: 'Il primo pezzo di mondo è tuo' };
+const REASONS = { map: 'I tre imperi rivali sono caduti', time: 'Più province di tutti a fine campagna', tutorial: 'Il primo pezzo di mondo è tuo' };
 
 /** Schermata finale stile manifesto: esito, bollettino comando, bottino portato a casa, rivincita. */
 export class ResultScene extends Phaser.Scene {
@@ -32,6 +32,7 @@ export class ResultScene extends Phaser.Scene {
     uiCamera(this);
     const profile = loadProfile();
     const lostCap = addToStash(profile, sum.kept); // oltre la capienza del Deposito si perde
+    profile.activeStake = null; // la puntata è stata giocata fino in fondo
     profile.runs++;
     // registro della Sala Radar
     profile.history = [{ at: Date.now(), civ: sum.civ, campaign: sum.campaign, outcome: sum.outcome, tiles: sum.maxTiles, timeMs: sum.timeMs }, ...(profile.history ?? [])].slice(0, 20);
@@ -69,7 +70,9 @@ export class ResultScene extends Phaser.Scene {
         textStyle(12, PALETTE.ocra)).setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(W);
       this.tweens.add({ targets: u, alpha: 0.5, duration: 700, yoyo: true, repeat: -1 });
     }
-    this.add.text(x0 + W - 16, y0 + 12, `mappa #${sum.seed}`, textStyle(11, PALETTE.tenue, false)).setOrigin(1, 0);
+    // codice della mappa: in verticale sopra il pannello (accanto al rapporto non ci sta)
+    if (P) this.add.text(x0 + W, y0 - 6, `mappa #${sum.seed}`, textStyle(11, PALETTE.tenue, false)).setOrigin(1, 1);
+    else this.add.text(x0 + W - 16, y0 + 12, `mappa #${sum.seed}`, textStyle(11, PALETTE.tenue, false)).setOrigin(1, 0);
     const color = sum.outcome === 'victory' ? PALETTE.ocra : sum.outcome === 'retreat' ? ink : PALETTE.ruggine;
     const title = this.add.text(cx, y0 + 50, TITLES[sum.outcome], textStyle(P ? 26 : 34, color)).setOrigin(0.5)
       .setAlign('center').setWordWrapWidth(W - 24);
@@ -87,8 +90,14 @@ export class ResultScene extends Phaser.Scene {
 
     // bottino: portato a casa (e quanto zaino c'era, se è cambiato: bonus vittoria o perdita, Deposito incluso)
     const had = bagTotal(sum.backpack), kept = bagTotal(sum.kept);
-    const pct = had ? Math.round((kept / had - 1) * 100) : 0;
-    const delta = pct > 0 ? `+${pct}% vittoria` : pct < 0 ? `${pct}% perso` : '';
+    // cosa ha cambiato il bottino: vittoria, tassa d'uscita o eliminazione, puntata (moltiplicatore e perdita)
+    const notes: string[] = [];
+    if (sum.outcome === 'victory') notes.push(`+${Math.round(BALANCE.victory.bonus * 100)}% vittoria`);
+    if (sum.feePct) notes.push(`−${sum.feePct}% ${sum.outcome === 'retreat' ? 'ritirata' : 'eliminato'}`);
+    const gm = Math.round(sum.gainMult * 100) / 100;
+    if (gm !== 1 && RESOURCES.some((r) => sum.backpack[r] > sum.stake[r])) notes.push(`guadagno ×${String(gm).replace('.', ',')}`);
+    if (sum.stakeLossPct) notes.push(`puntata −${sum.stakeLossPct}%`);
+    const delta = had && kept !== had ? notes.join(' · ') : '';
     y += P ? 46 : 26;
     this.add.text(cx, y, `BOTTINO PORTATO A CASA${delta ? `  (${delta})` : ''}`, textStyle(11, PALETTE.ocra)).setOrigin(0.5);
     const g = this.add.graphics();

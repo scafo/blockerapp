@@ -60,6 +60,9 @@ export interface RunSummary {
   backpack: Bag; // zaino a fine run
   kept: Bag; // portato a casa dopo perdite/bonus
   stake: Bag; // puntata messa in gioco
+  gainMult: number; // moltiplicatore del guadagno oltre la puntata (puntata × fronte × durata)
+  feePct: number; // % dello zaino persa (ritirata, eliminazione)
+  stakeLossPct: number; // % della puntata persa (fine campagna senza vincere)
   tutorial: boolean;
   civ: CivId;
   campaign: CampaignId;
@@ -632,7 +635,7 @@ export class RunState {
 
   /**
    * Sacche: un gruppo di province (libere o di una fazione) circondato via terra da una sola fazione in guerra con lui
-   * passa a chi lo circonda. Una fazione non perde così il cuore del suo territorio (con la capitale) se è grande.
+   * passa a chi lo circonda. Una fazione non perde così il cuore del suo territorio (la capitale o più di metà delle province) se è grande.
    */
   private encircleTick() {
     if (this.opts.tutorial || this.over || this.gameTimeMs < this.encircleAt) return;
@@ -658,9 +661,9 @@ export class RunState {
       }
       if (open || by < 0 || !this.atWar(by, o)) continue;
       const max = o === NEUTRAL ? E.maxNeutral : E.maxPocket;
-      const hasCapital = o !== NEUTRAL && comp.includes(this.provOf(this.map.starts[o]));
-      if (comp.length > max && (o === NEUTRAL || hasCapital)) continue;
-      if (o !== NEUTRAL && hasCapital && comp.length > E.maxPocket) continue;
+      // il cuore di una fazione (con la capitale o più di metà del suo territorio) non si arrende in blocco
+      const core = o !== NEUTRAL && (comp.includes(this.provOf(this.map.starts[o])) || comp.length * 2 > this.factions[o].provinces);
+      if (comp.length > max && (o === NEUTRAL || core)) continue;
       for (const p of comp) this.transferProvince(by, p, 0);
       this.events.push({ type: 'encircled', by, from: o, provinces: comp });
     }
@@ -679,22 +682,17 @@ export class RunState {
     return this.endMs - this.gameTimeMs;
   }
 
-  /** Ultimo minuto: avviso; allo scadere vince chi ha più territorio, altrimenti si rientra col bottino. */
+  /** Ultimo minuto: avviso; allo scadere vince chi ha più province, altrimenti si rientra col bottino (e una parte della puntata è persa). */
   private timerTick() {
     if (!this.timerWarned && this.timeLeft <= BALANCE.campaign.warnMs) {
       this.timerWarned = true;
       this.events.push({ type: 'timer', phase: 'warn' });
     }
     if (this.timeLeft > 0) return;
-    const best = Math.max(...this.factions.filter((f) => f.alive).map((f) => f.tiles));
-    this.end(this.player.tiles >= best ? 'victory' : 'timeout', 'time');
+    this.end(this.rank().pos === 1 ? 'victory' : 'timeout', 'time'); // vince chi ha più province
   }
 
   // ---------- fine run ----------
-
-  get mapShare(): number {
-    return this.player.tiles / Math.max(1, this.map.regionSize);
-  }
 
   private checkVictory() {
     if (this.over) return;
@@ -702,7 +700,8 @@ export class RunState {
       if (this.player.provinces >= BALANCE.tutorial.goalProvinces) this.end('victory', 'tutorial');
       return;
     }
-    if (this.mapShare >= BALANCE.victory.mapShare) this.end('victory', 'map');
+    // vittoria in anticipo: i tre imperi rivali sono caduti (le milizie non contano)
+    if (this.factions.every((f) => f.kind !== 'empire' || !f.alive)) this.end('victory', 'map');
   }
 
   retreat() {
@@ -716,18 +715,29 @@ export class RunState {
 
   summary(): RunSummary {
     const outcome = this.over ?? 'retreat';
-    const bag = this.player.loot;
+    const bag = this.player.loot, S = this.opts.stake;
     const k = outcome === 'victory' ? 1 + BALANCE.victory.bonus
       : outcome === 'retreat' ? 1 - this.opts.exitFee : outcome === 'timeout' ? 1 : 1 - this.opts.eliminatedLoss;
-    // la puntata torna com'è; il guadagno oltre la puntata rende di più (puntata, fronte, durata)
-    const gain = this.opts.stakeMult * this.opts.campaignLootMult, S = this.opts.stake;
+    // la puntata torna com'è (se finisci senza vincere ne perdi una parte); il guadagno oltre la puntata rende di più
+    const gain = this.opts.stakeMult * this.opts.campaignLootMult;
+    const staked = S.metallo + S.benzina + S.cibo > 0;
+    const stakeK = outcome === 'timeout' && staked ? 1 - BALANCE.stake.lossShare : 1;
     const kept = {} as Bag;
-    for (const r of Object.keys(bag) as Resource[]) kept[r] = Math.floor((Math.min(bag[r], S[r]) + Math.max(0, bag[r] - S[r]) * gain) * k);
+    for (const r of Object.keys(bag) as Resource[]) kept[r] = Math.floor((Math.min(bag[r], S[r]) * stakeK + Math.max(0, bag[r] - S[r]) * gain) * k);
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
       maxTiles: this.player.maxTiles, maxProvinces: this.player.maxProvinces, backpack: { ...bag }, kept, stake: { ...S },
+      gainMult: gain, feePct: Math.round((k < 1 ? 1 - k : 0) * 100), stakeLossPct: Math.round((1 - stakeK) * 100),
       tutorial: this.opts.tutorial, civ: this.opts.civ, campaign: this.opts.campaign, front: this.opts.frontIndex,
     };
+  }
+
+  /** Posizione per province tra le fazioni vive (1 = in testa) e distacco: dal secondo se sei primo, dal primo se no. */
+  rank(): { pos: number; gap: number } {
+    const me = this.player.provinces;
+    const others = this.factions.filter((f) => f.id !== PLAYER && f.alive).map((f) => f.provinces).sort((a, b) => b - a);
+    const pos = 1 + others.filter((n) => n > me).length;
+    return { pos, gap: me - (others[0] ?? 0) };
   }
 
   private tick() {
@@ -794,7 +804,7 @@ export class RunState {
     this.boats = this.boats.filter((x) => x !== b);
     const t = b.path[b.path.length - 1];
     const f = this.factions[b.owner];
-    if (this.owner[t] === b.owner) {
+    if (this.owner[t] === b.owner || !this.atWar(b.owner, this.owner[t])) { // costa tua, o pace firmata durante la traversata: si rientra
       f.troops += b.troops;
       this.events.push({ type: 'boat', phase: 'landed', boat: b });
       return;
@@ -1092,14 +1102,14 @@ export class RunState {
     for (const u of this.units) {
       let target: Unit | null = null, best = -1;
       for (const v of this.units) {
-        if (v.owner === u.owner || hexDistance(u.tile, v.tile) > U[u.type].range) continue;
+        if (v.owner === u.owner || !this.atWar(u.owner, v.owner) || hexDistance(u.tile, v.tile) > U[u.type].range) continue; // in pace non si spara
         const m = rps(u.type, v.type);
         if (m > best) {
           best = m;
           target = v;
         }
       }
-      u.inCombat = !!target || this.units.some((v) => v.owner !== u.owner && hexDistance(u.tile, v.tile) <= U[v.type].range);
+      u.inCombat = !!target || this.units.some((v) => v.owner !== u.owner && this.atWar(u.owner, v.owner) && hexDistance(u.tile, v.tile) <= U[v.type].range);
       const atk = U[u.type].attack * (u.owner === PLAYER ? this.opts.mods.unitAttackMult : 1); // munizioni perforanti
       if (target) dmg.set(target, (dmg.get(target) ?? 0) + atk * best);
     }
@@ -1115,7 +1125,9 @@ export class RunState {
         const next0 = this.map.tiles[u.path[0]];
         if (u.moveAcc >= stats.moveMs * (next0 ? BALANCE.terrain[next0.terrain].move : 1)) { // colline e montagne rallentano
           const next = u.path[0];
-          if (!this.unitAt(next)) {
+          // la pace firmata durante la marcia chiude i confini: la pedina si ferma
+          if (this.map.tiles[next] && this.owner[next] !== u.owner && !this.atWar(u.owner, this.owner[next])) u.path.length = 0;
+          else if (!this.unitAt(next)) {
             u.moveAcc = 0;
             u.tile = next;
             u.path.shift();
@@ -1125,13 +1137,13 @@ export class RunState {
       if (isNaval(u.type) || !this.map.tiles[u.tile]) {
         // le navi non conquistano: si riparano vicino a una tua costa
         if (!u.inCombat && neighbors(u.tile).some((n) => n >= 0 && this.owner[n] === u.owner)) u.hp = Math.min(u.maxHp, u.hp + U.healPerTick);
-      } else if (this.owner[u.tile] !== u.owner) {
+      } else if (this.owner[u.tile] !== u.owner && this.atWar(u.owner, this.owner[u.tile])) {
         // la pedina prende tutta la provincia in cui entra
         const p = this.provOf(u.tile);
         // in terra libera si avanza senza perdite: si combatte solo entrando nel territorio di qualcuno
         if (this.provOwner[p] !== NEUTRAL) u.hp -= this.provDefense(p) * stats.captureCost;
         if (u.hp > 0) this.transferProvince(u.owner, p, 0, u.id);
-      } else if (!u.inCombat) {
+      } else if (!u.inCombat && this.owner[u.tile] === u.owner) {
         u.hp = Math.min(u.maxHp, u.hp + U.healPerTick * this.healMult(u));
       }
     }
@@ -1227,9 +1239,11 @@ export class RunState {
   private aiUnits(f: Faction) {
     const A = BALANCE.aiUnits;
     for (const u of this.unitsOf(f.id)) {
-      if (!u.path.length || this.gameTimeMs - u.lastOrderMs > A.repathMs) {
+      const idle = this.gameTimeMs - u.lastOrderMs;
+      if ((!u.path.length && idle > 1000) || idle > A.repathMs) { // ferma: nuovo bersaglio al massimo una volta al secondo
         const target = this.nearestEnemyTile(f.id, u.tile);
         if (target >= 0) this.order(u, target);
+        else u.lastOrderMs = this.gameTimeMs;
       }
     }
     if (this.gameTimeMs < this.aiSpawnAt[f.id] || this.unitsOf(f.id).length >= this.opts.front.maxAiUnits) return;
@@ -1243,12 +1257,16 @@ export class RunState {
     const target = this.nearestEnemyTile(f.id, anchor);
     if (target < 0) return;
     let spawn = -1, bestD = Infinity;
-    for (let i = 0; i < this.owner.length; i++) {
-      if (this.owner[i] !== f.id || this.unitAt(i)) continue;
-      const d = hexDistance(i, target);
-      if (d < bestD) {
-        bestD = d;
-        spawn = i;
+    const provs = this.map.provinces;
+    for (let p = 0; p < provs.length; p++) {
+      if (this.provOwner[p] !== f.id) continue;
+      for (const i of provs[p].tiles) {
+        if (this.owner[i] !== f.id || this.unitAt(i)) continue;
+        const d = hexDistance(i, target);
+        if (d < bestD) {
+          bestD = d;
+          spawn = i;
+        }
       }
     }
     if (spawn < 0) return;
@@ -1256,16 +1274,18 @@ export class RunState {
     if (u) this.order(u, target);
   }
 
+  /** Centro della provincia nemica (in guerra) più vicina, −1 se nessuna: si cerca tra le province, non tra le caselle. */
   private nearestEnemyTile(f: number, from: number): number {
     let best = -1, bestD = Infinity;
     const playerReady = !this.opts.tutorial && this.gameTimeMs >= this.opts.front.graceMs;
-    for (let i = 0; i < this.owner.length; i++) {
-      const o = this.owner[i];
-      if (o === NEUTRAL || o === f || (o === PLAYER && !playerReady) || !this.atWar(f, o)) continue;
-      const d = hexDistance(from, i) * (o === PLAYER ? BALANCE.aiUnits.playerBias : 1);
+    const provs = this.map.provinces;
+    for (let p = 0; p < provs.length; p++) {
+      const o = this.provOwner[p], a = provs[p].anchor;
+      if (o === NEUTRAL || o === f || a < 0 || (o === PLAYER && !playerReady) || !this.atWar(f, o)) continue;
+      const d = hexDistance(from, a) * (o === PLAYER ? BALANCE.aiUnits.playerBias : 1);
       if (d < bestD) {
         bestD = d;
-        best = i;
+        best = a;
       }
     }
     return best;

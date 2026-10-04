@@ -59,7 +59,8 @@ const M = BALANCE.map;
  * Mappa alla Call of War: ogni casella di terra appartiene a una provincia (unità di conquista) dentro la sua nazione reale.
  * La griglia esagonale resta sotto, invisibile: serve per le forme, le pedine e le navi.
  */
-export function generateMap(seed: string, world: WorldAsset, aiCount: number = BALANCE.ai.count, botCount: number = BALANCE.bots.count): RunMap {
+export function generateMap(seed: string, world: WorldAsset, aiCount: number = BALANCE.ai.count, botCount: number = BALANCE.bots.count,
+  aiDistance: [number, number] = BALANCE.fronts[0].aiDistance): RunMap {
   const rng = createRng(seed);
   const tp = world.tileProv;
   const tiles: (Tile | null)[] = new Array(tp.length).fill(null);
@@ -91,7 +92,7 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
     }
   }
 
-  const starts = pickStarts(rng, tiles, land, aiCount, provinces);
+  const starts = pickStarts(rng, tiles, land, aiCount, provinces, aiDistance);
   const dist = bfs(tiles, starts[0]);
   const region = land.filter((i) => dist[i] >= 0);
   const bots = pickBots(rng, tiles, land, botCount, starts, dist);
@@ -247,15 +248,23 @@ const goodStart = (tiles: (Tile | null)[], i: number) =>
  * Partenza del giocatore casuale in una regione grande (niente isolette);
  * le IA partono nella stessa regione, a distanza giusta per incontrarsi presto.
  */
-function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[], count: number, provinces: Province[]): number[] {
+function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[], count: number, provinces: Province[], [dMin, dMax]: [number, number]): number[] {
   const pick = <T>(a: T[]) => a[Math.floor(rng() * a.length)];
   // provincia di partenza abbastanza grande e con più vie d'uscita
   const roomy = (i: number) => {
     const p = provinces[tiles[i]!.province];
     return !p || (p.tiles.length >= 8 && p.neighbors.length >= 3);
   };
+  // partenza equa: provincia di pianura o colline, con vicine che crescono bene (niente avvio in montagna o nel deserto)
+  const growth = (p: Province) => BALANCE.terrain[p.terrain].growth;
+  const fertile = (i: number) => {
+    const p = provinces[tiles[i]!.province];
+    if (!p || growth(p) < BALANCE.start.minGrowth || !p.neighbors.length) return false;
+    return p.neighbors.reduce((s, q) => s + growth(provinces[q]), 0) / p.neighbors.length >= BALANCE.start.minNearGrowth;
+  };
   const all = land.filter((i) => goodStart(tiles, i));
-  const ok = all.filter(roomy).length > 50 ? all.filter(roomy) : all;
+  const pools = [all.filter((i) => roomy(i) && fertile(i)), all.filter(roomy), all];
+  const ok = pools.find((a) => a.length > 50) ?? all;
   let player = -1;
   let dist: Int32Array = new Int32Array(0);
   for (let tries = 0; tries < 40; tries++) {
@@ -266,7 +275,7 @@ function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[], count: num
     if (size >= BALANCE.map.minStartRegion) break;
   }
 
-  const { startDistance: [dMin, dMax], minDistanceBetween } = BALANCE.ai;
+  const { minDistanceBetween } = BALANCE.ai;
   const reachable = ok.filter((i) => dist[i] > 6);
   const starts = [player];
   const aiDist: Int32Array[] = [];

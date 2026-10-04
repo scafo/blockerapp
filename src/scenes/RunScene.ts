@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { BALANCE, type AbilityType, type Resource, type UnitType } from '../config/balance';
 import buildingText from '../data/buildings.json';
 import { RESOURCES, RESOURCE_INFO } from '../game/resources';
-import { runOptions, settle, type RunOptions } from '../game/camp';
+import { recoverStake, runOptions, settle, type RunOptions } from '../game/camp';
 import { loadPrefs, loadProfile, saveProfile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
 import { PALETTE } from '../config/palette';
@@ -98,10 +98,15 @@ export class RunScene extends Phaser.Scene {
     const profile = loadProfile();
     if (settle(profile, Date.now())) saveProfile(profile);
     const opts = data.opts ?? runOptions(profile);
-    // la puntata esce dal Deposito adesso: è in gioco
-    if (!opts.tutorial) for (const r of RESOURCES) profile.stash[r] = Math.max(0, profile.stash[r] - opts.stake[r]);
-    if (!opts.tutorial && RESOURCES.some((r) => opts.stake[r] > 0)) saveProfile(profile);
-    this.map = generateMap(data.seed, loadWorld(), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count, opts.tutorial ? 0 : BALANCE.bots.count);
+    // la puntata esce dal Deposito adesso: è in gioco (e resta segnata finché la campagna non si chiude)
+    recoverStake(profile);
+    if (!opts.tutorial && RESOURCES.some((r) => opts.stake[r] > 0)) {
+      for (const r of RESOURCES) profile.stash[r] = Math.max(0, profile.stash[r] - opts.stake[r]);
+      profile.activeStake = { bag: { ...opts.stake }, fee: opts.exitFee };
+    }
+    saveProfile(profile);
+    this.map = generateMap(data.seed, loadWorld(), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count, opts.tutorial ? 0 : BALANCE.bots.count,
+      opts.front.aiDistance);
     setupFactions(this.map.kinds, opts.civ, opts.playerName, data.seed); // tu, imperi con nomi casuali, milizie provinciali
     this.state = new RunState(this.map, opts);
     this.state.initFog();
@@ -840,7 +845,7 @@ export class RunScene extends Phaser.Scene {
     } else if (res.reason === 'not-adjacent') {
       this.failFx(x, y, 'troppo lontano');
     } else if (res.reason === 'impassable') {
-      this.failFx(x, y, 'tossico');
+      this.failFx(x, y, 'irraggiungibile');
     }
   }
 
