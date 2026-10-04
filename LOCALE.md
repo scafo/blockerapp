@@ -45,6 +45,6 @@ Claude legge da solo `CLAUDE.md` (visione, regole, stato del gioco, note su ogni
 
 - Ultima versione: v36 (assalti a tempo sulle province nemiche, capitale e logistica alla HOI4, mappa più bella da vicino,
   pedine più fluide, immagini nuove di Nico nei caricamenti, bilanciamento rifatto).
-- Da fare: immagini originali dal Figma (nel cloud il download era bloccato dalla rete), decisioni di Nico sui numeri del
-  Mercato (`shop` in `src/config/balance.ts`) e sulla puntata (`stake`).
+- Fatto: immagini originali dal Figma in `src/assets/img/` (load-croce resta 736×414: nel Figma non c'è più grande).
+- Da fare: decisioni di Nico sui numeri del Mercato (`shop` in `src/config/balance.ts`) e sulla puntata (`stake`).
 - Tutti i numeri sono in `src/config/balance.ts`, i testi in `src/data/*.json`.

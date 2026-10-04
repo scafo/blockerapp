@@ -117,8 +117,8 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   **Da vicino** (zoom ≥ 5): territorio un po' trasparente sul terreno, alone lungo il tuo fronte, ombre morbide sui confini
   delle province, grana da carta stampata. **Pedine**: scivolano alla velocità vera del terreno, colpi tracciati con vampa,
   scintille, sobbalzo e danno che sale, caduta con esplosione e scossa, anello d'arrivo sull'ordine, passano attraverso le
-  amiche. Immagini nuove di Nico nei caricamenti (nave sul ghiaccio, festa della Concordia), le altre restano segnaposto
-  sgranati finché non arrivano gli originali (il download da Figma è bloccato dalla rete dell'ambiente).
+  amiche. Immagini nuove di Nico nei caricamenti (nave sul ghiaccio, festa della Concordia). Civiltà e caricamenti nave/radar ora
+  sono gli originali del Figma (~1200 px); load-croce è nativa 736×414 nel Figma, per averla nitida serve una versione più grande.
   Bilanciamento rifatto con i nuovi sistemi (vedi "Tempi di gioco").
 - **Caricamento con la lore e tabella in fondo** (ultima richiesta di Nico): il caricamento è un documento dell'archivio che si scrive
   lettera per lettera (telescrivente legata al tempo vero, `CHAR_MS`) in font da terminale (Share Tech Mono, `FONT_MONO`, azzurro chiaro che brilla come le scritte
