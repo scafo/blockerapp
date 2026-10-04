@@ -3,9 +3,12 @@
     "name": "Arsenale",
     "desc": "Sblocca e migliora unità e armamenti. Le casse arrivano sigillate: nessuno chiede da dove.",
     "levels": [
-      "Sblocca i Ricognitori nelle campagne",
-      "Sblocca l'Artiglieria nelle campagne",
-      "Unità unica della civiltà e unità più robuste (+25% vita)"
+      "Sblocca i Ricognitori",
+      "Sblocca l'Artiglieria",
+      "Sblocca Corazzati e Genio",
+      "Sblocca la Cannoniera (nave da costa)",
+      "Abilità: Ricognizione aerea e Bombardamento",
+      "Unità unica della civiltà, unità +25% vita"
     ]
   },
   "comando": {
@@ -14,7 +17,9 @@
     "levels": [
       "Rapporti dal campo: eventi durante le campagne",
       "Intercettazioni: frammenti sul mistero della Caduta",
-      "Rete di allerta: la tempesta si annuncia 30 s prima"
+      "Rete di allerta: la tempesta si annuncia 30 s prima",
+      "Coordinamento: un'unità in più in campo",
+      "Comando supremo: abilità -25% di ricarica"
     ]
   },
   "deposito": {
@@ -52,5 +57,17 @@
       "Vista +1 nelle campagne",
       "Vista +2 nelle campagne"
     ]
+  },
+  "abilita": {
+    "ricognizione": {
+      "name": "Ricognizione aerea",
+      "short": "RICOGN. AEREA",
+      "desc": "Un aereo sorvola la zona toccata: svela nemici e territorio per 15 s."
+    },
+    "bombardamento": {
+      "name": "Bombardamento",
+      "short": "BOMBARD.",
+      "desc": "Colpisce la zona toccata: le caselle nemiche tornano neutrali, le unità perdono vita."
+    }
   }
 }

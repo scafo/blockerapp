@@ -69,6 +69,20 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 ## Note del developer (stato e comandi)
 
+- **Armi (Arsenale a 6 livelli, Figma "Truppe")**: Fanteria → Ricognitori → Artiglieria → Corazzati + Genio → Cannoniera (nave: si schiera
+  da una tua costa, si muove sul mare, copre le coste −30% costo) → abilità a ricarica Ricognizione aerea (svela una zona 15 s) e
+  Bombardamento (caselle nemiche tornano neutrali, unità −40 vita) → unità unica della civiltà. Genio: +8 difesa sulle tue caselle attorno.
+  Sasso-carta-forbice per classi (`beats` è una lista in `src/data/units.json`). **Mazzo** di 4 truppe scelto in "Prepara la campagna"
+  (come Clash). Centro di Comando a 5 livelli (liv. 4: +1 unità in campo, liv. 5: abilità −25% ricarica). Le IA usano le truppe di terra
+  che hai sbloccato. Numeri in `balance.ts` (`units`, `abilities`, `camp`).
+- **Grafica (Figma "Estetica")**: mappa = celle quadrate luminose tipo heatmap (righe sfalsate come una matrice di LED), mare a puntini blu,
+  coste/confini bianchi, nomi gialli e capitali rosse da terminale, anomalie magenta, bagliore (bloom) che si spegne da solo se gli FPS
+  scendono sotto 40, righe di scansione, barra di stato con coordinate. HQ = planimetria tattica vista dall'alto in verde terminale
+  (moduli collegati al Centro di Comando, radar che spazza, convoglio in missione, toppe di reparto). Avvio da terminale.
+- **Nitidezza**: densità reale dello schermo fino a 3×; testi della mappa disegnati nello spazio dello schermo (`src/render/MapLabels.ts`),
+  sempre nitidi a ogni zoom; mappa statica in texture a tasselli 2,6× (1,6× sui dispositivi deboli); font incorporati Share Tech Mono
+  (dati) e Oswald (titoli).
+
 - **Sistemi dal Figma** (numeri in `balance.ts`: `campaigns`, `progression`, `civs`, `tech`, `camp.radarFogBonus`; testi in `src/data/civs.json`,
   `tech.json`, `buildings.json`; logica in `src/game/civs.ts`, `tech.ts`, `mods.ts`, `camp.ts`):
   **Campagne** breve 5 min ×0,8 risorse / standard 8 min / lunga 12 min ×1,4 (si sceglie dopo la run guidata).

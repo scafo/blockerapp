@@ -1,5 +1,5 @@
 // Accampamento: edifici, cantiere, spedizioni e ciò che cambiano nelle run. Niente Phaser.
-import { BALANCE, type CampaignId, type CivId, type UnitType } from '../config/balance';
+import { BALANCE, type AbilityType, type CampaignId, type CivId, type UnitType } from '../config/balance';
 import { civMods, civUnlocked, civInfo } from './civs';
 import { BASE_MODS, combine, type Mods } from './mods';
 import { techMods } from './tech';
@@ -25,6 +25,9 @@ export interface RunOptions {
   stormStartMs: number; // la durata della campagna sposta la tempesta
   campaignLootMult: number; // campagne lunghe = più risorse a casa
   mods: Mods;
+  abilities: AbilityType[]; // abilità a ricarica sbloccate
+  maxUnitsBonus: number;
+  abilityCdMult: number;
 }
 
 /** Tutto sbloccato, niente eventi: usato dal simulatore e come ripiego. */
@@ -32,7 +35,24 @@ export const DEFAULT_OPTIONS: RunOptions = {
   units: ['fanteria', 'ricognitori', 'artiglieria'], unitHpMult: 1, events: 0, warnBonusMs: 0,
   eliminatedLoss: BALANCE.end.eliminatedLoss, retreatBonus: 0, tutorial: false, fog: false,
   civ: 'republica', campaign: 'standard', stormStartMs: BALANCE.campaigns.standard.stormMs, campaignLootMult: 1, mods: BASE_MODS,
+  abilities: [], maxUnitsBonus: 0, abilityCdMult: 1,
 };
+
+/** Truppe sbloccate dall'Arsenale (più l'unità unica della civiltà al liv. 6). */
+export function unlockedUnits(p: Profile, civ: CivId = activeCiv(p)): UnitType[] {
+  const lvl = p.buildings.arsenale;
+  const units = [...C.arsenaleUnits[lvl]] as UnitType[];
+  if (lvl >= C.arsenaleUnique) units.push(civInfo(civ).unit);
+  return units;
+}
+
+/** Mazzo della campagna: le scelte del giocatore ancora valide, completate con le sbloccate fino a 4. */
+export function deckOf(p: Profile, civ: CivId = activeCiv(p)): UnitType[] {
+  const open = unlockedUnits(p, civ);
+  const deck = (p.deck ?? []).filter((t) => open.includes(t)).slice(0, BALANCE.units.deckSize);
+  for (const t of open) if (deck.length < BALANCE.units.deckSize && !deck.includes(t)) deck.push(t);
+  return deck;
+}
 
 /** Civiltà e durata davvero disponibili (le scelte si sbloccano con le campagne giocate). */
 export const civChoice = (p: Profile) => p.runs >= BALANCE.progression.civChoiceAfterRuns;
@@ -46,9 +66,11 @@ export function runOptions(p: Profile): RunOptions {
   const civ = activeCiv(p), campaign = activeCampaign(p);
   // la run guidata resta semplice: niente bonus
   const mods = tutorial ? BASE_MODS : combine(...civMods(civ), ...techMods(p), { fogBonus: C.radarFogBonus[radar] });
-  const units = [...C.arsenaleUnits[arsenale]] as UnitType[];
-  if (arsenale >= C.arsenaleUnique) units.push(civInfo(civ).unit);
+  const units = deckOf(p, civ);
   return {
+    abilities: arsenale >= C.arsenaleAbilities ? ['ricognizione', 'bombardamento'] : [],
+    maxUnitsBonus: C.comandoMaxUnitsBonus[comando],
+    abilityCdMult: C.comandoAbilityCdMult[comando],
     civ, campaign, mods,
     stormStartMs: BALANCE.campaigns[campaign].stormMs,
     campaignLootMult: BALANCE.campaigns[campaign].lootMult,

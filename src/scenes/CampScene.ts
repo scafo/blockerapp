@@ -3,7 +3,7 @@ import { BALANCE } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
 import buildingText from '../data/buildings.json';
 import {
-  BUILDINGS, EXPEDITIONS, activeCiv, buildBlock, campaignChoice, canAfford, civChoice, collectExpedition, expeditionCost,
+  BUILDINGS, EXPEDITIONS, activeCiv, buildBlock, campaignChoice, canAfford, civChoice, collectExpedition, deckOf, expeditionCost, unlockedUnits,
   expeditionTimeSec, fmtTime, nextLevel, settle, startBuild, startExpedition, tents,
 } from '../game/camp';
 import { CIV_IDS, civInfo, civUnlocked } from '../game/civs';
@@ -11,7 +11,6 @@ import { CIV_STYLE } from '../game/factions';
 import { BRANCHES, loreFragments, loreTotal, nextInBranches, researchBlock, settleResearch, startResearch, techInfo, type TechId } from '../game/tech';
 import { unitInfo } from '../game/units';
 import type { CampaignId } from '../config/balance';
-import { FACTION_INFO } from '../game/factions';
 import { RESOURCES, RESOURCE_INFO, type Bag } from '../game/resources';
 import { randomSeed } from '../map/rng';
 import { loadProfile, saveProfile, type BuildingId, type ExpeditionKind, type Profile } from '../save/storage';
@@ -21,13 +20,13 @@ import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
 import { uiCamera, view } from '../ui/screen';
-import { drawSymbol } from '../ui/symbols';
+import { drawPatch } from '../ui/symbols';
+import { drawUnitIcon } from '../ui/unitIcons';
 
 const PAD = 12;
-const MAX_LVL = 3;
-const SKY = 0x0a1714; // notte: l'accampamento è uno schermo acceso al buio
-const GROUND = 0x0b1613;
-const INK = 0x9fe8c8; // tratto luminoso (sagome, testi) sul fondo scuro
+const maxLvl = (id: BuildingId) => BALANCE.camp.buildings[id].length;
+const SKY = 0x010604; // l'HQ è una planimetria su uno schermo di comando al buio
+const INK = 0x9fe8c8; // tratto luminoso (testi) sul fondo scuro
 
 type Spot = BuildingId | 'spedizione' | 'gioca'; // 'gioca' = pannello di preparazione della campagna
 const CAMPAIGNS: CampaignId[] = ['breve', 'standard', 'lunga'];
@@ -37,9 +36,9 @@ const CAMPAIGN_NAME: Record<CampaignId, string> = { breve: 'BREVE', standard: 'S
 export class CampScene extends Phaser.Scene {
   private profile!: Profile;
   private k = 1; // scala del disegno rispetto a 844×390
-  private groundY = 0; // orizzonte
-  private centerY = 0; // fuoco e tende
-  private roadY = 0;
+  private plan = { x: 0, y: 0, w: 0, h: 0 }; // area della planimetria
+  private spotPos = {} as Record<Exclude<Spot, 'gioca'>, { x: number; y: number }>;
+  private clock: Phaser.GameObjects.Text | null = null;
   private portrait = false;
   private spots = new Map<Spot, { x: number; y: number; g: Phaser.GameObjects.Graphics; deco: Phaser.GameObjects.GameObject[]; label: Phaser.GameObjects.Text }>();
   private stashTexts: Phaser.GameObjects.Text[] = [];
@@ -66,18 +65,17 @@ export class CampScene extends Phaser.Scene {
     const { width, height } = view(this);
     // verticale: edifici su due file (dietro sull'orizzonte, davanti in basso), campo al centro
     this.portrait = height > width;
-    this.k = this.portrait ? Math.min(width / 430, height / 880) : Math.min(width / 844, height / 390);
-    this.groundY = height * (this.portrait ? 0.44 : 0.74);
-    this.centerY = this.portrait ? height * 0.58 : this.groundY;
-    this.roadY = (this.portrait ? height * 0.73 : this.groundY) + 26 * this.k;
 
+    // planimetria: area utile tra la scorta in alto e i comandi in basso
+    this.plan = this.portrait ? { x: PAD, y: 150, w: width - 2 * PAD, h: height - 150 - 150 } : { x: PAD, y: 84, w: width - 2 * PAD, h: height - 84 - 76 };
+    this.k = this.portrait ? Math.min(this.plan.w / 400, 1.2) : Math.min(this.plan.w / 820, this.plan.h / 230, 1.6);
+    const frac: Record<Exclude<Spot, 'gioca'>, [number, number]> = this.portrait
+      ? { comando: [0.5, 0.42], laboratorio: [0.27, 0.13], radar: [0.73, 0.13], arsenale: [0.27, 0.7], deposito: [0.73, 0.7], spedizione: [0.5, 0.93] }
+      : { comando: [0.5, 0.5], laboratorio: [0.3, 0.16], radar: [0.7, 0.16], arsenale: [0.16, 0.66], deposito: [0.84, 0.66], spedizione: [0.5, 0.95] };
+    this.spotPos = Object.fromEntries(Object.entries(frac).map(([id, [fx, fy]]) => [id, { x: this.plan.x + this.plan.w * fx, y: this.plan.y + this.plan.h * fy }])) as typeof this.spotPos;
     this.drawBackdrop();
     this.drawCenter();
-    const front = height * 0.73, g0 = this.groundY;
-    const pos: Record<Exclude<Spot, 'gioca'>, [number, number]> = this.portrait
-      ? { comando: [0.18, g0], laboratorio: [0.5, g0], deposito: [0.82, g0], spedizione: [0.18, front], radar: [0.5, front], arsenale: [0.82, front] }
-      : { spedizione: [0.07, g0], arsenale: [0.21, g0], laboratorio: [0.35, g0], comando: [0.66, g0], radar: [0.8, g0], deposito: [0.93, g0] };
-    for (const id of [...BUILDINGS, 'spedizione'] as const) this.makeSpot(id, width * pos[id][0], pos[id][1]);
+    for (const id of [...BUILDINGS, 'spedizione'] as const) this.makeSpot(id, this.spotPos[id].x, this.spotPos[id].y);
     this.burst = this.add.particles(0, 0, 'dot', {
       speed: { min: 60, max: 180 }, lifespan: 600, scale: { start: 1, end: 0 }, emitting: false,
     }).setDepth(30);
@@ -93,6 +91,8 @@ export class CampScene extends Phaser.Scene {
     this.refreshAcc = 250;
     this.settleAll(false);
     const now = Date.now();
+    const d = new Date(now);
+    this.clock?.setText(`HQ // ${civInfo(activeCiv(this.profile)).name.toUpperCase()} · SETTORE 07 · ${d.toTimeString().slice(0, 8)}`);
     const c = this.profile.construction;
     for (const [spot, t] of this.timerTexts) {
       if (spot === 'spedizione') {
@@ -113,7 +113,7 @@ export class CampScene extends Phaser.Scene {
   private panelState(spot: Spot, now: number): string {
     const p = this.profile;
     if (spot === 'spedizione') return !p.expedition ? 'none' : p.expedition.until > now ? 'away:timer' : 'ready';
-    if (spot === 'gioca') return `gioca|${p.civ}|${p.campaign}`;
+    if (spot === 'gioca') return `gioca|${this.panelMode}|${p.civ}|${p.campaign}|${(p.deck ?? []).join(',')}`;
     if (spot === 'laboratorio' && this.panelMode !== 'build' && p.buildings.laboratorio > 0) {
       return `lab|${this.panelMode}|${p.techs.join(',')}|${p.research?.id ?? ''}|${RESOURCES.map((r) => p.stash[r]).join(',')}${p.research ? ':timer' : ''}`;
     }
@@ -128,9 +128,9 @@ export class CampScene extends Phaser.Scene {
       saveProfile(this.profile);
       this.redrawSpot(done);
       const spot = this.spots.get(done)!;
-      this.cameras.main.flash(250, 239, 227, 200);
+      this.cameras.main.flash(200, 77, 255, 154);
       this.burst.setParticleTint(PALETTE.ocra);
-      this.burst.explode(30, spot.x, spot.y - 40 * this.k);
+      this.burst.explode(30, spot.x, spot.y);
       const lvl = this.profile.buildings[done];
       analytics.design(['accampamento', 'completato', done], lvl);
       this.toast(`${buildingText[done].name.toUpperCase()} LIV. ${lvl} COMPLETATA\n${buildingText[done].levels[lvl - 1]}`, PALETTE.radioattivo);
@@ -154,194 +154,173 @@ export class CampScene extends Phaser.Scene {
 
   // ---------- disegno ----------
 
+  /** Fondo: schermo di comando al buio, griglia da planimetria, intestazione con l'ora. */
   private drawBackdrop() {
     const { width, height } = view(this);
-    const k = this.k;
     this.cameras.main.setBackgroundColor(SKY);
     const g = this.add.graphics();
-    g.fillStyle(PALETTE.ocra, 0.28).fillCircle(width * 0.62, this.groundY - 120 * k, 70 * k); // sole velato
-    // città in rovina all'orizzonte (sempre uguale: è casa)
-    const rng = new Phaser.Math.RandomDataGenerator(['ashen-camp']);
-    g.fillStyle(INK, 0.16);
-    for (let x = 0; x < width; ) {
-      const w = rng.between(18, 46) * k, h = rng.between(20, 90) * k;
-      g.fillRect(x, this.groundY - h, w, h);
-      if (rng.frac() < 0.5) g.fillTriangle(x, this.groundY - h, x + w, this.groundY - h, x + w * rng.frac(), this.groundY - h - 14 * k);
-      x += w + rng.between(2, 14) * k;
-    }
-    // anomalia lontana: anelli che pulsano sull'orizzonte
-    const ax = width * 0.93, ay = this.groundY - 70 * k;
-    g.fillStyle(PALETTE.radioattivo, 0.9).fillCircle(ax, ay, 3 * k);
-    const ring = this.add.graphics({ x: ax, y: ay }).lineStyle(2, PALETTE.radioattivo, 1).strokeCircle(0, 0, 8 * k);
-    this.tweens.add({ targets: ring, scale: { from: 0.5, to: 3 }, alpha: { from: 0.9, to: 0 }, duration: 2200, repeat: -1 });
-    // terreno e strada
-    g.fillStyle(GROUND, 1).fillRect(0, this.groundY, width, height - this.groundY);
-    g.fillStyle(0x10201b, 1).fillRect(0, this.roadY, width, 18 * k);
-    g.lineStyle(2, INK, 0.5).lineBetween(0, this.groundY, width, this.groundY);
+    for (let x = 0; x < width; x += 20) g.lineStyle(1, PALETTE.ocra, x % 100 === 0 ? 0.1 : 0.04).lineBetween(x, 0, x, height);
+    for (let y = 0; y < height; y += 20) g.lineStyle(1, PALETTE.ocra, y % 100 === 0 ? 0.1 : 0.04).lineBetween(0, y, width, y);
+    // riga di scansione che scende lenta, come un monitor che si aggiorna
+    const sweep = this.add.rectangle(0, 0, width, 40, PALETTE.ocra, 0.035).setOrigin(0);
+    this.tweens.add({ targets: sweep, y: { from: -40, to: height }, duration: 6000, repeat: -1 });
+    const scan = this.add.tileSprite(0, 0, width, height, this.scanTexture()).setOrigin(0).setAlpha(0.25).setDepth(50);
+    void scan;
   }
 
-  /** Fuoco, tende (crescono con le run) e bandiera. */
-  private drawCenter() {
-    const { width } = view(this);
-    const k = this.k, cx = width * 0.5, y = this.centerY;
-    const g = this.add.graphics();
-    const n = tents(this.profile);
-    for (let i = 0; i < n; i++) {
-      const side = i % 2 ? 1 : -1, row = Math.floor(i / 2);
-      const tx = cx + side * (44 + row * 34) * k, ty = y + (i === n - 1 && n % 2 ? 0 : 0);
-      const w = (30 - row * 2) * k, h = (26 - row * 2) * k;
-      g.fillStyle(row % 2 ? 0x1d3a31 : PALETTE.carta, 1).fillTriangle(tx - w, ty, tx + w, ty, tx, ty - h);
-      g.lineStyle(2, INK, 1).strokeTriangle(tx - w, ty, tx + w, ty, tx, ty - h);
-      g.fillStyle(INK, 1).fillTriangle(tx - w * 0.25, ty, tx + w * 0.25, ty, tx, ty - h * 0.55);
+  private scanTexture(): string {
+    if (!this.textures.exists('scan')) {
+      const sg = this.make.graphics({}, false).fillStyle(0x000000, 1).fillRect(0, 2, 4, 1);
+      sg.generateTexture('scan', 4, 3);
+      sg.destroy();
     }
-    // bandiera della fazione
-    const fx = cx - 4 * k;
-    g.lineStyle(3 * k, INK, 1).lineBetween(fx, y - 4, fx, y - 86 * k);
-    const flag = this.add.graphics({ x: fx, y: y - 84 * k });
-    flag.fillStyle(FACTION_INFO[0].fill, 1).fillRect(0, 0, 34 * k, 22 * k);
-    drawSymbol(flag, 'stella', 17 * k, 11 * k, 7 * k, PALETTE.carta);
-    this.tweens.add({ targets: flag, scaleX: 0.86, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    // fuoco
-    g.fillStyle(INK, 1).fillRect(cx + 10 * k, y - 4 * k, 26 * k, 5 * k);
-    const fire = this.add.graphics({ x: cx + 23 * k, y: y - 4 * k });
-    fire.fillStyle(PALETTE.ruggine, 1).fillTriangle(-10 * k, 0, 10 * k, 0, 0, -24 * k);
-    fire.fillStyle(PALETTE.ocra, 1).fillTriangle(-6 * k, 0, 6 * k, 0, 0, -15 * k);
-    this.tweens.add({ targets: fire, scaleY: 0.75, scaleX: 1.1, duration: 180, yoyo: true, repeat: -1 });
-    this.add.text(cx, y + 54 * k, `${n} tende · ${this.profile.runs} campagne`, textStyle(11, INK, false)).setOrigin(0.5);
+    return 'scan';
+  }
+
+  /** Planimetria: recinto tratteggiato, corridoi dal Centro di Comando a ogni postazione, alloggi lungo il recinto. */
+  private drawCenter() {
+    const g = this.add.graphics();
+    const b = this.plan, c = this.spotPos.comando;
+    // recinto a otto lati, tratteggiato
+    const cut = 30 * this.k;
+    const pts = [[b.x + cut, b.y], [b.x + b.w - cut, b.y], [b.x + b.w, b.y + cut], [b.x + b.w, b.y + b.h - cut], [b.x + b.w - cut, b.y + b.h], [b.x + cut, b.y + b.h], [b.x, b.y + b.h - cut], [b.x, b.y + cut]];
+    for (let i = 0; i < pts.length; i++) {
+      const [x0, y0] = pts[i], [x1, y1] = pts[(i + 1) % pts.length];
+      const len = Math.hypot(x1 - x0, y1 - y0), n = Math.floor(len / 10);
+      for (let k = 0; k < n; k += 2) g.lineStyle(1, PALETTE.ocra, 0.35).lineBetween(x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n, x0 + ((x1 - x0) * (k + 1)) / n, y0 + ((y1 - y0) * (k + 1)) / n);
+    }
+    // corridoi (doppia linea)
+    for (const [id, p] of Object.entries(this.spotPos)) {
+      if (id === 'comando') continue;
+      const ang = Math.atan2(p.y - c.y, p.x - c.x), nx = -Math.sin(ang) * 4, ny = Math.cos(ang) * 4;
+      g.lineStyle(1, PALETTE.ocra, 0.22).lineBetween(c.x + nx, c.y + ny, p.x + nx, p.y + ny).lineBetween(c.x - nx, c.y - ny, p.x - nx, p.y - ny);
+    }
+    // alloggi: uno ogni tenda, lungo il lato basso del recinto
+    const n = tents(this.profile);
+    // in verticale vanno in alto a sinistra (in basso c'è il convoglio)
+    const ay = this.portrait ? b.y + cut + 14 : b.y + b.h - 18 * this.k;
+    for (let i = 0; i < n; i++) {
+      const x = b.x + cut + 12 + i * 16 * this.k;
+      g.lineStyle(1, PALETTE.ocra, 0.6).strokeRect(x, ay, 11 * this.k, 8 * this.k);
+    }
+    this.add.text(b.x + cut + 12, ay - 14, `ALLOGGI ${n} · CAMPAGNE ${this.profile.runs}`, textStyle(9, PALETTE.ocra, false)).setAlpha(0.7);
+    // intestazione con l'ora (aggiornata in update)
+    this.clock = this.add.text(b.x + b.w / 2, b.y - 14, '', textStyle(10, PALETTE.ocra, false)).setOrigin(0.5, 0.5).setAlpha(0.8);
   }
 
   private makeSpot(id: Exclude<Spot, 'gioca'>, x: number, y: number) {
-    const k = this.k;
+    const k = this.k, big = id === 'comando';
+    const w = (big ? 168 : 132) * k, h = (big ? 84 : 66) * k;
     const g = this.add.graphics();
-    const name = id === 'spedizione' ? 'ESTRAZIONE' : buildingText[id].name.toUpperCase();
-    const label = this.add.text(x, y + 8 * k, name, textStyle(12, INK)).setOrigin(0.5, 0);
-    const timer = this.add.text(x, y + 42 * k, '', textStyle(11, PALETTE.ruggine)).setOrigin(0.5, 0);
+    const label = this.add.text(x - w / 2 + 8, y - h / 2 + 6, id === 'spedizione' ? 'ESTRAZIONE' : buildingText[id].name.toUpperCase(), textStyle(10, PALETTE.carta, false));
+    const timer = this.add.text(x, y + h / 2 + 4, '', textStyle(10, PALETTE.allerta)).setOrigin(0.5, 0);
     this.timerTexts.set(id, timer);
     this.spots.set(id, { x, y, g, deco: [], label });
-    const hit = this.add.rectangle(x, y - 50 * k, 110 * k, 160 * k, 0xffffff, 0.001).setInteractive({ useHandCursor: true });
+    const hit = this.add.rectangle(x, y, w, h, 0xffffff, 0.001).setInteractive({ useHandCursor: true });
     hit.on('pointerup', () => this.openPanel(id));
   }
 
+  /** Modulo della planimetria: contorno ad angoli tagliati se costruito, tratteggio se lotto libero, tratteggio obliquo se in cantiere. */
   private redrawSpot(id: Exclude<Spot, 'gioca'>) {
     const spot = this.spots.get(id)!;
     spot.deco.forEach((d) => d.destroy());
     spot.deco = [];
     const g = spot.g.clear();
-    const k = this.k, x = spot.x, y = spot.y;
-    if (id === 'spedizione') return this.drawTruck(spot, g, x, y);
-
-    const lvl = this.profile.buildings[id];
-    const building = this.profile.construction?.id === id;
-    if (lvl === 0 && !building) {
-      // lotto vuoto: paletti, corda e cartello
-      g.lineStyle(3 * k, INK, 1);
-      for (const dx of [-40, 40]) g.lineBetween(x + dx * k, y, x + dx * k, y - 18 * k);
-      g.lineStyle(1.5, INK, 0.7).lineBetween(x - 40 * k, y - 14 * k, x + 40 * k, y - 14 * k);
-      g.fillStyle(0x1d3a31, 1).fillRect(x - 26 * k, y - 46 * k, 52 * k, 20 * k).lineStyle(2, INK, 1).strokeRect(x - 26 * k, y - 46 * k, 52 * k, 20 * k);
-      g.lineStyle(3 * k, INK, 1).lineBetween(x, y - 26 * k, x, y);
-      spot.deco.push(this.add.text(x, y - 36 * k, 'LOTTO', textStyle(10, INK)).setOrigin(0.5));
+    const k = this.k, x = spot.x, y = spot.y, big = id === 'comando';
+    const w = (big ? 168 : 132) * k, h = (big ? 84 : 66) * k, l = x - w / 2, t = y - h / 2, cut = 10 * k;
+    const lvl = id === 'spedizione' ? 1 : this.profile.buildings[id];
+    const building = id !== 'spedizione' && this.profile.construction?.id === id;
+    const built = lvl > 0 || building;
+    const outline = [{ x: l + cut, y: t }, { x: l + w, y: t }, { x: l + w, y: t + h - cut }, { x: l + w - cut, y: t + h }, { x: l, y: t + h }, { x: l, y: t + cut }];
+    if (built) {
+      g.fillStyle(0x03140c, 0.92).fillPoints(outline, true);
+      g.lineStyle(1.5, PALETTE.ocra, 1).strokePoints(outline, true, true);
+      g.lineStyle(1, PALETTE.ocra, 0.35).lineBetween(l + 6, t + 20 * k, l + w - 6, t + 20 * k);
+      spot.label.setAlpha(1);
     } else {
-      this.drawBuilding(spot, g, id, Math.max(lvl, building ? 1 : 0), x, y);
-      if (building) {
-        // impalcatura sopra il cantiere
-        g.lineStyle(2, INK, 0.8);
-        for (let i = -2; i <= 2; i++) g.lineBetween(x + i * 18 * k, y, x + (i + 1) * 18 * k, y - 70 * k);
-        g.lineBetween(x - 46 * k, y - 35 * k, x + 46 * k, y - 35 * k);
+      for (let i = 0; i < outline.length; i++) {
+        const p0 = outline[i], p1 = outline[(i + 1) % outline.length];
+        const n = Math.max(2, Math.floor(Math.hypot(p1.x - p0.x, p1.y - p0.y) / 6));
+        for (let s = 0; s < n; s += 2) g.lineStyle(1, PALETTE.ocra, 0.45).lineBetween(p0.x + ((p1.x - p0.x) * s) / n, p0.y + ((p1.y - p0.y) * s) / n, p0.x + ((p1.x - p0.x) * (s + 1)) / n, p0.y + ((p1.y - p0.y) * (s + 1)) / n);
       }
+      spot.label.setAlpha(0.55);
+      spot.deco.push(this.add.text(x, y + 8 * k, '[ + ] LOTTO LIBERO', textStyle(9, PALETTE.ocra, false)).setOrigin(0.5).setAlpha(0.7));
     }
-    // pallini di livello
-    for (let i = 0; i < MAX_LVL; i++) {
-      g.fillStyle(i < lvl ? PALETTE.ruggine : 0x1d3a31, 1).fillCircle(x + (i - 1) * 10 * k, y + 30 * k, 3.5 * k);
-      g.lineStyle(1, INK, 1).strokeCircle(x + (i - 1) * 10 * k, y + 30 * k, 3.5 * k);
+    if (building) {
+      g.lineStyle(1, PALETTE.allerta, 0.35);
+      for (let i = -h; i < w; i += 9 * k) g.lineBetween(l + Math.max(0, i), t + Math.max(0, -i), l + Math.min(w, i + h), t + Math.min(h, h - (i + h - w > 0 ? i + h - w : 0)));
+    }
+    if (built && id !== 'spedizione') this.drawModule(spot, g, id, x, y + 6 * k, w, h);
+    if (id === 'spedizione') this.drawConvoy(spot, g, x, y + 6 * k, w);
+    // livello: quadratini in basso a destra
+    if (id !== 'spedizione') {
+      const n = maxLvl(id);
+      for (let i = 0; i < n; i++) {
+        const px = l + w - 10 * k - (n - 1 - i) * 7 * k, py = t + h - 9 * k;
+        g.fillStyle(i < lvl ? PALETTE.ocra : 0x0f2a1d, 1).fillRect(px - 2.5 * k, py - 2.5 * k, 5 * k, 5 * k);
+      }
     }
   }
 
-  private drawBuilding(spot: { deco: Phaser.GameObjects.GameObject[] }, g: Phaser.GameObjects.Graphics, id: BuildingId, lvl: number, x: number, y: number) {
-    const k = this.k * (0.85 + lvl * 0.12);
-    if (id === 'arsenale') {
-      g.fillStyle(PALETTE.ruggine, 1).fillRect(x - 40 * k, y - 44 * k, 80 * k, 44 * k);
-      g.fillStyle(INK, 1).fillTriangle(x - 46 * k, y - 44 * k, x + 46 * k, y - 44 * k, x, y - 66 * k);
-      g.fillStyle(PALETTE.ocra, 1).fillRect(x - 12 * k, y - 26 * k, 24 * k, 26 * k); // porta del forno
-      for (let c = 0; c < Math.min(lvl, 2); c++) {
-        const chx = x + (18 + c * 14) * k;
-        g.fillStyle(INK, 1).fillRect(chx, y - 82 * k, 8 * k, 30 * k);
-        const smoke = this.add.circle(chx + 4 * k, y - 86 * k, 6 * k, 0x4c6b62, 0.7);
-        this.tweens.add({ targets: smoke, y: y - 130 * k, alpha: 0, scale: 2, duration: 1800, repeat: -1, delay: c * 600 });
-        spot.deco.push(smoke);
-      }
-      if (lvl >= 3) g.fillStyle(PALETTE.carta, 1).fillRect(x - 34 * k, y - 38 * k, 14 * k, 8 * k); // insegna
-    } else if (id === 'comando') {
-      g.fillStyle(0x1d3a31, 1).fillRect(x - 30 * k, y - 36 * k, 60 * k, 36 * k).lineStyle(2, INK, 1).strokeRect(x - 30 * k, y - 36 * k, 60 * k, 36 * k);
-      g.fillStyle(INK, 1).fillRect(x - 34 * k, y - 42 * k, 68 * k, 7 * k);
-      const mastH = (50 + lvl * 22) * k;
-      g.lineStyle(3, INK, 1).lineBetween(x + 14 * k, y - 42 * k, x + 14 * k, y - 42 * k - mastH);
-      for (let i = 1; i <= lvl + 1; i++) {
-        const yy = y - 42 * k - (mastH * i) / (lvl + 2);
-        g.lineBetween(x + 4 * k, yy, x + 24 * k, yy);
-      }
-      if (lvl >= 2) g.lineStyle(2, INK, 1).lineBetween(x - 18 * k, y - 42 * k, x - 18 * k, y - 80 * k);
-      const light = this.add.circle(x + 14 * k, y - 42 * k - mastH, 4 * k, PALETTE.radioattivo);
-      this.tweens.add({ targets: light, alpha: 0.15, duration: 600, yoyo: true, repeat: -1 });
+  /** Simboli da planimetria dentro ogni modulo (+ animazioni: radar che spazza, antenna che lampeggia, laboratorio acceso). */
+  private drawModule(spot: { deco: Phaser.GameObjects.GameObject[] }, g: Phaser.GameObjects.Graphics, id: BuildingId, x: number, y: number, w: number, _h: number) {
+    const k = this.k, C = PALETTE.ocra;
+    if (id === 'comando') {
+      g.lineStyle(1, C, 0.8).strokeCircle(x, y + 4 * k, 18 * k).strokeCircle(x, y + 4 * k, 10 * k);
+      g.lineBetween(x - 26 * k, y + 4 * k, x + 26 * k, y + 4 * k).lineBetween(x, y - 18 * k, x, y + 26 * k);
+      const light = this.add.circle(x, y + 4 * k, 3 * k, PALETTE.allerta);
+      this.tweens.add({ targets: light, alpha: 0.15, duration: 700, yoyo: true, repeat: -1 });
       spot.deco.push(light);
+      const civ = activeCiv(this.profile), st = CIV_STYLE[civ];
+      const pg = this.add.graphics();
+      drawPatch(pg, x - w / 2 + 22 * k, y + 8 * k, 13 * k, st.fill, st.symbol);
+      spot.deco.push(pg);
+    } else if (id === 'arsenale') {
+      for (let i = 0; i < 4; i++) g.lineStyle(1, C, 0.5).strokeRect(x - 50 * k + i * 16 * k, y - 4 * k, 12 * k, 22 * k); // rastrelliere
+      drawUnitIcon(g, 'corazzati', x + 34 * k, y + 8 * k, 13 * k, C);
     } else if (id === 'laboratorio') {
-      // cupola con antenna: cresce di livello in livello
-      g.fillStyle(0x1d3a31, 1).fillRect(x - 34 * k, y - 30 * k, 68 * k, 30 * k).lineStyle(2, INK, 1).strokeRect(x - 34 * k, y - 30 * k, 68 * k, 30 * k);
-      g.fillStyle(0x2a5a4c, 1).slice(x, y - 30 * k, 30 * k, Math.PI, 0, false).fillPath();
-      g.lineStyle(2, INK, 1).beginPath().arc(x, y - 30 * k, 30 * k, Math.PI, 0, false).strokePath();
-      for (let i = 0; i < lvl; i++) g.fillStyle(PALETTE.radioattivo, 0.8).fillRect(x - 24 * k + i * 18 * k, y - 20 * k, 10 * k, 8 * k); // finestre accese
-      g.lineStyle(2, INK, 1).lineBetween(x, y - 60 * k, x, y - (74 + lvl * 8) * k);
-      const glow = this.add.circle(x, y - (76 + lvl * 8) * k, 3.5 * k, PALETTE.radioattivo);
-      this.tweens.add({ targets: glow, alpha: 0.2, duration: 900, yoyo: true, repeat: -1 });
-      spot.deco.push(glow);
+      g.lineStyle(1, C, 0.9).strokeEllipse(x, y + 6 * k, 44 * k, 14 * k).strokeEllipse(x, y + 6 * k, 14 * k, 34 * k);
+      const core = this.add.circle(x, y + 6 * k, 4 * k, PALETTE.radioattivo);
+      this.tweens.add({ targets: core, scale: { from: 0.7, to: 1.4 }, alpha: { from: 1, to: 0.4 }, duration: 900, yoyo: true, repeat: -1 });
+      spot.deco.push(core);
     } else if (id === 'radar') {
-      // parabola su traliccio, con un'eco che pulsa
-      g.lineStyle(3, INK, 1).lineBetween(x - 14 * k, y, x, y - 40 * k).lineBetween(x + 14 * k, y, x, y - 40 * k);
-      g.fillStyle(0x1d3a31, 1).fillEllipse(x, y - 52 * k, (44 + lvl * 8) * k, 20 * k).lineStyle(2, INK, 1).strokeEllipse(x, y - 52 * k, (44 + lvl * 8) * k, 20 * k);
-      g.lineStyle(2, INK, 1).lineBetween(x, y - 52 * k, x + 14 * k, y - 70 * k);
-      const echo = this.add.circle(x + 14 * k, y - 70 * k, 6 * k).setStrokeStyle(1.5, PALETTE.radioattivo);
-      this.tweens.add({ targets: echo, scale: { from: 0.5, to: 3 }, alpha: { from: 1, to: 0 }, duration: 1400, repeat: -1 });
-      spot.deco.push(echo);
-    } else {
-      const crates = lvl <= 1 ? 3 : 0;
-      if (crates) {
-        for (let i = 0; i < crates; i++) {
-          const cx = x + (i === 2 ? 0 : i ? 14 : -14) * k, cy = y - (i === 2 ? 44 : 22) * k;
-          g.fillStyle(PALETTE.ocra, 1).fillRect(cx - 14 * k, cy, 28 * k, 22 * k).lineStyle(2, INK, 1).strokeRect(cx - 14 * k, cy, 28 * k, 22 * k);
-          g.lineBetween(cx - 14 * k, cy, cx + 14 * k, cy + 22 * k);
-        }
-      } else {
-        g.fillStyle(0x2a3a35, 1).fillRect(x - 46 * k, y - 46 * k, 92 * k, 46 * k);
-        g.fillStyle(INK, 1).fillRect(x - 50 * k, y - 54 * k, 100 * k, 9 * k);
-        g.lineStyle(1.5, INK, 0.6);
-        for (let i = -40; i <= 40; i += 10) g.lineBetween(x + i * k, y - 46 * k, x + i * k, y);
-        g.fillStyle(INK, 1).fillRect(x - 14 * k, y - 30 * k, 28 * k, 30 * k);
-        if (lvl >= 3) {
-          g.lineStyle(2, INK, 1);
-          for (let i = -60; i <= 60; i += 12) g.lineBetween(x + i * k, y, x + i * k, y - 14 * k);
-          g.lineBetween(x - 60 * k, y - 10 * k, x + 60 * k, y - 10 * k);
-        }
+      const r = 22 * k;
+      g.lineStyle(1, C, 0.7).strokeCircle(x, y + 4 * k, r).strokeCircle(x, y + 4 * k, r * 0.55);
+      const sweep = this.add.graphics({ x, y: y + 4 * k });
+      sweep.fillStyle(C, 0.25).slice(0, 0, r, -0.5, 0, false).fillPath();
+      sweep.lineStyle(1.5, C, 1).lineBetween(0, 0, r, 0);
+      this.tweens.add({ targets: sweep, rotation: Math.PI * 2, duration: 2600, repeat: -1 });
+      const blip = this.add.circle(x + r * 0.5, y - r * 0.2, 2 * k, PALETTE.allerta);
+      this.tweens.add({ targets: blip, alpha: 0, duration: 1300, yoyo: true, repeat: -1 });
+      spot.deco.push(sweep, blip);
+    } else if (id === 'deposito') {
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) {
+        const cx = x - 30 * k + i * 22 * k, cy = y - 4 * k + j * 14 * k;
+        g.lineStyle(1, C, 0.7).strokeRect(cx, cy, 18 * k, 11 * k).lineBetween(cx, cy, cx + 18 * k, cy + 11 * k);
       }
     }
   }
 
-  private drawTruck(spot: { deco: Phaser.GameObjects.GameObject[] }, g: Phaser.GameObjects.Graphics, x: number, y: number) {
+  /** Convoglio delle squadre di estrazione: in garage, oppure fuori (rotta tratteggiata verso il bordo). */
+  private drawConvoy(spot: { deco: Phaser.GameObjects.GameObject[] }, g: Phaser.GameObjects.Graphics, x: number, y: number, w: number) {
     const k = this.k;
     const e = this.profile.expedition;
     const away = e && e.until > Date.now();
     if (away) {
-      g.lineStyle(2, INK, 0.4);
-      for (let i = 0; i < 4; i++) g.lineBetween(x - 50 * k + i * 26 * k, y + 34 * k, x - 36 * k + i * 26 * k, y + 34 * k);
+      for (let i = 0; i < 6; i++) g.lineStyle(1, PALETTE.allerta, 0.6).lineBetween(x - w / 2 + 10 + i * 18 * k, y + 6 * k, x - w / 2 + 18 + i * 18 * k, y + 6 * k);
+      const dot = this.add.circle(x - w / 2 + 10, y + 6 * k, 3 * k, PALETTE.allerta);
+      this.tweens.add({ targets: dot, x: x + w / 2 - 10, duration: 2400, repeat: -1 });
+      spot.deco.push(dot, this.add.text(x, y - 10 * k, 'IN MISSIONE', textStyle(9, PALETTE.allerta, false)).setOrigin(0.5));
       return;
     }
-    g.fillStyle(0x2c5a4a, 1).fillRect(x - 40 * k, y - 34 * k, 50 * k, 26 * k); // cassone
-    g.fillStyle(0x234a3d, 1).fillRect(x + 10 * k, y - 28 * k, 26 * k, 20 * k); // cabina
-    g.fillStyle(PALETTE.carta, 1).fillRect(x + 18 * k, y - 25 * k, 12 * k, 8 * k);
-    g.fillStyle(INK, 1).fillCircle(x - 26 * k, y - 6 * k, 8 * k).fillCircle(x + 22 * k, y - 6 * k, 8 * k);
-    if (e) {
-      // di ritorno: casse sul cassone e un "!" che salta
-      g.fillStyle(PALETTE.ocra, 1).fillRect(x - 36 * k, y - 50 * k, 18 * k, 16 * k).fillRect(x - 16 * k, y - 48 * k, 16 * k, 14 * k);
-      const bang = this.add.text(x, y - 82 * k, '!', textStyle(26, PALETTE.ruggine)).setOrigin(0.5);
-      this.tweens.add({ targets: bang, y: y - 92 * k, duration: 400, yoyo: true, repeat: -1 });
+    const ready = e && e.until <= Date.now();
+    g.fillStyle(PALETTE.ocra, 1);
+    for (const dx of [-26, 4]) {
+      drawUnitIcon(g, 'corazzati', x + dx * k, y + 4 * k, 11 * k, ready ? PALETTE.allerta : PALETTE.ocra);
+    }
+    if (ready) {
+      const bang = this.add.text(x + 44 * k, y - 4 * k, '!', textStyle(20, PALETTE.allerta)).setOrigin(0.5);
+      this.tweens.add({ targets: bang, alpha: 0.2, duration: 400, yoyo: true, repeat: -1 });
       spot.deco.push(bang);
     }
   }
@@ -377,7 +356,7 @@ export class CampScene extends Phaser.Scene {
         this.toast(on ? 'Contatore FPS attivo nelle run' : 'Contatore FPS spento', PALETTE.carta);
       });
     const p = this.profile;
-    this.add.text(titleX, PAD + 30, `accampamento · ${p.wins} vittorie su ${p.runs} campagne`, textStyle(11, PALETTE.ruggine, false)).setOrigin(titleO, 0);
+    this.add.text(titleX, PAD + 30, `HQ · ${p.wins} vittorie su ${p.runs} campagne`, textStyle(11, PALETTE.ocra, false)).setOrigin(titleO, 0);
     // GIOCA: in basso a destra (orizzontale) o grande in basso al centro (verticale, sotto il pollice)
     const bw = P ? Math.min(260, width - 2 * PAD) : 150;
     // dopo la run guidata GIOCA apre la preparazione: civiltà e durata della campagna
@@ -407,7 +386,13 @@ export class CampScene extends Phaser.Scene {
     const items: Phaser.GameObjects.GameObject[] = [];
     const shade = this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.6).setOrigin(0).setInteractive();
     shade.on('pointerup', () => this.closePanel());
-    items.push(shade, this.add.rectangle(x0, y0, W, H, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(2, PALETTE.ocra).setInteractive());
+    items.push(shade, this.add.rectangle(x0, y0, W, H, 0x020a06).setOrigin(0).setStrokeStyle(1, PALETTE.ocra).setInteractive());
+    const fr = this.add.graphics();
+    fr.lineStyle(1, PALETTE.ocra, 0.35).lineBetween(x0 + 8, y0 + 36, x0 + W - 8, y0 + 36);
+    for (const [cx, cy, dx, dy] of [[x0, y0, 1, 1], [x0 + W, y0, -1, 1], [x0, y0 + H, 1, -1], [x0 + W, y0 + H, -1, -1]]) {
+      fr.lineStyle(3, PALETTE.ocra, 1).lineBetween(cx, cy, cx + dx * 14, cy).lineBetween(cx, cy, cx, cy + dy * 14);
+    }
+    items.push(fr);
     const close = this.add.text(x0 + W - 12, y0 + 8, '✕', textStyle(18, INK)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
     close.on('pointerup', () => this.closePanel());
     items.push(close);
@@ -441,7 +426,7 @@ export class CampScene extends Phaser.Scene {
           this.updateStash();
           const s = this.spots.get('spedizione')!;
           this.burst.setParticleTint(PALETTE.ocra);
-          this.burst.explode(30, s.x, s.y - 30 * this.k);
+          this.burst.explode(30, s.x, s.y);
           this.toast(`+${got.metallo} metallo · +${got.benzina} benzina · +${got.cibo} cibo`, PALETTE.radioattivo);
         }));
       } else {
@@ -466,13 +451,14 @@ export class CampScene extends Phaser.Scene {
     } else {
       const T = buildingText[spot];
       const lvl = this.profile.buildings[spot];
-      items.push(this.add.text(x0 + 16, y0 + 12, `${T.name.toUpperCase()}  liv. ${lvl}/${MAX_LVL}`, textStyle(T.name.length > 14 ? 15 : 18, INK)));
+      items.push(this.add.text(x0 + 16, y0 + 12, `${T.name.toUpperCase()}  liv. ${lvl}/${maxLvl(spot)}`, textStyle(T.name.length > 14 ? 15 : 18, INK)));
       if ((spot === 'laboratorio' || spot === 'radar') && lvl > 0) items.push(this.link('‹ indietro', x0 + W - 40, y0 + 10, () => this.openPanel(spot, '')));
       items.push(this.add.text(x0 + 16, y0 + 40, T.desc, textStyle(12, INK, false)).setWordWrapWidth(W - 32));
       T.levels.forEach((txt, i) => {
         const mark = i < lvl ? '✓' : i === lvl ? '→' : '·';
         const col = i < lvl ? PALETTE.ocra : i === lvl ? INK : 0x4c6b62;
-        items.push(this.add.text(x0 + 16, y0 + 92 + i * 20, `${mark} liv. ${i + 1}: ${txt}`, textStyle(11, col, i === lvl)).setWordWrapWidth(W - 32));
+        const step = T.levels.length > 3 ? 16 : 20;
+        items.push(this.add.text(x0 + 16, y0 + 84 + i * step, `${mark} liv. ${i + 1}: ${txt}`, textStyle(T.levels.length > 3 ? 10 : 11, col, i === lvl)).setWordWrapWidth(W - 32));
       });
       const c = this.profile.construction;
       const next = nextLevel(this.profile, spot);
@@ -509,48 +495,89 @@ export class CampScene extends Phaser.Scene {
     return this.add.text(x, y, label, textStyle(11, PALETTE.ocra)).setOrigin(origin, 0).setInteractive({ useHandCursor: true }).on('pointerup', onClick);
   }
 
-  /** Preparazione della campagna: civiltà (dopo qualche campagna) e durata. Max 6 scelte. */
+  /** Preparazione della campagna: vista principale (potenza, mazzo, durata, avvia) e due sotto-viste. Max 6 scelte per vista. */
   private fillPrep(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, H: number) {
     const p = this.profile;
-    items.push(this.add.text(x0 + 16, y0 + 12, 'PREPARA LA CAMPAGNA', textStyle(18, INK)));
     const civ = activeCiv(p);
-    let y = y0 + 44;
-    if (civChoice(p)) {
-      const cw = (W - 32 - 18) / 4;
+    const back = () => items.push(this.link('‹ indietro', x0 + W - 40, y0 + 12, () => this.openPanel('gioca', '')));
+    if (this.panelMode === 'civ') {
+      items.push(this.add.text(x0 + 16, y0 + 12, 'SCEGLI LA POTENZA', textStyle(16, INK)));
+      back();
+      const cw = (W - 32 - 18) / 4, y = y0 + 44;
       CIV_IDS.forEach((id, k) => {
         const st = CIV_STYLE[id], info = civInfo(id), open = civUnlocked(p, id), sel = id === civ;
         const cx = x0 + 16 + k * (cw + 6);
-        const card = this.add.rectangle(cx, y, cw, 54, sel ? 0x0f2a26 : PALETTE.inchiostro).setOrigin(0)
+        const card = this.add.rectangle(cx, y, cw, 96, sel ? 0x0f2a26 : PALETTE.inchiostro).setOrigin(0)
           .setStrokeStyle(sel ? 2 : 1, sel ? PALETTE.ocra : 0x2a6655).setAlpha(open ? 1 : 0.5).setInteractive({ useHandCursor: open });
         card.on('pointerup', () => {
           if (!open) return this.toast(`${info.name}: ${info.unlock}`, PALETTE.carta);
           p.civ = id;
           saveProfile(p);
-          this.openPanel('gioca');
+          this.openPanel('gioca', 'civ');
         });
         const g = this.add.graphics();
-        g.fillStyle(st.fill, 1).fillRect(cx, y, cw, 4);
-        drawSymbol(g, st.symbol, cx + 14, y + 22, 6, st.fill, PALETTE.inchiostro);
+        drawPatch(g, cx + cw / 2, y + 30, 20, st.fill, st.symbol);
         const nm = cw < 110 && info.name.length > 8 ? `${info.name.slice(0, 7)}.` : info.name;
-        items.push(card, g, this.add.text(cx + 26, y + 15, nm.toUpperCase(), textStyle(cw < 110 ? 9 : 11, open ? PALETTE.carta : 0x4c6b62)),
-          this.add.text(cx + 8, y + 36, open ? info.motto : `🔒 ${info.unlock}`, textStyle(8, open ? PALETTE.ocra : 0x4c6b62, false)).setWordWrapWidth(cw - 12));
+        items.push(card, g, this.add.text(cx + cw / 2, y + 56, nm.toUpperCase(), textStyle(cw < 110 ? 9 : 11, open ? PALETTE.carta : 0x4c6b62)).setOrigin(0.5, 0),
+          this.add.text(cx + cw / 2, y + 72, open ? info.motto : `🔒 ${info.unlock}`, textStyle(8, open ? PALETTE.ocra : 0x4c6b62, false)).setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(cw - 8));
       });
-      y += 64;
-    } else {
-      items.push(this.add.text(x0 + 16, y, `Guidi la REPUBLICA. Le altre potenze si sbloccano dopo ${BALANCE.progression.civChoiceAfterRuns} campagne.`, textStyle(11, PALETTE.ocra, false)).setWordWrapWidth(W - 32));
-      y += 34;
+      const info = civInfo(civ), unit = unitInfo(info.unit);
+      items.push(this.add.text(x0 + 16, y + 106, [`Bonus: ${info.bonus}`, `Unità unica: ${unit.name} (Arsenale liv. ${BALANCE.camp.arsenaleUnique}) — ${unit.desc}`,
+        `Edificio unico: ${info.building} — ${info.buildingText}`].join('\n'), textStyle(10, PALETTE.carta, false)).setWordWrapWidth(W - 32).setLineSpacing(4));
+      return;
     }
-    const info = civInfo(civ);
-    const unit = unitInfo(info.unit);
-    const lines = [
-      `${info.name.toUpperCase()} — ${info.motto}`,
-      `Bonus: ${info.bonus}`,
-      `Unità unica: ${unit.name} (Arsenale liv. ${BALANCE.camp.arsenaleUnique}) — ${unit.desc}`,
-      `Edificio unico: ${info.building} — ${info.buildingText}`,
-    ];
-    items.push(this.add.text(x0 + 16, y, lines.join('\n'), textStyle(11, PALETTE.carta, false)).setWordWrapWidth(W - 32).setLineSpacing(5));
-    // durata: un solo tasto che scorre tra le tre (resta nel limite di scelte a schermo)
-    // verticale: tasti uno sopra l'altro; orizzontale: affiancati
+    if (this.panelMode === 'mazzo') {
+      const open = unlockedUnits(p, civ), deck = deckOf(p, civ), max = BALANCE.units.deckSize;
+      items.push(this.add.text(x0 + 16, y0 + 12, `MAZZO  ${deck.length}/${max}`, textStyle(16, INK)));
+      back();
+      items.push(this.add.text(x0 + 16, y0 + 36, `Porti in campagna ${max} truppe tra quelle sbloccate dall'Arsenale. Tocca per scambiarle.`, textStyle(9, PALETTE.carta, false)).setWordWrapWidth(W - 32));
+      const cols = Math.min(5, Math.max(4, open.length)), cw = (W - 32 - (cols - 1) * 6) / cols;
+      open.forEach((t, k) => {
+        const cx = x0 + 16 + (k % cols) * (cw + 6), cy = y0 + 60 + Math.floor(k / cols) * 82;
+        const sel = deck.includes(t), u = unitInfo(t);
+        const tile = this.add.rectangle(cx, cy, cw, 76, sel ? 0x0f2a26 : PALETTE.inchiostro).setOrigin(0).setStrokeStyle(sel ? 2 : 1, sel ? PALETTE.ocra : 0x2a6655)
+          .setInteractive({ useHandCursor: true });
+        tile.on('pointerup', () => {
+          let next = (p.deck ?? []).length ? deckOf(p, civ) : [...deck];
+          if (next.includes(t)) { if (next.length > 1) next = next.filter((x) => x !== t); }
+          else if (next.length < max) next.push(t);
+          else next = [...next.slice(1), t]; // pieno: esce la prima
+          p.deck = next;
+          saveProfile(p);
+          this.openPanel('gioca', 'mazzo');
+        });
+        const g = this.add.graphics();
+        drawUnitIcon(g, t, cx + cw / 2, cy + 22, 12, sel ? PALETTE.ocra : PALETTE.carta);
+        items.push(tile, g, this.add.text(cx + cw / 2, cy + 42, u.short, textStyle(9, PALETTE.carta)).setOrigin(0.5, 0),
+          this.add.text(cx + cw / 2, cy + 58, `${BALANCE.units[t].cost} truppe`, textStyle(8, PALETTE.ocra, false)).setOrigin(0.5, 0));
+      });
+      if (p.buildings.arsenale >= BALANCE.camp.arsenaleAbilities) {
+        items.push(this.add.text(x0 + 16, y0 + H - 24, '+ abilità: Ricognizione aerea · Bombardamento (sempre con te)', textStyle(9, PALETTE.radioattivo, false)));
+      }
+      return;
+    }
+    // vista principale
+    items.push(this.add.text(x0 + 16, y0 + 12, 'PREPARA LA CAMPAGNA', textStyle(18, INK)));
+    const info = civInfo(civ), st = CIV_STYLE[civ];
+    const row = (y: number, label: string, onClick: (() => void) | null) => {
+      const r = this.add.rectangle(x0 + 16, y, W - 32, 52, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1, onClick ? PALETTE.ocra : 0x2a6655);
+      if (onClick) r.setInteractive({ useHandCursor: true }).on('pointerup', onClick);
+      items.push(r, this.add.text(x0 + 24, y + 6, label, textStyle(9, PALETTE.ocra)));
+      if (onClick) items.push(this.add.text(x0 + W - 24, y + 26, '›', textStyle(18, PALETTE.ocra)).setOrigin(1, 0.5));
+    };
+    let y = y0 + 44;
+    row(y, civChoice(p) ? 'POTENZA' : `POTENZA · le altre dopo ${BALANCE.progression.civChoiceAfterRuns} campagne`, civChoice(p) ? () => this.openPanel('gioca', 'civ') : null);
+    const pg = this.add.graphics();
+    drawPatch(pg, x0 + 40, y + 32, 13, st.fill, st.symbol);
+    items.push(pg, this.add.text(x0 + 60, y + 24, `${info.name.toUpperCase()} — ${info.bonus}`, textStyle(10, PALETTE.carta, false)).setWordWrapWidth(W - 100));
+    y += 60;
+    const deck = deckOf(p, civ);
+    row(y, `MAZZO · ${deck.length}/${BALANCE.units.deckSize}`, unlockedUnits(p, civ).length > 1 ? () => this.openPanel('gioca', 'mazzo') : null);
+    const dg = this.add.graphics();
+    deck.forEach((t, k) => drawUnitIcon(dg, t, x0 + 40 + k * 60, y + 32, 8, PALETTE.carta));
+    items.push(dg);
+    deck.forEach((t, k) => items.push(this.add.text(x0 + 52 + k * 60, y + 27, unitInfo(t).short.slice(0, 7), textStyle(8, PALETTE.carta, false))));
+    // durata + avvia
     const stack = this.portrait;
     const bw = stack ? W - 32 : (W - 32 - 10) / 2, by = y0 + H - 56;
     if (campaignChoice(p)) {
@@ -559,14 +586,14 @@ export class CampScene extends Phaser.Scene {
       items.push(this.btn(lbl, x0 + 16, stack ? by - 48 : by, bw, true, () => {
         p.campaign = CAMPAIGNS[(CAMPAIGNS.indexOf(p.campaign) + 1) % CAMPAIGNS.length];
         saveProfile(p);
-        this.openPanel('gioca');
+        this.openPanel('gioca', '');
       }, 12));
+      items.push(this.add.text(x0 + 16, (stack ? by - 48 : by) - 16, 'risorse a fine campagna: breve ×0.8 · standard ×1 · lunga ×1.4', textStyle(8, 0x4c6b62, false)));
     }
     items.push(this.btn('AVVIA LA CAMPAGNA ▶', stack ? x0 + 16 : x0 + 16 + bw + 10, by, bw, true, () => {
       analytics.design(['campagna', 'avvia', `${civ}:${p.campaign}`]);
       this.scene.start('Run', { seed: randomSeed() });
     }, 13));
-    items.push(this.add.text(x0 + 16, (stack ? by - 48 : by) - 16, 'risorse a fine campagna: breve ×0.8 · standard ×1 · lunga ×1.4', textStyle(8, 0x4c6b62, false)));
   }
 
   /** Laboratorio: la prossima ricerca di ogni ramo + archivio della Caduta. */
@@ -583,7 +610,7 @@ export class CampScene extends Phaser.Scene {
       items.push(this.link('‹ ricerche', x0 + 16, y0 + H - 26, () => this.openPanel('laboratorio', ''), 0));
       return;
     }
-    items.push(this.add.text(x0 + 16, y0 + 12, `LABORATORIO  liv. ${lvl}/${MAX_LVL}`, textStyle(16, INK)));
+    items.push(this.add.text(x0 + 16, y0 + 12, `LABORATORIO  liv. ${lvl}/${maxLvl('laboratorio')}`, textStyle(16, INK)));
     const r = p.research;
     items.push(this.add.text(x0 + 16, y0 + 36, r ? `IN RICERCA: ${techInfo(r.id as TechId).name.toUpperCase()} · ${fmtTime(r.until - now)}` : 'Scegli una ricerca. Una alla volta; non blocca le campagne.',
       textStyle(10, r ? PALETTE.radioattivo : PALETTE.carta, !!r)));
@@ -612,7 +639,7 @@ export class CampScene extends Phaser.Scene {
   /** Sala Radar: registro delle campagne (record locali; la classifica online è fuori dall'MVP). */
   private fillRadar(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, _H: number) {
     const p = this.profile;
-    items.push(this.add.text(x0 + 16, y0 + 12, `SALA RADAR  liv. ${p.buildings.radar}/${MAX_LVL}`, textStyle(16, INK)));
+    items.push(this.add.text(x0 + 16, y0 + 12, `SALA RADAR  liv. ${p.buildings.radar}/${maxLvl('radar')}`, textStyle(16, INK)));
     items.push(this.link('migliora ›', x0 + W - 40, y0 + 12, () => this.openPanel('radar', 'build')));
     const byCiv = CIV_IDS.map((c) => {
       const h = p.history.filter((r) => r.civ === c);

@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 
 const res = await build({
   entryPoints: ['src/main.ts'], bundle: true, format: 'iife', minify: true, write: false, target: 'es2019',
+  loader: { '.woff2': 'dataurl' }, // font incorporati nella pagina
   define: { 'process.env.NODE_ENV': '"production"' },
 });
 const js = res.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');

@@ -1,8 +1,8 @@
 // Stato logico di una run: nessuna dipendenza da Phaser.
-import { BALANCE, type CampaignId, type CivId, type Resource, type UnitType } from '../config/balance';
+import { BALANCE, type AbilityType, type CampaignId, type CivId, type Resource, type UnitType } from '../config/balance';
 import { addBag, emptyBag, scaleBag, type Bag } from './resources';
 import { NEIGHBORS, hexDistance } from '../map/hexGrid';
-import { UNIT_TYPES, findPath, rps, type Unit } from './units';
+import { UNIT_TYPES, findPath, isNaval, rps, type Unit } from './units';
 import { isCoast, seaRoute, type Boat } from './boats';
 import { DEFAULT_OPTIONS, type RunOptions } from './camp';
 import { EVENTS, type EventChoice, type EventEffects, type GameEvent } from './events';
@@ -32,6 +32,7 @@ export type RunEvent =
   | { type: 'boat'; phase: 'landed' | 'lost'; boat: Boat }
   | { type: 'province'; by: number; province: number; count: number; capital: boolean; nation: string; bonus: number }
   | { type: 'unitDied'; unit: Unit }
+  | { type: 'ability'; ability: AbilityType; tile: number; phase: 'launch' | 'impact'; hits?: number }
   | { type: 'eliminated'; faction: number; by: number; loot: Bag };
 
 export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'storm';
@@ -90,6 +91,14 @@ export class RunState {
   attackRatio: number = BALANCE.attack.default;
   private flowBestD = Infinity;
   private anomalyDefMult = 1;
+  /** Genio: caselle fortificate (proprietario della fortificazione, −1 = nessuna). */
+  private fortBy: Int8Array;
+  /** Cannoniera: caselle di costa coperte dal fuoco (fazione che ne approfitta, −1 = nessuna). */
+  private supportBy: Int8Array;
+  /** Abilità: pronte da (tempo di gioco), ricognizioni in volo, bombardamenti in arrivo. */
+  abilityReadyAt: Record<AbilityType, number> = { ricognizione: 0, bombardamento: 0 };
+  private recons: { tile: number; until: number }[] = [];
+  private strikes: { tile: number; at: number }[] = [];
   units: Unit[] = [];
   /** fazione → tipo → tempo di gioco in cui la carta torna disponibile */
   readonly cooldowns: Record<UnitType, number>[];
@@ -105,6 +114,8 @@ export class RunState {
 
   constructor(readonly map: RunMap, readonly opts: RunOptions = DEFAULT_OPTIONS) {
     this.owner = new Int8Array(map.tiles.length).fill(NEUTRAL);
+    this.fortBy = new Int8Array(map.tiles.length).fill(-1);
+    this.supportBy = new Int8Array(map.tiles.length).fill(-1);
     this.aiRng = createRng(map.seed + ':ia');
     this.ruins = map.land.filter((i) => map.tiles[i]!.type === 'rovine');
     this.evRng = createRng(map.seed + ':eventi');
@@ -221,6 +232,7 @@ export class RunState {
       ticks++;
     }
     this.moveBoats(dt);
+    this.abilitiesTick();
     if (this.flowTarget !== null) {
       this.flowAcc += dt;
       const stepMs = BALANCE.flow.stepMs / this.opts.mods.flowSpeedMult;
@@ -445,6 +457,7 @@ export class RunState {
     for (let i = 0; i < this.owner.length; i++) if (this.owner[i] === PLAYER) seed(i, F.territory + this.opts.mods.fogBonus);
     for (const u of this.unitsOf(PLAYER)) seed(u.tile, F.unit);
     for (const b of this.boats) if (b.owner === PLAYER) seed(b.path[b.pos], F.boat);
+    for (const r of this.recons) seed(r.tile, BALANCE.abilities.ricognizione.radius);
     for (let h = 0; h < queue.length; h++) {
       const c = queue[h];
       vis[c] = 1;
@@ -587,9 +600,11 @@ export class RunState {
   deployBlock(f: number, type: UnitType, i?: number): null | 'locked' | 'cooldown' | 'troops' | 'cap' | 'tile' {
     if (f === PLAYER && !this.opts.units.includes(type)) return 'locked';
     if (this.gameTimeMs < this.cooldowns[f][type]) return 'cooldown';
-    if (this.unitsOf(f).length >= BALANCE.units.maxPerFaction) return 'cap';
+    if (this.unitsOf(f).length >= BALANCE.units.maxPerFaction + (f === PLAYER ? this.opts.maxUnitsBonus : 0)) return 'cap';
     if (this.factions[f].troops < this.unitCost(f, type)) return 'troops';
-    if (i !== undefined && (this.owner[i] !== f || this.unitAt(i))) return 'tile';
+    if (i !== undefined && isNaval(type)) {
+      if (this.owner[i] !== f || this.seaSpawn(i) < 0) return 'tile'; // nave: da una tua costa con mare libero accanto
+    } else if (i !== undefined && (this.owner[i] !== f || this.unitAt(i))) return 'tile';
     return null;
   }
 
@@ -600,16 +615,36 @@ export class RunState {
       this.cooldowns[f][type] = this.gameTimeMs + BALANCE.units.cooldownMs;
     }
     const maxHp = BALANCE.units[type].hp * (f === PLAYER ? this.opts.unitHpMult : 1);
+    const tile = isNaval(type) ? this.seaSpawn(i) : i;
+    if (tile < 0) return null;
     const u: Unit = {
-      id: this.nextUnitId++, type, owner: f, tile: i, hp: maxHp, maxHp,
+      id: this.nextUnitId++, type, owner: f, tile, hp: maxHp, maxHp,
       path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs,
     };
     this.units.push(u);
     return u;
   }
 
-  /** Ordina alla pedina di andare verso `to`; false se irraggiungibile. */
+  /** Casella di mare libera accanto a una costa (dove nasce una cannoniera), −1 se non c'è. */
+  private seaSpawn(coast: number): number {
+    return NEIGHBORS[coast].find((n) => n >= 0 && !this.map.tiles[n] && !this.unitAt(n)) ?? -1;
+  }
+
+  /** Ordina alla pedina di andare verso `to`; false se irraggiungibile. Le navi vanno sul mare accanto alla costa toccata. */
   order(u: Unit, to: number): boolean {
+    if (isNaval(u.type)) {
+      const sea = (i: number) => i >= 0 && !this.map.tiles[i];
+      let dest = to;
+      if (!sea(to)) {
+        const opts = NEIGHBORS[to].filter(sea);
+        if (!opts.length) return false;
+        dest = opts.reduce((a, b) => (hexDistance(a, u.tile) <= hexDistance(b, u.tile) ? a : b));
+      }
+      const path = findPath(u.tile, dest, sea);
+      u.path = path;
+      u.lastOrderMs = this.gameTimeMs;
+      return path.length > 0 || dest === u.tile;
+    }
     const path = findPath(u.tile, to, (i) => this.passable(i));
     u.path = path;
     u.lastOrderMs = this.gameTimeMs;
@@ -651,7 +686,10 @@ export class RunState {
           }
         }
       }
-      if (this.owner[u.tile] !== u.owner && !this.stormed[u.tile]) {
+      if (isNaval(u.type) || !this.map.tiles[u.tile]) {
+        // le navi non conquistano: si riparano vicino a una tua costa
+        if (!u.inCombat && NEIGHBORS[u.tile].some((n) => n >= 0 && this.owner[n] === u.owner)) u.hp = Math.min(u.maxHp, u.hp + U.healPerTick);
+      } else if (this.owner[u.tile] !== u.owner && !this.stormed[u.tile]) {
         u.hp -= this.defenseOf(u.tile) * stats.captureCost;
         if (u.hp > 0) this.transfer(u.owner, u.tile, 0, u.id);
       } else if (!u.inCombat) {
@@ -659,6 +697,80 @@ export class RunState {
       }
     }
     this.removeDead();
+    this.updateSupport();
+  }
+
+  /** Genio: fortifica la sua casella e quelle accanto; cannoniera: copre le coste vicine. */
+  private updateSupport() {
+    this.fortBy.fill(-1);
+    this.supportBy.fill(-1);
+    for (const u of this.units) {
+      if (u.type === 'genio') {
+        for (const i of [u.tile, ...NEIGHBORS[u.tile]]) if (i >= 0 && this.owner[i] === u.owner) this.fortBy[i] = u.owner;
+      } else if (isNaval(u.type)) {
+        const R = BALANCE.units.supportRange;
+        const seen = new Set([u.tile]);
+        let ring = [u.tile];
+        for (let r = 0; r < R; r++) {
+          const next: number[] = [];
+          for (const c of ring) for (const n of NEIGHBORS[c]) if (n >= 0 && !seen.has(n)) { seen.add(n); next.push(n); }
+          ring = next;
+        }
+        for (const i of seen) if (this.map.tiles[i]) this.supportBy[i] = u.owner;
+      }
+    }
+  }
+
+  // ---------- abilità a ricarica ----------
+
+  /** Perché non si può usare (null = si può). */
+  abilityBlock(a: AbilityType): null | 'locked' | 'cooldown' {
+    if (!this.opts.abilities.includes(a)) return 'locked';
+    if (this.gameTimeMs < this.abilityReadyAt[a]) return 'cooldown';
+    return null;
+  }
+
+  useAbility(a: AbilityType, tile: number): boolean {
+    if (this.abilityBlock(a) || tile < 0 || this.over) return false;
+    const A = BALANCE.abilities[a];
+    this.abilityReadyAt[a] = this.gameTimeMs + A.cooldownMs * this.opts.abilityCdMult;
+    if (a === 'ricognizione') {
+      this.recons.push({ tile, until: this.gameTimeMs + BALANCE.abilities.ricognizione.durationMs });
+      this.updateFog();
+    } else {
+      this.strikes.push({ tile, at: this.gameTimeMs + BALANCE.abilities.bombardamento.delayMs });
+    }
+    this.events.push({ type: 'ability', ability: a, tile, phase: 'launch' });
+    return true;
+  }
+
+  private abilitiesTick() {
+    const before = this.recons.length;
+    this.recons = this.recons.filter((r) => r.until > this.gameTimeMs);
+    if (this.recons.length !== before) this.updateFog();
+    const B = BALANCE.abilities.bombardamento;
+    for (const s of this.strikes.filter((x) => x.at <= this.gameTimeMs)) {
+      let hits = 0;
+      for (let i = 0; i < this.owner.length; i++) {
+        if (!this.map.tiles[i]) continue;
+        const d = hexDistance(i, s.tile);
+        const o = this.owner[i];
+        if (d <= B.radius && o !== NEUTRAL && o !== PLAYER) {
+          // la casella nemica torna neutrale, il nemico perde il presidio
+          const f = this.factions[o];
+          f.tiles--;
+          f.troops = Math.max(0, f.troops - B.troopsPerTile);
+          this.owner[i] = NEUTRAL;
+          this.frontierCache.clear();
+          hits++;
+          if (f.tiles <= 0) this.eliminate(o, PLAYER);
+        }
+      }
+      for (const u of this.units) if (u.owner !== PLAYER && hexDistance(u.tile, s.tile) <= B.unitRadius) { u.hp -= B.unitDamage; hits++; }
+      this.removeDead();
+      this.events.push({ type: 'ability', ability: 'bombardamento', tile: s.tile, phase: 'impact', hits });
+    }
+    this.strikes = this.strikes.filter((x) => x.at > this.gameTimeMs);
   }
 
   private removeDead() {
@@ -678,8 +790,10 @@ export class RunState {
     if (this.gameTimeMs < this.aiSpawnAt[f.id] || this.unitsOf(f.id).length >= A.maxUnits) return;
     this.aiSpawnAt[f.id] = this.gameTimeMs + A.spawnEveryMs + (this.aiRng() * 2 - 1) * A.spawnJitterMs;
     const dominant = A.dominant[f.id] as UnitType;
-    const types: UnitType[] = ['fanteria', 'ricognitori', 'artiglieria'];
-    const type = this.aiRng() < A.dominantChance ? dominant : types[Math.floor(this.aiRng() * 3)];
+    // i nemici usano le truppe di terra che hai sbloccato tu (niente navi né unità uniche)
+    const base: UnitType[] = ['fanteria', 'ricognitori', 'artiglieria', 'corazzati', 'genio'];
+    const types = base.filter((t) => t === 'fanteria' || t === 'ricognitori' || t === 'artiglieria' || this.opts.units.includes(t));
+    const type = this.aiRng() < A.dominantChance ? dominant : types[Math.floor(this.aiRng() * types.length)];
     if (f.troops < BALANCE.units[type].cost * A.reserve) return;
     const anchor = this.map.starts[f.id];
     const target = this.nearestEnemyTile(f.id, anchor);
@@ -737,7 +851,8 @@ export class RunState {
 
   /** Truppe che `by` spende per prendere la casella (l'Imperium paga meno le neutrali). */
   costFor(by: number, i: number): number {
-    const d = this.defenseOf(i);
+    let d = this.defenseOf(i);
+    if (this.supportBy[i] === by) d = Math.ceil(d * BALANCE.units.supportCostMult); // fuoco di copertura della cannoniera
     return by === PLAYER && this.owner[i] === NEUTRAL ? Math.ceil(d * this.opts.mods.neutralCostMult) : d;
   }
 
@@ -750,8 +865,9 @@ export class RunState {
     const f = this.factions[o];
     const garrison = Math.min((f.troops / Math.max(1, f.tiles)) * BALANCE.owned.garrison, BALANCE.owned.garrisonMax);
     const mine = o === PLAYER;
+    const fort = this.fortBy[i] === o ? BALANCE.units.fortifyDefense : 0;
     const settlement = t.type === 'rovine' ? BALANCE.owned.settlementDefense + (mine ? this.opts.mods.settlementDefense : 0) : 0;
-    return Math.ceil((base * BALANCE.owned.defenseMult + garrison + settlement) * (mine ? this.opts.mods.ownedDefenseMult : 1));
+    return Math.ceil((base * BALANCE.owned.defenseMult + garrison + settlement + fort) * (mine ? this.opts.mods.ownedDefenseMult : 1));
   }
 
   isFrontier(i: number, f = PLAYER): boolean {

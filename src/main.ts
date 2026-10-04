@@ -7,6 +7,8 @@ import { HudScene } from './scenes/HudScene';
 import { ResultScene } from './scenes/ResultScene';
 import { RunScene } from './scenes/RunScene';
 import { DPR } from './ui/screen';
+import monoUrl from '@fontsource/share-tech-mono/files/share-tech-mono-latin-400-normal.woff2';
+import titleUrl from '@fontsource/oswald/files/oswald-latin-600-normal.woff2';
 
 analytics.init();
 
@@ -18,8 +20,20 @@ const size = () => ({
 });
 
 let game: Phaser.Game | null = null;
+let fontsReady = false;
+
+/** I testi di Phaser vanno disegnati con i font già caricati, altrimenti restano col font di riserva. */
+async function loadFonts() {
+  try {
+    const faces = [new FontFace('Share Tech Mono', `url(${monoUrl})`), new FontFace('Oswald', `url(${titleUrl})`, { weight: '600' })];
+    for (const f of await Promise.all(faces.map((x) => x.load()))) document.fonts.add(f);
+  } catch {
+    /* senza font si usa quello di riserva */
+  }
+}
 
 function boot() {
+  if (!fontsReady) return;
   const { w, h } = size();
   if (w < MIN || h < MIN) return; // aspetta che la pagina abbia una misura vera
   game = new Phaser.Game({
@@ -50,4 +64,7 @@ function fit() {
 }
 new ResizeObserver(fit).observe(host);
 window.addEventListener('resize', fit);
-boot();
+loadFonts().finally(() => {
+  fontsReady = true;
+  boot();
+});

@@ -5,7 +5,7 @@ import { buildCountryMap } from '../src/map/countries';
 import { generateMap } from '../src/map/generate';
 import { RunState, PLAYER } from '../src/game/RunState';
 import { hexDistance } from '../src/map/hexGrid';
-import { unitInfo, UNIT_TYPES } from '../src/game/units';
+import { unitInfo } from '../src/game/units';
 import { BALANCE } from '../src/config/balance';
 
 const tapsPerSec = Number(process.argv[2] ?? 2);
@@ -41,7 +41,7 @@ for (let r = 0; r < runs; r++) {
       // giocatore attivo: contro la pedina nemica più vicina schiera quella che la batte
       const mine = st.map.starts[0];
       const foe = st.units.filter((u) => u.owner !== PLAYER).sort((a, b) => hexDistance(a.tile, mine) - hexDistance(b.tile, mine))[0];
-      const type = foe ? UNIT_TYPES.find((t) => unitInfo(t).beats === foe.type)! : 'fanteria';
+      const type = (foe ? st.opts.units.find((t) => unitInfo(t).beats.includes(unitInfo(foe.type).cls)) : undefined) ?? 'fanteria';
       if (st.troops > BALANCE.units[type].cost * 2) {
         const ref = foe ? foe.tile : mine;
         let spawn = -1, best = Infinity;

@@ -73,17 +73,30 @@ export const BALANCE = {
     fanteria: { cost: 60, hp: 60, attack: 6, range: 1, moveMs: 600, captureCost: 0.4 },
     ricognitori: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 300, captureCost: 0.5 },
     artiglieria: { cost: 70, hp: 30, attack: 9, range: 3, moveMs: 900, captureCost: 0.8 },
-    // unità uniche delle civiltà (arsenale liv. 3)
+    // secondo gruppo dell'Arsenale
+    corazzati: { cost: 90, hp: 110, attack: 9, range: 1, moveMs: 450, captureCost: 0.25 }, // travolgono fanteria e ricognitori
+    genio: { cost: 50, hp: 50, attack: 4, range: 1, moveMs: 700, captureCost: 0.3 }, // fortifica le caselle attorno, ferma i corazzati
+    cannoniera: { cost: 85, hp: 70, attack: 8, range: 3, moveMs: 350, captureCost: 0 }, // nave: copre le coste
+    // unità uniche delle civiltà (arsenale liv. 6)
     legionari: { cost: 80, hp: 90, attack: 7, range: 1, moveMs: 650, captureCost: 0.35 }, // Imperium
     guardia: { cost: 55, hp: 75, attack: 6, range: 1, moveMs: 600, captureCost: 0.3 }, // Republica
     prototipo: { cost: 75, hp: 28, attack: 11, range: 4, moveMs: 1000, captureCost: 0.8 }, // Aristocrazia
     infiltrati: { cost: 40, hp: 32, attack: 7, range: 1, moveMs: 260, captureCost: 0.2 }, // Cabal
+    deckSize: 4, // in campagna porti 4 truppe delle sbloccate (il mazzo, come in Clash)
+    fortifyDefense: 8, // genio: difesa in più sulle sue caselle e su quelle accanto
+    supportRange: 2, // cannoniera: caselle di costa coperte dal fuoco
+    supportCostMult: 0.7, // costo per prendere una casella coperta dalla cannoniera
     strong: 1.75, // moltiplicatore danno contro l'unità che batti
     weak: 0.5, // moltiplicatore danno contro l'unità che ti batte
     cooldownMs: 6000, // ricarica della carta (tempo di gioco)
     maxPerFaction: 4,
     healPerTick: 1, // hp recuperati sul proprio territorio, fuori combattimento
     // captureCost: hp persi conquistando = difesa della casella * captureCost
+  },
+  // Abilità a ricarica (Arsenale liv. 5): non sono unità
+  abilities: {
+    ricognizione: { cooldownMs: 40_000, radius: 7, durationMs: 15_000 }, // ricognizione aerea: svela la zona
+    bombardamento: { cooldownMs: 60_000, radius: 1, unitRadius: 2, delayMs: 1200, unitDamage: 40, troopsPerTile: 10 }, // le caselle nemiche tornano neutrali
   },
   aiUnits: {
     dominant: ['', 'ricognitori', 'artiglieria', 'fanteria'], // unità preferita per fazione (indice = fazione)
@@ -177,11 +190,16 @@ export const BALANCE = {
         { cost: { metallo: 40, benzina: 10, cibo: 0 }, timeSec: 60 },
         { cost: { metallo: 120, benzina: 40, cibo: 0 }, timeSec: 180 },
         { cost: { metallo: 250, benzina: 90, cibo: 0 }, timeSec: 300 },
+        { cost: { metallo: 380, benzina: 160, cibo: 40 }, timeSec: 600 }, // liv. 4–6: timer più lunghi (spec: fino a 2 h)
+        { cost: { metallo: 520, benzina: 240, cibo: 80 }, timeSec: 1200 },
+        { cost: { metallo: 700, benzina: 320, cibo: 140 }, timeSec: 1800 },
       ],
       comando: [
         { cost: { metallo: 30, benzina: 0, cibo: 15 }, timeSec: 60 },
         { cost: { metallo: 90, benzina: 20, cibo: 40 }, timeSec: 180 },
         { cost: { metallo: 200, benzina: 60, cibo: 80 }, timeSec: 300 },
+        { cost: { metallo: 340, benzina: 120, cibo: 140 }, timeSec: 600 },
+        { cost: { metallo: 480, benzina: 200, cibo: 200 }, timeSec: 1200 },
       ],
       deposito: [
         { cost: { metallo: 50, benzina: 0, cibo: 20 }, timeSec: 90 },
@@ -201,11 +219,21 @@ export const BALANCE = {
     },
     radarFogBonus: [0, 0, 1, 2], // vista in più nelle campagne (liv. 1 = registro delle campagne)
     // effetti per livello (indice = livello, 0 = non costruito)
-    arsenaleUnits: [['fanteria'], ['fanteria', 'ricognitori'], ['fanteria', 'ricognitori', 'artiglieria'], ['fanteria', 'ricognitori', 'artiglieria']],
-    arsenaleHpMult: [1, 1, 1, 1.25],
-    arsenaleUnique: 3, // dal liv. 3 anche l'unità unica della civiltà
-    comandoEvents: [0, 1, 2, 2], // 0 = niente eventi, 1 = comuni, 2 = anche rari
-    comandoWarnBonusMs: [0, 0, 0, 30_000],
+    // Arsenale (Figma): Fanteria, Ricognitori, Artiglieria → Corazzati, Genio, Cannoniera → abilità aeree → unità unica
+    arsenaleUnits: [
+      ['fanteria'], ['fanteria', 'ricognitori'], ['fanteria', 'ricognitori', 'artiglieria'],
+      ['fanteria', 'ricognitori', 'artiglieria', 'corazzati', 'genio'],
+      ['fanteria', 'ricognitori', 'artiglieria', 'corazzati', 'genio', 'cannoniera'],
+      ['fanteria', 'ricognitori', 'artiglieria', 'corazzati', 'genio', 'cannoniera'],
+      ['fanteria', 'ricognitori', 'artiglieria', 'corazzati', 'genio', 'cannoniera'],
+    ],
+    arsenaleHpMult: [1, 1, 1, 1, 1, 1, 1.25],
+    arsenaleAbilities: 5, // dal liv. 5 ricognizione aerea e bombardamento
+    arsenaleUnique: 6, // dal liv. 6 anche l'unità unica della civiltà
+    comandoEvents: [0, 1, 2, 2, 2, 2], // 0 = niente eventi, 1 = comuni, 2 = anche rari
+    comandoWarnBonusMs: [0, 0, 0, 30_000, 30_000, 30_000],
+    comandoMaxUnitsBonus: [0, 0, 0, 0, 1, 1], // liv. 4: un'unità in più in campo
+    comandoAbilityCdMult: [1, 1, 1, 1, 1, 0.75], // liv. 5: abilità -25% ricarica
     depositoLoss: [0.7, 0.4, 0.25, 0.25],
     depositoRetreatBonus: [0, 0, 0, 0.1], // +10% zaino in ritirata al liv. 3
     expeditions: {
@@ -220,6 +248,8 @@ export const BALANCE = {
     eliminatedLoss: 0.7, // zaino perso se eliminato (o travolto dalla tempesta)
     resultDelayMs: 1200, // pausa prima della schermata finale
   },
+  // effetti grafici della mappa (Figma: heatmap luminosa). bloom = bagliore su tutta la mappa (spento sui telefoni deboli)
+  fx: { bloom: { blur: 1, strength: 1.15, steps: 3 } as { blur: number; strength: number; steps: number } | null },
   speeds: [1, 2, 4],
   // Campagne a durata scelta (Figma: "campagne di durata più lunga portano più risorse")
   campaigns: {
@@ -255,7 +285,7 @@ export const BALANCE = {
   },
   camera: {
     minZoom: 0.5,
-    maxZoom: 5,
+    maxZoom: 4.5,
     startZoom: 2.4,
     labelMinZoom: 2.3, // sotto questo zoom niente numeri di difesa
     dragThreshold: 8, // px schermo prima che un tap diventi trascinamento
@@ -264,6 +294,7 @@ export const BALANCE = {
 
 export type TileType = 'terra' | 'deserto' | 'rovine' | 'tossica' | 'anomalia';
 export type Resource = 'metallo' | 'benzina' | 'cibo';
-export type UnitType = 'fanteria' | 'ricognitori' | 'artiglieria' | 'legionari' | 'guardia' | 'prototipo' | 'infiltrati';
+export type UnitType = 'fanteria' | 'ricognitori' | 'artiglieria' | 'corazzati' | 'genio' | 'cannoniera' | 'legionari' | 'guardia' | 'prototipo' | 'infiltrati';
+export type AbilityType = 'ricognizione' | 'bombardamento';
 export type CivId = 'republica' | 'imperium' | 'aristocrazia' | 'cabal';
 export type CampaignId = 'breve' | 'standard' | 'lunga';

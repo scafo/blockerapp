@@ -4,7 +4,6 @@ import { PALETTE, hex } from '../config/palette';
 import { PLAYER, type Outcome, type VictoryReason } from '../game/RunState';
 import { FACTION_INFO } from '../game/factions';
 import { RESOURCES, bagTotal, type Bag } from '../game/resources';
-import { UNIT_TYPES } from '../game/units';
 import type { GameEvent } from '../game/events';
 import { EventCard } from '../ui/EventCard';
 import { TutorialGuide, type GuideSignal } from '../ui/TutorialGuide';
@@ -12,7 +11,8 @@ import { analytics } from '../analytics/analytics';
 import { fpsEnabled } from '../ui/debug';
 import { savePrefs } from '../save/storage';
 import { Button } from '../ui/Button';
-import { CARD_H, CARD_W, UnitCard } from '../ui/UnitCard';
+import { AbilityCard, CARD_H, CARD_W, UnitCard } from '../ui/UnitCard';
+import { MapLabels } from '../render/MapLabels';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
 import { uiCamera, view } from '../ui/screen';
@@ -52,6 +52,9 @@ export class HudScene extends Phaser.Scene {
   private retreatBtn!: Button;
   private retreatArmed: Phaser.Time.TimerEvent | null = null;
   private cards: UnitCard[] = [];
+  private mapLabels!: MapLabels;
+  private scan?: Phaser.GameObjects.TileSprite;
+  private abilityCards: AbilityCard[] = [];
   private shownTroops = -1;
   private ended = false;
   private portrait = false;
@@ -77,6 +80,15 @@ export class HudScene extends Phaser.Scene {
 
   create() {
     uiCamera(this);
+    // etichette della mappa nitide (spazio schermo) e righe di scansione da monitor sopra la mappa
+    this.mapLabels = new MapLabels(this);
+    if (!this.textures.exists('scan')) {
+      const sg = this.make.graphics({}, false).fillStyle(0x000000, 1).fillRect(0, 2, 4, 1);
+      sg.generateTexture('scan', 4, 3);
+      sg.destroy();
+    }
+    const { width: vw, height: vh } = view(this);
+    this.scan = this.add.tileSprite(0, 0, vw, vh, 'scan').setOrigin(0).setAlpha(0.22).setDepth(-5);
     this.shownTroops = -1;
     this.nextBannerAt = 0;
     this.aliveKey = '';
@@ -107,7 +119,11 @@ export class HudScene extends Phaser.Scene {
 
     // comandi: carte in basso a sinistra; ritirata e velocità in basso a destra
     // solo le unità sbloccate dalla Arsenale
-    this.cards = UNIT_TYPES.filter((t) => this.run.state.opts.units.includes(t)).map((t) => new UnitCard(this, t, () => this.onCard(t), this.run.state.unitCost(PLAYER, t)));
+    this.cards = this.run.state.opts.units.map((t) => new UnitCard(this, t, () => this.onCard(t), this.run.state.unitCost(PLAYER, t)));
+    this.abilityCards = this.run.state.opts.abilities.map((a) => new AbilityCard(this, a, () => {
+      const block = this.run.toggleAbility(a);
+      if (block === 'cooldown') this.toast('abilità in ricarica', PALETTE.ko);
+    }));
     this.speedBtn = new Button(this, 'x1', 56, 44, () => {
       const sp = BALANCE.speeds as readonly number[];
       this.setSpeed(sp[(sp.indexOf(this.run.state.speed) + 1) % sp.length]);
@@ -196,7 +212,7 @@ export class HudScene extends Phaser.Scene {
   private onCard(t: UnitType) {
     const block = this.run.toggleCard(t);
     if (!block) return;
-    const msg = ({ locked: 'serve la Arsenale', cooldown: 'carta in ricarica', troops: 'truppe insufficienti', cap: 'massimo pedine in campo', tile: '' } as const)[block];
+    const msg = ({ locked: 'serve l\'Arsenale', cooldown: 'carta in ricarica', troops: 'truppe insufficienti', cap: 'massimo pedine in campo', tile: '' } as const)[block];
     const card = this.cards.find((c) => c.type === t)!;
     this.tweens.add({ targets: card, x: card.x + 4, duration: 50, yoyo: true, repeat: 2 });
     if (msg) this.toast(msg, PALETTE.ko);
@@ -211,6 +227,7 @@ export class HudScene extends Phaser.Scene {
 
   private layout() {
     const { width, height, portrait } = view(this);
+    this.scan?.setSize(width, height);
     this.portrait = portrait;
     const P = this.leftPanel;
     if (portrait) {
@@ -261,6 +278,11 @@ export class HudScene extends Phaser.Scene {
       c.baseY = height - PAD - CARD_H;
       c.setPosition(PAD + k * (CARD_W + 6), c.baseY);
     });
+    // abilità: dopo le carte in orizzontale, sopra le carte a destra in verticale
+    this.abilityCards.forEach((c, k) => {
+      c.baseY = portrait ? height - PAD - CARD_H * 2 - 14 : height - PAD - CARD_H;
+      c.setPosition(portrait ? width - PAD - (k + 1) * (CARD_W + 6) + 6 : PAD + (this.cards.length + k) * (CARD_W + 6) + 10, c.baseY);
+    });
     // leve sopra le carte, nell'angolo in basso a sinistra
     const ly = height - PAD - CARD_H - 8 - 36;
     this.attackBtn?.setPosition(PAD, ly);
@@ -275,9 +297,15 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
+  /** Scritta che sale da un punto della mappa, nitida. */
+  floatAt(x: number, y: number, msg: string, color: number, delay = 0) {
+    this.mapLabels.float(this.run, x, y, msg, color, delay);
+  }
+
   update() {
     const st = this.run.state;
     if (!st) return;
+    this.mapLabels.update(this.run);
     if (!this.ended) this.guide?.update();
     this.fps?.setText(`${Math.round(this.game.loop.actualFps)} fps`);
     const t = Math.floor(st.troops);
@@ -322,6 +350,11 @@ export class HudScene extends Phaser.Scene {
       const cd = Math.max(0, st.cooldowns[PLAYER][c.type] - st.gameTimeMs) / BALANCE.units.cooldownMs;
       const block = st.deployBlock(PLAYER, c.type);
       c.refresh(cd, block === null || block === 'cooldown', sel === c.type);
+    }
+    for (const c of this.abilityCards) {
+      const A = BALANCE.abilities[c.ability];
+      const cd = Math.max(0, st.abilityReadyAt[c.ability] - st.gameTimeMs) / (A.cooldownMs * st.opts.abilityCdMult);
+      c.refresh(Math.min(1, cd), this.run.selectedAbility === c.ability);
     }
   }
 
@@ -446,7 +479,7 @@ export class HudScene extends Phaser.Scene {
     if (layoutOnly && y > this.hint.y - 4 && y < this.hint.y + 60 && Math.abs(x - this.hint.x) < 200) return true; // etichetta della guida
     const inRect = (r: Phaser.GameObjects.Rectangle) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
     if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
-    const btns = [this.speedBtn, this.retreatBtn, ...this.cards, this.attackBtn, this.workBtn].filter((b) => b !== null);
+    const btns = [this.speedBtn, this.retreatBtn, ...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn].filter((b) => b !== null);
     return btns.some((b) => b.contains(x, y));
   }
 }

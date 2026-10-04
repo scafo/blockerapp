@@ -15,13 +15,22 @@ export class BootScene extends Phaser.Scene {
   create() {
     uiCamera(this);
     const { width, height } = view(this);
-    this.add.text(width / 2, height / 2, 'RICOGNIZIONE IN CORSO…', textStyle(18, PALETTE.ocra)).setOrigin(0.5);
+    this.cameras.main.setBackgroundColor(0x010604);
+    // avvio da terminale (Figma, "Loading screens"): righe che compaiono una alla volta
+    const lines = ['> ASHEN ATLAS // TERMINALE DI COMANDO', '> COLLEGAMENTO SATELLITARE ........ OK', '> RICOSTRUZIONE CARTOGRAFICA DOPO LA CADUTA ...'];
+    const x = Math.max(16, width / 2 - 220), y0 = height / 2 - 40;
+    lines.forEach((l, k) => {
+      const t = this.add.text(x, y0 + k * 20, l, textStyle(13, k === 0 ? PALETTE.carta : PALETTE.ocra, false)).setAlpha(0);
+      this.tweens.add({ targets: t, alpha: 1, delay: k * 120, duration: 60 });
+    });
+    const cursor = this.add.text(x, y0 + lines.length * 20, '_', textStyle(13, PALETTE.ocra, false));
+    this.tweens.add({ targets: cursor, alpha: 0, duration: 380, yoyo: true, repeat: -1 });
 
     const g = this.add.graphics().fillStyle(0xffffff).fillRect(0, 0, 6, 6);
     g.generateTexture('dot', 6, 6).destroy();
 
     // Lascia disegnare il testo di caricamento prima del calcolo (sincrono).
-    this.time.delayedCall(30, () => {
+    this.time.delayedCall(420, () => {
       const mask = buildLandMask();
       this.registry.set('landMask', mask);
       this.registry.set('countries', buildCountryMap(mask)); // nazioni reali per province e confini

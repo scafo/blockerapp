@@ -1,8 +1,9 @@
 // Stile "schermo di comando": fondo scuro, linee al fosforo, colori forti solo per le fazioni.
 export const PALETTE = {
-  ocra: 0x6ff0b0, // accento (fosforo): bordi dei pannelli, titoli
+  ocra: 0x4dff9a, // accento (verde terminale): bordi dei pannelli, titoli
   ruggine: 0xff6a4d,
-  carta: 0xd6f5e6, // testo chiaro
+  allerta: 0xffb547, // ambra: timer, cantieri, avvisi
+  carta: 0xe2fff0, // testo chiaro
   inchiostro: 0x07110f, // pannelli e fondo
   radioattivo: 0x4fd8ff, // anomalie e segnale
   terra: 0x0e1c18,
@@ -17,11 +18,25 @@ export const PALETTE = {
   player: 0x3d8bff,
   playerBorder: 0xb5d3ff,
   factions: [
-    { fill: 0x3d8bff, border: 0xb5d3ff }, // giocatore
-    { fill: 0xff5a3c, border: 0xffc0b0 },
-    { fill: 0xc04dff, border: 0xe9c2ff },
-    { fill: 0xf2b84b, border: 0xffe3a8 },
+    { fill: 0x18c8ff, border: 0xc4f3ff }, // Republica (il ciano "caldo" della heatmap)
+    { fill: 0xff3b4f, border: 0xffb3bb }, // Imperium
+    { fill: 0xb45cff, border: 0xe4c4ff }, // Aristocrazia
+    { fill: 0xffb627, border: 0xffe2a0 }, // Cabal
   ],
+  // mappa (Figma: heatmap di celle luminose + mappa da terminale): mare a puntini blu, terra a celle blu notte
+  mappa: {
+    fondo: 0x020409,
+    marePunto: 0x1d4ed8,
+    terra: 0x0d1636, // cella neutrale
+    terraChiara: 0x182a63, // province "calde"
+    deserto: 0x141f45,
+    reticolo: 0x0c1a3a,
+    confine: 0xdbe6ff, // coste e confini (bianco freddo)
+    nome: 0xf2d544, // nomi delle nazioni (giallo terminale)
+    capitale: 0xff4d5e,
+    segno: 0x6d8fe0, // città, rovine
+    segnale: 0xff4fd8, // anomalie (il segnale della Caduta)
+  },
   ok: 0xffffff,
   ko: 0xff4d4d,
 } as const;

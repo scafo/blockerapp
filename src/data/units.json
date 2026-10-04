@@ -1,9 +1,12 @@
 [
-  { "id": "fanteria", "cls": "fanteria", "name": "Fanteria", "short": "FANTERIA", "beats": "ricognitori", "desc": "Lenta e dura. Tiene le conquiste lunghe, ferma i ricognitori." },
-  { "id": "ricognitori", "cls": "ricognitori", "name": "Ricognitori", "short": "RICOGN.", "beats": "artiglieria", "desc": "Veloci e leggeri. Entrano nelle retrovie, travolgono l'artiglieria." },
-  { "id": "artiglieria", "cls": "artiglieria", "name": "Artiglieria", "short": "ARTIGL.", "beats": "fanteria", "desc": "Colpisce a distanza. Lenta da spostare, micidiale sulla fanteria." },
-  { "id": "legionari", "cls": "fanteria", "name": "Legionari", "short": "LEGIONE", "beats": "ricognitori", "desc": "Fanteria d'élite dell'Imperium: più vita e più forza." },
-  { "id": "guardia", "cls": "fanteria", "name": "Guardia repubblicana", "short": "GUARDIA", "beats": "ricognitori", "desc": "Fanteria della Republica: costa poco, resiste a lungo." },
-  { "id": "prototipo", "cls": "artiglieria", "name": "Prototipo", "short": "PROTOT.", "beats": "fanteria", "desc": "Arma sperimentale dell'Aristocrazia: colpisce a 4 caselle, fragile." },
-  { "id": "infiltrati", "cls": "ricognitori", "name": "Infiltrati", "short": "INFILTR.", "beats": "artiglieria", "desc": "Agenti della Cabal: velocissimi, conquistano spendendo poco." }
+  { "id": "fanteria", "cls": "fanteria", "name": "Fanteria", "short": "FANTERIA", "beats": ["ricognitori"], "desc": "Lenta e dura. Tiene le conquiste lunghe, ferma i ricognitori." },
+  { "id": "ricognitori", "cls": "ricognitori", "name": "Ricognitori", "short": "RICOGN.", "beats": ["artiglieria", "genio"], "desc": "Veloci e leggeri. Entrano nelle retrovie, travolgono artiglieria e genio." },
+  { "id": "artiglieria", "cls": "artiglieria", "name": "Artiglieria", "short": "ARTIGL.", "beats": ["fanteria", "corazzati"], "desc": "Colpisce a 3 caselle. Lenta, micidiale su fanteria e corazzati." },
+  { "id": "corazzati", "cls": "corazzati", "name": "Corazzati", "short": "CORAZZ.", "beats": ["fanteria", "ricognitori"], "desc": "Carri pesanti: tanta vita, conquistano spendendo poco. Temono artiglieria e genio." },
+  { "id": "genio", "cls": "genio", "name": "Genio", "short": "GENIO", "beats": ["corazzati"], "desc": "Fortifica le tue caselle attorno (+difesa) e mina i corazzati." },
+  { "id": "cannoniera", "cls": "cannoniera", "name": "Cannoniera", "short": "CANNON.", "naval": true, "beats": ["fanteria", "genio"], "desc": "Nave da costa: si schiera da una tua costa, colpisce a 3 caselle e copre gli sbarchi (-30% costo)." },
+  { "id": "legionari", "cls": "fanteria", "name": "Legionari", "short": "LEGIONE", "beats": ["ricognitori"], "desc": "Fanteria d'élite dell'Imperium: più vita e più forza." },
+  { "id": "guardia", "cls": "fanteria", "name": "Guardia repubblicana", "short": "GUARDIA", "beats": ["ricognitori"], "desc": "Fanteria della Republica: costa poco, resiste a lungo." },
+  { "id": "prototipo", "cls": "artiglieria", "name": "Prototipo", "short": "PROTOT.", "beats": ["fanteria", "corazzati"], "desc": "Arma sperimentale dell'Aristocrazia: colpisce a 4 caselle, fragile." },
+  { "id": "infiltrati", "cls": "ricognitori", "name": "Infiltrati", "short": "INFILTR.", "beats": ["artiglieria", "genio"], "desc": "Agenti della Cabal: velocissimi, conquistano spendendo poco." }
 ]

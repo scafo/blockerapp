@@ -8,11 +8,13 @@ export interface UnitInfo {
   name: string;
   short: string;
   cls: UnitType; // classe nel sasso-carta-forbice (le unità uniche usano quella della base)
-  beats: UnitType;
+  beats: UnitType[]; // classi che batte
+  naval?: boolean; // si muove solo sul mare
   desc: string;
 }
 
 export const UNITS = unitData as UnitInfo[];
+export const isNaval = (t: UnitType) => !!unitInfo(t).naval;
 export const UNIT_TYPES = UNITS.map((u) => u.id);
 export const unitInfo = (t: UnitType) => UNITS.find((u) => u.id === t)!;
 
@@ -32,8 +34,8 @@ export interface Unit {
 /** Moltiplicatore di danno di `a` contro `b`. */
 export function rps(a: UnitType, b: UnitType): number {
   const A = unitInfo(a), B = unitInfo(b);
-  if (A.beats === B.cls) return BALANCE.units.strong;
-  if (B.beats === A.cls) return BALANCE.units.weak;
+  if (A.beats.includes(B.cls)) return BALANCE.units.strong;
+  if (B.beats.includes(A.cls)) return BALANCE.units.weak;
   return 1;
 }
 
