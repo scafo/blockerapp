@@ -69,6 +69,12 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 ## Note del developer (stato e comandi)
 
+- **Mappa a sezioni e sottosezioni** (richiesta di Nico): celle esagonali piene senza fessure; ogni provincia (sottosezione) ha la sua
+  tinta e un bordo sottile, le nazioni (sezioni) un bordo spesso lungo i lati delle celle; coste vere vettoriali. Territorio conquistato =
+  un solo colore pieno per potenza con contorno chiaro (niente più celle a due toni); zoom iniziale più vicino (3,2).
+  **Interfaccia di campagna**: in orizzontale una barra compatta in alto (truppe | obiettivi e tempesta | bottino) + fazioni nell'angolo;
+  in verticale fazioni su due righe e PAUSA in alto a destra. Gli stendardi si rimpiccioliscono per stare nello schermo.
+
 - **Gameplay (ultimo giro)**: tocco lontano = **avanzata su tutta la provincia** toccata (alla Call of War: si ferma quando la provincia è
   tua; le anomalie vanno attaccate apposta). **Provincia completa** = +truppe e bottino una volta (`provinceReward`) con stendardo e lampo.
   **Offensive nemiche** (`offensive`): ogni ~60 s un'IA confinante annuncia un assalto (6 s di preavviso), poi per 25 s concentra gli

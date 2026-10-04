@@ -294,8 +294,8 @@ export const BALANCE = {
   },
   camera: {
     minZoom: 0.5,
-    maxZoom: 4.5,
-    startZoom: 2.4,
+    maxZoom: 5.5,
+    startZoom: 3.2, // mappa più grande sullo schermo
     labelMinZoom: 2.3, // sotto questo zoom niente numeri di difesa
     dragThreshold: 8, // px schermo prima che un tap diventi trascinamento
   },

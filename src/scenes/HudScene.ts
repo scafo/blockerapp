@@ -23,10 +23,11 @@ import type { RunScene } from './RunScene';
 const PAD = 12;
 const LEFT_W = 300;
 const LEFT_H = 148;
-const RIGHT_W = 168;
+const RIGHT_W = 180;
+const BAR_H = 64; // orizzontale: barra in alto (truppe, obiettivi, tempesta, bottino)
 const ROW_H = 18;
 const TOP_H = 112; // verticale: altezza del pannello in alto
-const STRIP_H = 24; // verticale: striscia delle fazioni
+const STRIP_H = 46; // verticale: fazioni su due righe
 
 const mmss = (ms: number) => {
   const sec = Math.max(0, Math.ceil(ms / 1000));
@@ -246,35 +247,39 @@ export class HudScene extends Phaser.Scene {
       this.layoutResources(PAD + 16, PAD + 92, (width - 2 * PAD - 40) / 3);
       const sy = PAD + TOP_H + 6, slot = (width - 2 * PAD) / FACTION_INFO.length;
       this.rightPanel.setPosition(PAD, sy).setSize(width - 2 * PAD, STRIP_H);
-      this.rows.forEach((r, k) => r.setPosition(PAD + k * slot + 24, sy + STRIP_H / 2));
+      const half = (width - 2 * PAD) / 2;
+      this.rows.forEach((r, k) => r.setPosition(PAD + (k % 2) * half + 26, sy + 12 + Math.floor(k / 2) * 22));
       this.symPos = this.rows.map((r) => ({ x: r.x - 12, y: r.y }));
       this.unitPos = this.rows.map(() => null);
       this.topBottom = sy + STRIP_H;
+      void slot;
       this.speedBtn.setPosition(width - PAD - 56, height - PAD - 44);
-      this.pauseBtn.setPosition(width - PAD - 56 - 8 - 56, height - PAD - 44);
-      this.retreatBtn.setPosition(width - PAD - 112, height - PAD - 44 - 8 - 44);
+      this.pauseBtn.setPosition(width - PAD - 56, this.topBottom + 8); // in alto a destra: in basso ci sono le carte
+      this.retreatBtn.setPosition(width - PAD - 112, height - PAD - CARD_H - 8 - 44); // sulla riga delle leve, sopra le carte
       this.seed.setPosition(width - PAD, height - PAD - 2 * 44 - 8 - 6);
-      this.hint.setPosition(width / 2, this.topBottom + 8).setWordWrapWidth(width - 2 * PAD - 20);
+      this.hint.setPosition(width / 2 - 34, this.topBottom + 8).setWordWrapWidth(width - 2 * PAD - 90);
     } else {
-      // orizzontale: info negli angoli in alto, mappa libera al centro
-      P.setPosition(PAD, PAD).setSize(LEFT_W, LEFT_H);
+      // orizzontale: una barra compatta in alto (truppe | obiettivi e tempesta | bottino), fazioni nell'angolo; mappa libera
+      const barW = width - 2 * PAD - RIGHT_W - 8;
+      P.setPosition(PAD, PAD).setSize(barW, BAR_H);
       this.troopsLbl.setPosition(PAD + 10, PAD + 6);
       this.troops.setPosition(PAD + 10, PAD + 18);
-      this.stats.setPosition(PAD + 10, PAD + 54).setOrigin(0, 0).setAlign('left');
-      this.layoutResources(PAD + 16, PAD + 98, 92);
-      this.stormText.setPosition(PAD + 10, PAD + 120).setOrigin(0, 0);
+      const bx = PAD + 168;
+      this.stats.setPosition(bx, PAD + 6).setOrigin(0, 0).setAlign('left');
+      this.stormText.setPosition(bx, PAD + 42).setOrigin(0, 0);
+      const step = Math.min(96, Math.max(74, (barW - 400) / 3));
+      this.layoutResources(PAD + barW - 3 * step - 4, PAD + 42, step);
       const rx = width - PAD - RIGHT_W;
       this.rightPanel.setPosition(rx, PAD).setSize(RIGHT_W, FACTION_INFO.length * ROW_H + 10);
       this.rows.forEach((r, k) => r.setPosition(rx + 26, PAD + 5 + ROW_H * (k + 0.5)));
       this.symPos = this.rows.map((r) => ({ x: rx + 14, y: r.y }));
       this.unitPos = this.rows.map((r) => ({ x: rx + RIGHT_W - 14, y: r.y }));
-      this.topBottom = PAD + LEFT_H;
+      this.topBottom = PAD + Math.max(BAR_H, FACTION_INFO.length * ROW_H + 10);
       this.speedBtn.setPosition(width - PAD - 56, height - PAD - 44);
       this.pauseBtn.setPosition(width - PAD - 56 - 8 - 56, height - PAD - 44);
       this.retreatBtn.setPosition(width - PAD - 56 - 8 - 56 - 8 - 112, height - PAD - 44);
       this.seed.setPosition(width - PAD, height - PAD - 50);
-      const free = width - 2 * PAD - LEFT_W - RIGHT_W - 2 * PAD;
-      this.hint.setPosition(width / 2 + (LEFT_W - RIGHT_W) / 2, PAD).setWordWrapWidth(Math.max(180, free));
+      this.hint.setPosition(PAD + barW / 2, PAD + BAR_H + 8).setWordWrapWidth(Math.max(220, barW - 40));
     }
     // la cornice disegnata del rettangolo segue la nuova misura
     P.setStrokeStyle(2, PALETTE.ocra);
@@ -326,7 +331,7 @@ export class HudScene extends Phaser.Scene {
     this.rate.setText(`+${st.troopsPerSecond.toFixed(1)}/s`);
     const share = Math.round(st.mapShare * 100);
     const goal = `${share}%/${BALANCE.victory.mapShare * 100}%`, anom = `anomalie ${st.anomaliesOwned()}/${st.anomaliesToWin}`;
-    this.stats.setText(this.portrait ? `${st.tilesOwned} caselle · ${goal}\n${anom}` : `${st.tilesOwned} caselle ${goal} · ${anom}`);
+    this.stats.setText(`${st.tilesOwned} caselle · ${goal}\n${anom}`);
     RESOURCES.forEach((r, k) => {
       const t = this.resTexts[k], v = String(st.backpack[r]);
       if (t.text !== v) {
@@ -337,7 +342,7 @@ export class HudScene extends Phaser.Scene {
     if (st.opts.tutorial) {
       this.stormText.setText(`prima missione: ${BALANCE.tutorial.goalTiles} caselle`).setColor(hex(PALETTE.radioattivo));
     } else if (st.stormIn > 0) {
-      this.stormText.setText(`${this.portrait ? 'tempesta' : 'tempesta della Caduta'} tra ${mmss(st.stormIn)}`).setColor(st.stormIn <= BALANCE.storm.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
+      this.stormText.setText(`tempesta tra ${mmss(st.stormIn)}`).setColor(st.stormIn <= BALANCE.storm.warnMs ? hex(PALETTE.ko) : hex(PALETTE.ocra));
     } else {
       const left = st.stormStartMs + BALANCE.storm.durationMs - st.gameTimeMs;
       this.stormText.setText(`LA TEMPESTA AVANZA · ${mmss(left)}`).setColor(hex(PALETTE.ko));
@@ -461,9 +466,11 @@ export class HudScene extends Phaser.Scene {
     const t = this.add.text(width / 2, height * 0.36, title, textStyle(34, color)).setOrigin(0.5).setDepth(40);
     const s2 = this.add.text(width / 2, height * 0.36 + 32, sub.toUpperCase(), textStyle(14, PALETTE.carta)).setOrigin(0.5)
       .setDepth(40);
+    s2.setWordWrapWidth(width - 40).setAlign('center');
     for (const o of [t, s2]) {
-      o.setScale(1.8).setAlpha(0);
-      this.tweens.add({ targets: o, scale: 1, alpha: 1, duration: 260, ease: 'Back.easeOut' });
+      const fit = Math.min(1, (width - 32) / Math.max(1, o.width)); // titoli lunghi: si rimpiccioliscono, non escono dallo schermo
+      o.setScale(1.8 * fit).setAlpha(0);
+      this.tweens.add({ targets: o, scale: fit, alpha: 1, duration: 260, ease: 'Back.easeOut' });
       this.tweens.add({ targets: o, alpha: 0, y: o.y - 20, delay: 1500, duration: 400, onComplete: () => o.destroy() });
     }
   }
