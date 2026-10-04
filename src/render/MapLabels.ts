@@ -33,12 +33,12 @@ export class MapLabels {
     this.tags = FACTION_INFO.map((f) => {
       const g = scene.add.graphics();
       drawSymbol(g, f.symbol, 0, -12, 6, f.fill, PALETTE.mappa.fondo);
-      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT, fontSize: '12px', color: hex(f.border), resolution: DPR, backgroundColor: '#020409cc', padding: { x: 4, y: 1 } }).setOrigin(0.5, 0);
+      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: hex(f.border), resolution: DPR, backgroundColor: '#020409dd', padding: { x: 4, y: 2 } }).setOrigin(0.5, 0);
       const c = scene.add.container(0, 0, [g, t]).setVisible(false);
       this.layer.add(c);
       return c;
     });
-    this.status = scene.add.text(0, 0, '', textStyle(10, PALETTE.mappa.segno, false)).setOrigin(0.5, 1).setAlpha(0.85);
+    this.status = scene.add.text(0, 0, '', textStyle(11, 0x9fb6ff, false)).setOrigin(0.5, 1);
     this.layer.add(this.status);
   }
 
@@ -64,11 +64,11 @@ export class MapLabels {
         if (!inView(sx, sy)) continue;
         let t = this.names[n];
         if (!t) {
-          t = this.scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: '12px', color: hex(PALETTE.mappa.nome), resolution: DPR }).setOrigin(0.5).setAlpha(0.9);
+          t = this.scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: hex(PALETTE.mappa.nome), resolution: DPR }).setOrigin(0.5);
           this.layer.add(t);
           this.names.push(t);
         }
-        const size = Math.round(Phaser.Math.Clamp(l.size * (0.55 + zoom * 0.35), 9, 18));
+        const size = Math.round(Phaser.Math.Clamp(l.size * (0.7 + zoom * 0.35), 12, 20));
         if (t.text !== l.name) t.setText(l.name);
         if (t.style.fontSize !== `${size}px`) t.setFontSize(size);
         t.setPosition(Math.round(sx), Math.round(sy)).setVisible(true);
@@ -84,7 +84,7 @@ export class MapLabels {
       if (!inView(sx, sy, 10)) continue;
       let t = this.front[f];
       if (!t) {
-        t = this.scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: '11px', color: '#ffffff', resolution: DPR }).setOrigin(0.5);
+        t = this.scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: '#ffffff', resolution: DPR, stroke: '#020409', strokeThickness: 3 }).setOrigin(0.5);
         this.layer.add(t);
         this.front.push(t);
       }
@@ -105,13 +105,13 @@ export class MapLabels {
 
     // barra di stato da terminale: centro della vista e zoom
     const [lon, lat] = src.worldToLonLat(cam.scrollX + cam.width / 2, cam.scrollY + cam.height / 2);
-    this.status.setText(`CENTRO ${lat.toFixed(2)}, ${lon.toFixed(2)}   ZOOM ${zoom.toFixed(2)}`).setPosition(width / 2, height - 4).setVisible(width >= 760);
+    this.status.setText(`CENTRO ${lat.toFixed(2)}, ${lon.toFixed(2)}   ZOOM ${zoom.toFixed(2)}`).setPosition(width / 2, height - 4).setVisible(width >= 1100);
   }
 
   /** Scritta che sale da un punto della mappa (bottino, costi, ordini). */
   float(src: LabelSource, x: number, y: number, msg: string, color: number, delay = 0) {
     const [sx, sy] = this.toScreen(src.cameras.main, x, y);
-    const t = this.scene.add.text(Math.round(sx), Math.round(sy), msg, { fontFamily: FONT, fontSize: '12px', color: hex(color), resolution: DPR }).setOrigin(0.5).setAlpha(0);
+    const t = this.scene.add.text(Math.round(sx), Math.round(sy), msg, { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: hex(color), resolution: DPR, stroke: '#020409', strokeThickness: 4 }).setOrigin(0.5).setAlpha(0);
     this.layer.add(t);
     this.scene.tweens.add({ targets: t, y: sy - 22, alpha: { from: 1, to: 0 }, delay, duration: 900, ease: 'Quad.easeOut', onComplete: () => t.destroy() });
   }

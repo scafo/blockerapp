@@ -257,6 +257,8 @@ export const BALANCE = {
     standard: { stormMs: 480_000, lootMult: 1 },
     lunga: { stormMs: 720_000, lootMult: 1.4 },
   },
+  // Modalità test (HQ → tasto TEST): sblocca tutto e azzera i timer per provare il gioco senza aspettare
+  test: { stash: 9999, startTroops: 1000, abilityCdMult: 0.25, runs: 3, wins: 3, expeditions: 3 },
   progression: {
     campaignChoiceAfterRuns: 1, // la durata si sceglie dopo la run guidata
     civChoiceAfterRuns: 3, // le civiltà dopo qualche campagna (un sistema nuovo alla volta)

@@ -4,7 +4,7 @@ import { PALETTE, hex } from '../config/palette';
 import buildingText from '../data/buildings.json';
 import {
   BUILDINGS, EXPEDITIONS, activeCiv, buildBlock, campaignChoice, canAfford, civChoice, collectExpedition, deckOf, expeditionCost, unlockedUnits,
-  expeditionTimeSec, fmtTime, nextLevel, settle, startBuild, startExpedition, tents,
+  enableTestMode, expeditionTimeSec, fmtTime, nextLevel, settle, startBuild, startExpedition, tents,
 } from '../game/camp';
 import { CIV_IDS, civInfo, civUnlocked } from '../game/civs';
 import { CIV_STYLE } from '../game/factions';
@@ -13,7 +13,7 @@ import { unitInfo } from '../game/units';
 import type { CampaignId } from '../config/balance';
 import { RESOURCES, RESOURCE_INFO, type Bag } from '../game/resources';
 import { randomSeed } from '../map/rng';
-import { loadProfile, saveProfile, type BuildingId, type ExpeditionKind, type Profile } from '../save/storage';
+import { loadProfile, resetProfile, saveProfile, type BuildingId, type ExpeditionKind, type Profile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
 import { FPS_KEY, fpsEnabled } from '../ui/debug';
 import { Button } from '../ui/Button';
@@ -28,7 +28,8 @@ const maxLvl = (id: BuildingId) => BALANCE.camp.buildings[id].length;
 const SKY = 0x010604; // l'HQ è una planimetria su uno schermo di comando al buio
 const INK = 0x9fe8c8; // tratto luminoso (testi) sul fondo scuro
 
-type Spot = BuildingId | 'spedizione' | 'gioca'; // 'gioca' = pannello di preparazione della campagna
+type Spot = BuildingId | 'spedizione' | 'gioca' | 'test'; // 'gioca' = preparazione della campagna, 'test' = modalità test
+type MapSpot = BuildingId | 'spedizione'; // le postazioni sulla planimetria
 const CAMPAIGNS: CampaignId[] = ['breve', 'standard', 'lunga'];
 const CAMPAIGN_NAME: Record<CampaignId, string> = { breve: 'BREVE', standard: 'STANDARD', lunga: 'LUNGA' };
 
@@ -37,7 +38,7 @@ export class CampScene extends Phaser.Scene {
   private profile!: Profile;
   private k = 1; // scala del disegno rispetto a 844×390
   private plan = { x: 0, y: 0, w: 0, h: 0 }; // area della planimetria
-  private spotPos = {} as Record<Exclude<Spot, 'gioca'>, { x: number; y: number }>;
+  private spotPos = {} as Record<MapSpot, { x: number; y: number }>;
   private clock: Phaser.GameObjects.Text | null = null;
   private portrait = false;
   private spots = new Map<Spot, { x: number; y: number; g: Phaser.GameObjects.Graphics; deco: Phaser.GameObjects.GameObject[]; label: Phaser.GameObjects.Text }>();
@@ -69,7 +70,7 @@ export class CampScene extends Phaser.Scene {
     // planimetria: area utile tra la scorta in alto e i comandi in basso
     this.plan = this.portrait ? { x: PAD, y: 150, w: width - 2 * PAD, h: height - 150 - 150 } : { x: PAD, y: 84, w: width - 2 * PAD, h: height - 84 - 76 };
     this.k = this.portrait ? Math.min(this.plan.w / 400, 1.2) : Math.min(this.plan.w / 820, this.plan.h / 230, 1.6);
-    const frac: Record<Exclude<Spot, 'gioca'>, [number, number]> = this.portrait
+    const frac: Record<MapSpot, [number, number]> = this.portrait
       ? { comando: [0.5, 0.42], laboratorio: [0.27, 0.13], radar: [0.73, 0.13], arsenale: [0.27, 0.7], deposito: [0.73, 0.7], spedizione: [0.5, 0.93] }
       : { comando: [0.5, 0.5], laboratorio: [0.3, 0.16], radar: [0.7, 0.16], arsenale: [0.16, 0.66], deposito: [0.84, 0.66], spedizione: [0.5, 0.95] };
     this.spotPos = Object.fromEntries(Object.entries(frac).map(([id, [fx, fy]]) => [id, { x: this.plan.x + this.plan.w * fx, y: this.plan.y + this.plan.h * fy }])) as typeof this.spotPos;
@@ -113,6 +114,7 @@ export class CampScene extends Phaser.Scene {
   private panelState(spot: Spot, now: number): string {
     const p = this.profile;
     if (spot === 'spedizione') return !p.expedition ? 'none' : p.expedition.until > now ? 'away:timer' : 'ready';
+    if (spot === 'test') return `test|${p.test ? 1 : 0}`;
     if (spot === 'gioca') return `gioca|${this.panelMode}|${p.civ}|${p.campaign}|${(p.deck ?? []).join(',')}`;
     if (spot === 'laboratorio' && this.panelMode !== 'build' && p.buildings.laboratorio > 0) {
       return `lab|${this.panelMode}|${p.techs.join(',')}|${p.research?.id ?? ''}|${RESOURCES.map((r) => p.stash[r]).join(',')}${p.research ? ':timer' : ''}`;
@@ -164,7 +166,7 @@ export class CampScene extends Phaser.Scene {
     // riga di scansione che scende lenta, come un monitor che si aggiorna
     const sweep = this.add.rectangle(0, 0, width, 40, PALETTE.ocra, 0.035).setOrigin(0);
     this.tweens.add({ targets: sweep, y: { from: -40, to: height }, duration: 6000, repeat: -1 });
-    const scan = this.add.tileSprite(0, 0, width, height, this.scanTexture()).setOrigin(0).setAlpha(0.25).setDepth(50);
+    const scan = this.add.tileSprite(0, 0, width, height, this.scanTexture()).setOrigin(0).setAlpha(0.15); // dietro a moduli e scritte
     void scan;
   }
 
@@ -203,12 +205,12 @@ export class CampScene extends Phaser.Scene {
       const x = b.x + cut + 12 + i * 16 * this.k;
       g.lineStyle(1, PALETTE.ocra, 0.6).strokeRect(x, ay, 11 * this.k, 8 * this.k);
     }
-    this.add.text(b.x + cut + 12, ay - 14, `ALLOGGI ${n} · CAMPAGNE ${this.profile.runs}`, textStyle(9, PALETTE.ocra, false)).setAlpha(0.7);
+    this.add.text(b.x + cut + 12, ay - 14, `ALLOGGI ${n} · CAMPAGNE ${this.profile.runs}`, textStyle(10, PALETTE.ocra, false)).setAlpha(0.9);
     // intestazione con l'ora (aggiornata in update)
-    this.clock = this.add.text(b.x + b.w / 2, b.y - 14, '', textStyle(10, PALETTE.ocra, false)).setOrigin(0.5, 0.5).setAlpha(0.8);
+    this.clock = this.add.text(b.x + b.w / 2, b.y - 14, '', textStyle(10, PALETTE.ocra, false)).setOrigin(0.5, 0.5);
   }
 
-  private makeSpot(id: Exclude<Spot, 'gioca'>, x: number, y: number) {
+  private makeSpot(id: MapSpot, x: number, y: number) {
     const k = this.k, big = id === 'comando';
     const w = (big ? 168 : 132) * k, h = (big ? 84 : 66) * k;
     const g = this.add.graphics();
@@ -221,7 +223,7 @@ export class CampScene extends Phaser.Scene {
   }
 
   /** Modulo della planimetria: contorno ad angoli tagliati se costruito, tratteggio se lotto libero, tratteggio obliquo se in cantiere. */
-  private redrawSpot(id: Exclude<Spot, 'gioca'>) {
+  private redrawSpot(id: MapSpot) {
     const spot = this.spots.get(id)!;
     spot.deco.forEach((d) => d.destroy());
     spot.deco = [];
@@ -356,6 +358,10 @@ export class CampScene extends Phaser.Scene {
         this.toast(on ? 'Contatore FPS attivo nelle run' : 'Contatore FPS spento', PALETTE.carta);
       });
     const p = this.profile;
+    // tasto TEST (giallo se attiva): apre la modalità test
+    const testBtn = this.add.text(P ? width - PAD : titleX - 150, P ? PAD + 4 : PAD + 8, p.test ? '[ TEST ATTIVO ]' : '[ TEST ]', textStyle(11, PALETTE.allerta))
+      .setOrigin(1, 0).setInteractive({ useHandCursor: true }).on('pointerup', () => this.openPanel('test'));
+    void testBtn;
     this.add.text(titleX, PAD + 30, `HQ · ${p.wins} vittorie su ${p.runs} campagne`, textStyle(11, PALETTE.ocra, false)).setOrigin(titleO, 0);
     // GIOCA: in basso a destra (orizzontale) o grande in basso al centro (verticale, sotto il pollice)
     const bw = P ? Math.min(260, width - 2 * PAD) : 150;
@@ -398,7 +404,9 @@ export class CampScene extends Phaser.Scene {
     items.push(close);
     const now = Date.now();
 
-    if (spot === 'gioca') {
+    if (spot === 'test') {
+      this.fillTest(items, x0, y0, W, H);
+    } else if (spot === 'gioca') {
       this.fillPrep(items, x0, y0, W, H);
     } else if (spot === 'laboratorio' && this.panelMode !== 'build' && this.profile.buildings.laboratorio > 0) {
       this.fillLab(items, x0, y0, W, H, now);
@@ -456,7 +464,7 @@ export class CampScene extends Phaser.Scene {
       items.push(this.add.text(x0 + 16, y0 + 40, T.desc, textStyle(12, INK, false)).setWordWrapWidth(W - 32));
       T.levels.forEach((txt, i) => {
         const mark = i < lvl ? '✓' : i === lvl ? '→' : '·';
-        const col = i < lvl ? PALETTE.ocra : i === lvl ? INK : 0x4c6b62;
+        const col = i < lvl ? PALETTE.ocra : i === lvl ? INK : 0x8fb5a6;
         const step = T.levels.length > 3 ? 16 : 20;
         items.push(this.add.text(x0 + 16, y0 + 84 + i * step, `${mark} liv. ${i + 1}: ${txt}`, textStyle(T.levels.length > 3 ? 10 : 11, col, i === lvl)).setWordWrapWidth(W - 32));
       });
@@ -490,6 +498,29 @@ export class CampScene extends Phaser.Scene {
     this.panel = this.add.container(0, 0, items).setDepth(40);
   }
 
+  /** Modalità test: sblocca tutto per provare armi, civiltà e ricerche senza aspettare; si torna indietro azzerando il profilo. */
+  private fillTest(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, H: number) {
+    const p = this.profile;
+    items.push(this.add.text(x0 + 16, y0 + 10, 'MODALITÀ TEST', textStyle(16, PALETTE.allerta)));
+    const txt = p.test
+      ? 'ATTIVA. Postazioni al massimo, tutte le ricerche, risorse piene, civiltà sbloccate, cantieri e spedizioni istantanei, +1000 truppe a inizio campagna, abilità con ricarica ridotta.'
+      : 'Sblocca subito tutto: postazioni al massimo (tutte le armi e le abilità), tutte le ricerche, risorse piene, civiltà sbloccate, cantieri e spedizioni istantanei, +1000 truppe a inizio campagna.\n\nServe solo per provare il gioco: i progressi veri si perdono.';
+    items.push(this.add.text(x0 + 16, y0 + 46, txt, textStyle(11, PALETTE.carta, false)).setWordWrapWidth(W - 32).setLineSpacing(4));
+    const restart = () => this.scene.restart();
+    if (!p.test) {
+      items.push(this.btn('ATTIVA LA MODALITÀ TEST', x0 + 16, y0 + H - 104, W - 32, true, () => {
+        enableTestMode(p);
+        saveProfile(p);
+        analytics.design(['test', 'attiva']);
+        restart();
+      }, 13));
+    }
+    items.push(this.btn(p.test ? 'ESCI: AZZERA IL PROFILO' : 'AZZERA IL PROFILO', x0 + 16, y0 + H - 56, W - 32, true, () => {
+      this.profile = resetProfile();
+      restart();
+    }, 13));
+  }
+
   /** Testo cliccabile piccolo (link nei pannelli). */
   private link(label: string, x: number, y: number, onClick: () => void, origin = 1) {
     return this.add.text(x, y, label, textStyle(11, PALETTE.ocra)).setOrigin(origin, 0).setInteractive({ useHandCursor: true }).on('pointerup', onClick);
@@ -518,8 +549,8 @@ export class CampScene extends Phaser.Scene {
         const g = this.add.graphics();
         drawPatch(g, cx + cw / 2, y + 30, 20, st.fill, st.symbol);
         const nm = cw < 110 && info.name.length > 8 ? `${info.name.slice(0, 7)}.` : info.name;
-        items.push(card, g, this.add.text(cx + cw / 2, y + 56, nm.toUpperCase(), textStyle(cw < 110 ? 9 : 11, open ? PALETTE.carta : 0x4c6b62)).setOrigin(0.5, 0),
-          this.add.text(cx + cw / 2, y + 72, open ? info.motto : `🔒 ${info.unlock}`, textStyle(8, open ? PALETTE.ocra : 0x4c6b62, false)).setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(cw - 8));
+        items.push(card, g, this.add.text(cx + cw / 2, y + 56, nm.toUpperCase(), textStyle(cw < 110 ? 9 : 11, open ? PALETTE.carta : 0x8fb5a6)).setOrigin(0.5, 0),
+          this.add.text(cx + cw / 2, y + 72, open ? info.motto : `🔒 ${info.unlock}`, textStyle(8, open ? PALETTE.ocra : 0x8fb5a6, false)).setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(cw - 8));
       });
       const info = civInfo(civ), unit = unitInfo(info.unit);
       items.push(this.add.text(x0 + 16, y + 106, [`Bonus: ${info.bonus}`, `Unità unica: ${unit.name} (Arsenale liv. ${BALANCE.camp.arsenaleUnique}) — ${unit.desc}`,
@@ -588,7 +619,7 @@ export class CampScene extends Phaser.Scene {
         saveProfile(p);
         this.openPanel('gioca', '');
       }, 12));
-      items.push(this.add.text(x0 + 16, (stack ? by - 48 : by) - 16, 'risorse a fine campagna: breve ×0.8 · standard ×1 · lunga ×1.4', textStyle(8, 0x4c6b62, false)));
+      items.push(this.add.text(x0 + 16, (stack ? by - 48 : by) - 16, 'risorse a fine campagna: breve ×0.8 · standard ×1 · lunga ×1.4', textStyle(8, 0x8fb5a6, false)));
     }
     items.push(this.btn('AVVIA LA CAMPAGNA ▶', stack ? x0 + 16 : x0 + 16 + bw + 10, by, bw, true, () => {
       analytics.design(['campagna', 'avvia', `${civ}:${p.campaign}`]);
@@ -630,7 +661,7 @@ export class CampScene extends Phaser.Scene {
       });
       const cost = RESOURCES.filter((q) => t.cost[q]).map((q) => `${t.cost[q]} ${RESOURCE_INFO[q].name.toLowerCase()}`).join(' · ');
       items.push(row,
-        this.add.text(x0 + 24, y + 5, `${BRANCHES[t.branch].toUpperCase()} › ${t.name} — ${t.desc}`, textStyle(11, block ? 0x4c6b62 : PALETTE.carta)).setWordWrapWidth(W - 48),
+        this.add.text(x0 + 24, y + 5, `${BRANCHES[t.branch].toUpperCase()} › ${t.name} — ${t.desc}`, textStyle(11, block ? 0x8fb5a6 : PALETTE.carta)).setWordWrapWidth(W - 48),
         this.add.text(x0 + 24, y + 24, block ? why[block] || cost : `${cost} · ${fmtTime(t.timeSec * 1000)}`, textStyle(9, block === 'cost' ? PALETTE.ko : PALETTE.ocra, false)));
     });
     items.push(this.link(`archivio della Caduta (${loreFragments(p).length}/${loreTotal}) ›`, x0 + 16, y0 + H - 26, () => this.openPanel('laboratorio', 'archivio'), 0));

@@ -7,7 +7,8 @@ import { HudScene } from './scenes/HudScene';
 import { ResultScene } from './scenes/ResultScene';
 import { RunScene } from './scenes/RunScene';
 import { DPR } from './ui/screen';
-import monoUrl from '@fontsource/share-tech-mono/files/share-tech-mono-latin-400-normal.woff2';
+import monoUrl from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2';
+import monoBoldUrl from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff2';
 import titleUrl from '@fontsource/oswald/files/oswald-latin-600-normal.woff2';
 
 analytics.init();
@@ -25,7 +26,11 @@ let fontsReady = false;
 /** I testi di Phaser vanno disegnati con i font già caricati, altrimenti restano col font di riserva. */
 async function loadFonts() {
   try {
-    const faces = [new FontFace('Share Tech Mono', `url(${monoUrl})`), new FontFace('Oswald', `url(${titleUrl})`, { weight: '600' })];
+    const faces = [
+      new FontFace('JetBrains Mono', `url(${monoUrl})`, { weight: '500' }),
+      new FontFace('JetBrains Mono', `url(${monoBoldUrl})`, { weight: '700' }),
+      new FontFace('Oswald', `url(${titleUrl})`, { weight: '600' }),
+    ];
     for (const f of await Promise.all(faces.map((x) => x.load()))) document.fonts.add(f);
   } catch {
     /* senza font si usa quello di riserva */
@@ -50,6 +55,7 @@ function boot() {
   (window as unknown as { __game: Phaser.Game }).__game = game;
   game.events.once('ready', () => {
     document.getElementById('msg')?.remove(); // via la scritta di caricamento
+    snapCanvas();
     fit(); // misura cambiata durante l'avvio
   });
 }
@@ -61,6 +67,15 @@ function fit() {
   const { w, h } = size();
   if (w < MIN || h < MIN) return;
   if (w !== game.scale.width || h !== game.scale.height) game.scale.resize(w, h);
+  snapCanvas();
+}
+
+/** Il canvas occupa esattamente i punti CSS del contenitore: niente ricampionamento che sfoca i testi. */
+function snapCanvas() {
+  if (!game?.canvas) return;
+  const cw = host.clientWidth || window.innerWidth, ch = host.clientHeight || window.innerHeight;
+  game.canvas.style.width = `${cw}px`;
+  game.canvas.style.height = `${ch}px`;
 }
 new ResizeObserver(fit).observe(host);
 window.addEventListener('resize', fit);

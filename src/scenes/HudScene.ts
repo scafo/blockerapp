@@ -21,9 +21,9 @@ import { drawUnitIcon } from '../ui/unitIcons';
 import type { RunScene } from './RunScene';
 
 const PAD = 12;
-const LEFT_W = 262;
+const LEFT_W = 290;
 const LEFT_H = 112;
-const RIGHT_W = 128;
+const RIGHT_W = 168;
 const ROW_H = 18;
 const RES_X = [0, 64, 128]; // colonne delle 3 risorse nel pannello
 const TOP_H = 88; // verticale: altezza del pannello in alto
@@ -88,7 +88,7 @@ export class HudScene extends Phaser.Scene {
       sg.destroy();
     }
     const { width: vw, height: vh } = view(this);
-    this.scan = this.add.tileSprite(0, 0, vw, vh, 'scan').setOrigin(0).setAlpha(0.22).setDepth(-5);
+    this.scan = this.add.tileSprite(0, 0, vw, vh, 'scan').setOrigin(0).setAlpha(0.14).setDepth(-20); // sotto le etichette
     this.shownTroops = -1;
     this.nextBannerAt = 0;
     this.aliveKey = '';

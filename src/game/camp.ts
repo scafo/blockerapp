@@ -65,12 +65,13 @@ export function runOptions(p: Profile): RunOptions {
   const tutorial = p.runs === 0;
   const civ = activeCiv(p), campaign = activeCampaign(p);
   // la run guidata resta semplice: niente bonus
-  const mods = tutorial ? BASE_MODS : combine(...civMods(civ), ...techMods(p), { fogBonus: C.radarFogBonus[radar] });
+  const mods = tutorial ? { ...BASE_MODS } : combine(...civMods(civ), ...techMods(p), { fogBonus: C.radarFogBonus[radar] });
   const units = deckOf(p, civ);
+  if (p.test) Object.assign(mods, { startTroops: mods.startTroops + BALANCE.test.startTroops });
   return {
     abilities: arsenale >= C.arsenaleAbilities ? ['ricognizione', 'bombardamento'] : [],
     maxUnitsBonus: C.comandoMaxUnitsBonus[comando],
-    abilityCdMult: C.comandoAbilityCdMult[comando],
+    abilityCdMult: C.comandoAbilityCdMult[comando] * (p.test ? BALANCE.test.abilityCdMult : 1),
     civ, campaign, mods,
     stormStartMs: BALANCE.campaigns[campaign].stormMs,
     campaignLootMult: BALANCE.campaigns[campaign].lootMult,
@@ -106,7 +107,7 @@ export function startBuild(p: Profile, id: BuildingId, now: number): boolean {
   if (buildBlock(p, id)) return false;
   const lvl = nextLevel(p, id)!;
   pay(p.stash, lvl.cost);
-  p.construction = { id, until: now + lvl.timeSec * 1000 };
+  p.construction = { id, until: now + (p.test ? 0 : lvl.timeSec * 1000) };
   return true;
 }
 
@@ -128,7 +129,7 @@ export function startExpedition(p: Profile, kind: ExpeditionKind, now: number, r
   if (p.expedition || p.stash.cibo < E.cost) return false;
   p.stash.cibo -= E.cost;
   const roll = (r: readonly [number, number]) => r[0] + Math.floor(rnd() * (r[1] - r[0] + 1));
-  p.expedition = { kind, until: now + expeditionTimeSec(p, kind) * 1000, reward: { metallo: roll(E.metallo), benzina: roll(E.benzina), cibo: roll(E.cibo) } };
+  p.expedition = { kind, until: now + (p.test ? 0 : expeditionTimeSec(p, kind) * 1000), reward: { metallo: roll(E.metallo), benzina: roll(E.benzina), cibo: roll(E.cibo) } };
   return true;
 }
 
@@ -139,6 +140,21 @@ export function collectExpedition(p: Profile, now: number): Bag | null {
   p.expedition = null;
   p.expeditionsDone++;
   return r;
+}
+
+/** Modalità test: tutte le postazioni al massimo, tutte le ricerche, risorse piene, civiltà sbloccate, timer istantanei. */
+export function enableTestMode(p: Profile) {
+  const T = BALANCE.test;
+  p.test = true;
+  for (const id of BUILDINGS) p.buildings[id] = C.buildings[id].length;
+  p.techs = Object.keys(BALANCE.tech);
+  p.stash = { metallo: T.stash, benzina: T.stash, cibo: T.stash };
+  p.runs = Math.max(p.runs, T.runs);
+  p.wins = Math.max(p.wins, T.wins);
+  p.expeditionsDone = Math.max(p.expeditionsDone, T.expeditions);
+  p.construction = null;
+  p.research = null;
+  if (p.expedition) p.expedition.until = 0;
 }
 
 export const tents = (p: Profile) => Math.min(C.tentsMax, C.tentsBase + Math.floor(p.runs / 2));

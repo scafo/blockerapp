@@ -79,9 +79,11 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   coste/confini bianchi, nomi gialli e capitali rosse da terminale, anomalie magenta, bagliore (bloom) che si spegne da solo se gli FPS
   scendono sotto 40, righe di scansione, barra di stato con coordinate. HQ = planimetria tattica vista dall'alto in verde terminale
   (moduli collegati al Centro di Comando, radar che spazza, convoglio in missione, toppe di reparto). Avvio da terminale.
-- **Nitidezza**: densità reale dello schermo fino a 3×; testi della mappa disegnati nello spazio dello schermo (`src/render/MapLabels.ts`),
-  sempre nitidi a ogni zoom; mappa statica in texture a tasselli 2,6× (1,6× sui dispositivi deboli); font incorporati Share Tech Mono
-  (dati) e Oswald (titoli).
+- **Modalità test** (HQ → `[ TEST ]`): postazioni al massimo, tutte le ricerche, risorse piene, civiltà sbloccate, cantieri/ricerche/spedizioni
+  istantanei, +1000 truppe e abilità con ricarica ×0,25 in campagna (`balance.test`); si esce azzerando il profilo.
+- **Nitidezza**: densità reale dello schermo fino a 3×; font JetBrains Mono 500/700 (dati) + Oswald (titoli), nessun testo sotto 11 pt
+  (`textSize` in `src/ui/style.ts`), pixel allineati sulle camere di interfaccia, canvas a misura CSS esatta; testi della mappa disegnati nello spazio dello schermo (`src/render/MapLabels.ts`),
+  sempre nitidi a ogni zoom; mappa statica in texture a tasselli 2,6× (1,6× sui dispositivi deboli).
 
 - **Sistemi dal Figma** (numeri in `balance.ts`: `campaigns`, `progression`, `civs`, `tech`, `camp.radarFogBonus`; testi in `src/data/civs.json`,
   `tech.json`, `buildings.json`; logica in `src/game/civs.ts`, `tech.ts`, `mods.ts`, `camp.ts`):

@@ -41,7 +41,7 @@ export class EventCard extends Phaser.GameObjects.Container {
       const c = ev[side];
       const ok = canChoose(c);
       const t = scene.add.text(cx + (side === 'left' ? -W / 2 + 8 : W / 2 - 8), cy + H / 2 - 26,
-        side === 'left' ? `← ${c.label}` : `${c.label} →`, textStyle(15, ok ? PALETTE.carta : 0x4c6b62))
+        side === 'left' ? `← ${c.label}` : `${c.label} →`, textStyle(15, ok ? PALETTE.carta : 0x8fb5a6))
         .setOrigin(side === 'left' ? 0 : 1, 0.5).setBackgroundColor(hex(ok ? PALETTE.inchiostro : 0x14221e)).setPadding(10, 7, 10, 7);
       if (ok) t.setInteractive({ useHandCursor: true }).on('pointerup', () => this.pick(side));
       return t;

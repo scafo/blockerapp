@@ -21,6 +21,7 @@ export interface Profile {
   deck: UnitType[]; // mazzo scelto (max 4 truppe)
   research: { id: string; until: number } | null;
   history: CampaignRecord[]; // registro della Sala Radar (più recenti per prime)
+  test?: boolean; // modalità test: tutto sbloccato, timer istantanei
 }
 
 export interface CampaignRecord {
@@ -63,6 +64,13 @@ function migrate(p: Record<string, any>): Record<string, any> {
   ren(p.expedition?.reward, res);
   ren(p.buildings, { fucina: 'arsenale', radio: 'comando', magazzino: 'deposito' });
   if (p.construction) p.construction.id = ({ fucina: 'arsenale', radio: 'comando', magazzino: 'deposito' } as Record<string, string>)[p.construction.id] ?? p.construction.id;
+  return p;
+}
+
+/** Profilo nuovo, da zero (anche per uscire dalla modalità test). */
+export function resetProfile(): Profile {
+  const p = freshProfile();
+  saveProfile(p);
   return p;
 }
 

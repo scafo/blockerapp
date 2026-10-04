@@ -57,7 +57,7 @@ export function startResearch(p: Profile, id: TechId, now: number): boolean {
   if (researchBlock(p, id)) return false;
   const t = techInfo(id);
   RESOURCES.forEach((r) => (p.stash[r] -= t.cost[r]));
-  p.research = { id, until: now + t.timeSec * 1000 };
+  p.research = { id, until: now + (p.test ? 0 : t.timeSec * 1000) };
   return true;
 }
 

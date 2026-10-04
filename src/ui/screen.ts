@@ -14,5 +14,5 @@ export function view(scene: Phaser.Scene) {
 
 /** Camera delle scene di interfaccia: coordinate in punti CSS, disegno a piena densità. */
 export function uiCamera(scene: Phaser.Scene) {
-  scene.cameras.main.setZoom(DPR).setOrigin(0, 0);
+  scene.cameras.main.setZoom(DPR).setOrigin(0, 0).setRoundPixels(true);
 }
