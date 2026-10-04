@@ -1,0 +1,21 @@
+{
+ "title": "MERCATO",
+ "desc": "Scambi e rifornimenti con le risorse del Deposito. Il Consiglio Ombra fissa i cambi: si perde sempre qualcosa.",
+ "trade": "SCAMBIO",
+ "supplies": "RIFORNIMENTI · per la prossima campagna",
+ "rush": "CANTIERE E RICERCA",
+ "items": {
+  "truppe": {
+   "name": "Truppe fresche",
+   "desc": "+80 truppe all'inizio"
+  },
+  "mappe": {
+   "name": "Carte del Radar",
+   "desc": "zona nota più ampia"
+  },
+  "sabbia": {
+   "name": "Sacchi di sabbia",
+   "desc": "province tue +10% difesa"
+  }
+ }
+}

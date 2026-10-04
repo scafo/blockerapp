@@ -1,5 +1,5 @@
 // Accampamento: edifici, cantiere, spedizioni e ciò che cambiano nelle run. Niente Phaser.
-import { BALANCE, type AbilityType, type CampaignId, type CivId, type FrontDef, type UnitType } from '../config/balance';
+import { BALANCE, type AbilityType, type Resource, type CampaignId, type CivId, type FrontDef, type UnitType } from '../config/balance';
 import { civMods, civUnlocked, civInfo } from './civs';
 import { BASE_MODS, combine, type Mods } from './mods';
 import { techMods } from './tech';
@@ -108,7 +108,8 @@ export function runOptions(p: Profile): RunOptions {
   const tutorial = p.runs === 0;
   const civ = activeCiv(p), campaign = activeCampaign(p), front = tutorial ? 0 : activeFront(p);
   // la run guidata resta semplice: niente bonus
-  const mods = tutorial ? { ...BASE_MODS } : combine(...civMods(civ), ...techMods(p), { fogBonus: C.radarFogBonus[radar], fogIntel: C.radarIntel[radar] });
+  const mods = tutorial ? { ...BASE_MODS } : combine(...civMods(civ), ...techMods(p), { fogBonus: C.radarFogBonus[radar], fogIntel: C.radarIntel[radar] },
+    ...supplyMods(p));
   const units = deckOf(p, civ);
   if (p.test) Object.assign(mods, { startTroops: mods.startTroops + BALANCE.test.startTroops });
   if (!tutorial) mods.growthMult *= C.comandoGrowthMult[comando]; // il Centro di Comando organizza la leva
@@ -194,6 +195,45 @@ export function addToStash(p: Profile, bag: Bag): number {
     p.stash[r] = Math.min(v, Math.max(cap, p.stash[r]));
   }
   return lost;
+}
+
+// ---------- mercato ----------
+
+export type SupplyId = keyof typeof BALANCE.shop.supplies;
+export const SUPPLIES = Object.keys(BALANCE.shop.supplies) as SupplyId[];
+const supplyMods = (p: Profile): Partial<Mods>[] =>
+  (p.supplies ?? []).filter((k): k is SupplyId => k in BALANCE.shop.supplies).map((k) => BALANCE.shop.supplies[k].mods as Partial<Mods>);
+
+/** Scambio al Mercato: dai `give` di una risorsa, ricevi `get` di un'altra. */
+export function trade(p: Profile, from: Resource, to: Resource): boolean {
+  const T = BALANCE.shop.trade;
+  if (from === to || p.stash[from] < T.give) return false;
+  p.stash[from] -= T.give;
+  addToStash(p, { metallo: 0, benzina: 0, cibo: 0, [to]: T.get });
+  return true;
+}
+
+/** Rifornimento per la prossima campagna (uno per tipo). */
+export function buySupply(p: Profile, k: SupplyId): boolean {
+  const cost = BALANCE.shop.supplies[k].cost;
+  if ((p.supplies ?? []).includes(k) || !canAfford(p.stash, cost)) return false;
+  pay(p.stash, cost);
+  p.supplies = [...(p.supplies ?? []), k];
+  return true;
+}
+
+/** Metallo per finire subito un lavoro che finisce a `until`. */
+export const rushCost = (until: number, now: number) => Math.max(1, Math.ceil((until - now) / 60_000)) * BALANCE.shop.rushPerMin;
+
+/** Finisce subito il cantiere o la ricerca pagando metallo (poi settle/settleResearch li chiudono). */
+export function rush(p: Profile, what: 'construction' | 'research', now: number): boolean {
+  const job = p[what];
+  if (!job || job.until <= now) return false;
+  const cost = rushCost(job.until, now);
+  if (p.stash.metallo < cost) return false;
+  p.stash.metallo -= cost;
+  job.until = now;
+  return true;
 }
 
 /** Campagna lasciata a metà (app chiusa): la puntata rientra come in una ritirata. Ritorna quanto è rientrato (0 = niente). */

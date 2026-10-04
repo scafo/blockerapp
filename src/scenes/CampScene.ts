@@ -6,7 +6,9 @@ import frontText from '../data/fronts.json';
 import {
   BUILDINGS, EXPEDITIONS, activeCiv, buildBlock, campaignChoice, canAfford, civChoice, collectExpedition, deckOf, expeditionCost, unlockedUnits,
   activeFront, enableTestMode, expeditionTimeSec, fmtTime, nextLevel, playerPower, settle, startBuild, startExpedition, stashCap, tents, unlockedAbilities,
+  SUPPLIES, buySupply, rush, rushCost, trade,
 } from '../game/camp';
+import shopText from '../data/shop.json';
 import { CIV_IDS, civInfo, civUnlocked } from '../game/civs';
 import { CIV_STYLE } from '../game/factions';
 import { loreFragments, loreTotal, settleResearch, techInfo } from '../game/tech';
@@ -37,7 +39,7 @@ const SKY = PALETTE.inchiostro; // l'HQ è una planimetria sul tavolo dello stat
 const INK = PALETTE.carta; // testi chiari sul fondo scuro
 const LINE = PALETTE.linea; // tratti della planimetria
 
-type Spot = BuildingId | 'spedizione' | 'gioca' | 'test'; // 'gioca' = preparazione della campagna, 'test' = modalità test
+type Spot = BuildingId | 'spedizione' | 'gioca' | 'test' | 'mercato'; // 'gioca' = preparazione della campagna, 'test' = modalità test
 type MapSpot = BuildingId | 'spedizione'; // le postazioni sulla planimetria
 const CAMPAIGNS: CampaignId[] = ['breve', 'standard', 'lunga'];
 const CAMPAIGN_NAME: Record<CampaignId, string> = { breve: 'BREVE', standard: 'STANDARD', lunga: 'LUNGA' };
@@ -146,6 +148,11 @@ export class CampScene extends Phaser.Scene {
     const p = this.profile;
     if (spot === 'spedizione') return !p.expedition ? 'none' : p.expedition.until > now ? 'away:timer' : 'ready';
     if (spot === 'test') return `test|${p.test ? 1 : 0}`;
+    if (spot === 'mercato') {
+      // si ridisegna quando cambiano risorse, acquisti o il prezzo per finire i lavori (a minuti)
+      const mins = [p.construction, p.research].map((j) => (j && j.until > now ? Math.ceil((j.until - now) / 60_000) : 0)).join(',');
+      return `mercato|${RESOURCES.map((r) => p.stash[r]).join(',')}|${(p.supplies ?? []).join(',')}|${mins}`;
+    }
     if (spot === 'gioca') return `gioca|${this.panelMode}|${p.civ}|${p.campaign}|${(p.deck ?? []).join(',')}`;
     if (spot === 'laboratorio' && this.panelMode === 'archivio') return `lab|archivio|${p.techs.length}`;
     return `${p.buildings[spot]}|${p.construction?.id ?? ''}|${RESOURCES.map((r) => p.stash[r]).join(',')}${p.construction?.id === spot ? ':timer' : ''}`;
@@ -378,9 +385,12 @@ export class CampScene extends Phaser.Scene {
     this.tweens.add({ targets: glow, alpha: 0.04, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     // albero della ricerca (armamenti e tecnologie): accanto a GIOCA, sempre a portata
     if (this.profile.runs > 0) {
-      const rw = P ? bw : 150;
-      const res = new Button(this, this.profile.research ? 'RICERCA ⏱' : 'RICERCA', rw, P ? 44 : 56, () => this.openTree('armamenti'), P ? 14 : 16);
-      res.setPosition(P ? (width - rw) / 2 : width - PAD - bw - 10 - rw, P ? height - B - 56 - 52 : height - B - 56).setDepth(20);
+      // RICERCA e MERCATO: accanto a GIOCA (orizzontale) o affiancati sopra GIOCA (verticale)
+      const rw = P ? (bw - 8) / 2 : 140, rh = P ? 44 : 56, ry = P ? height - B - 56 - 52 : height - B - 56;
+      const res = new Button(this, this.profile.research ? 'RICERCA ⏱' : 'RICERCA', rw, rh, () => this.openTree('armamenti'), P ? 14 : 16);
+      res.setPosition(P ? (width - bw) / 2 : width - PAD - bw - 10 - rw, ry).setDepth(20);
+      const shop = new Button(this, 'MERCATO', rw, rh, () => this.openPanel('mercato'), P ? 14 : 16);
+      shop.setPosition(P ? (width - bw) / 2 + rw + 8 : width - PAD - bw - 20 - 2 * rw, ry).setDepth(20);
     }
     if (!P) this.add.text(PAD, height - B, 'Tocca una postazione o il convoglio', textStyle(11, INK, false)).setOrigin(0, 1);
   }
@@ -445,6 +455,7 @@ export class CampScene extends Phaser.Scene {
 
   /** Scheda a destra con dettagli e azione (costruisci / migliora / spedisci / ritira). */
   private openPanel(spot: Spot, mode?: string) {
+    const fresh = spot !== this.panelSpot; // scheda appena aperta (non un ridisegno per i timer): entra con una dissolvenza
     this.panel?.destroy();
     if (mode !== undefined || spot !== this.panelSpot) this.panelMode = mode ?? '';
     this.panelSpot = spot;
@@ -452,9 +463,10 @@ export class CampScene extends Phaser.Scene {
     const { width, height } = view(this);
     const wide = spot === 'gioca' || ((spot === 'laboratorio' || spot === 'radar') && this.panelMode !== 'build' && this.profile.buildings[spot] > 0);
     const prep = spot === 'gioca';
-    const bld = !prep && !wide && spot !== 'spedizione' && spot !== 'test';
-    const W = Math.min(prep ? 700 : wide ? 540 : bld ? 470 : 330, width - 24);
-    const H = Math.min(prep ? (this.portrait ? 620 : 420) : wide ? (this.portrait ? 440 : 350) : bld ? 380 : 290, height - 2 * PAD);
+    const bld = !prep && !wide && spot !== 'spedizione' && spot !== 'test' && spot !== 'mercato';
+    const shop = spot === 'mercato';
+    const W = Math.min(prep ? 700 : shop ? 560 : wide ? 540 : bld ? 470 : 330, width - 24);
+    const H = Math.min(prep ? (this.portrait ? 620 : 420) : shop ? (this.portrait ? 520 : 372) : wide ? (this.portrait ? 440 : 350) : bld ? 400 : 290, height - 2 * PAD);
     const x0 = width / 2 - W / 2, y0 = (height - H) / 2;
     const items: Phaser.GameObjects.GameObject[] = [];
     const shade = this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.6).setOrigin(0).setInteractive();
@@ -473,6 +485,8 @@ export class CampScene extends Phaser.Scene {
 
     if (spot === 'test') {
       this.fillTest(items, x0, y0, W, H);
+    } else if (spot === 'mercato') {
+      this.fillShop(items, x0, y0, W, H);
     } else if (spot === 'gioca') {
       this.fillPrep(items, x0, y0, W, H);
     } else if (spot === 'laboratorio' && this.panelMode === 'archivio') {
@@ -531,16 +545,22 @@ export class CampScene extends Phaser.Scene {
       ig.fillStyle(PALETTE.pannello, 1).fillRect(x0 + 16, y0 + 14, 132, 88).lineStyle(1, LINE, 1).strokeRect(x0 + 16, y0 + 14, 132, 88);
       const ill = { scene: this as Phaser.Scene, g: ig, deco: [] as Phaser.GameObjects.GameObject[], k: 0.8 };
       drawBuilding(ill, spot, x0 + 82, y0 + 56, 104, 60, Math.max(1, lvl), CIV_STYLE[activeCiv(this.profile)]); // com'è (o sarà) dall'alto
+      // livello a tacche: piene quelle fatte, bordo oro la prossima
+      for (let i = 0; i < maxLvl(spot); i++) {
+        const tx = x0 + 162 + i * 16, ty = y0 + 48;
+        if (i < lvl) ig.fillStyle(PALETTE.ocra, 1).fillRect(tx, ty, 12, 7);
+        else ig.fillStyle(PALETTE.pannello, 1).fillRect(tx, ty, 12, 7).lineStyle(1, i === lvl ? PALETTE.ocra : PALETTE.linea, 1).strokeRect(tx, ty, 12, 7);
+      }
       items.push(ig, ...ill.deco);
       const pw = BALANCE.power[spot as keyof typeof BALANCE.power] ?? 0;
       items.push(this.add.text(x0 + 162, y0 + 14, T.name.toUpperCase(), textStyle(T.name.length > 14 ? 16 : 20, INK)),
-        this.add.text(x0 + 162, y0 + 44, `LIVELLO ${lvl}/${maxLvl(spot)}${lvl < maxLvl(spot) ? ` · +${pw} potenza al prossimo` : ' · MASSIMO'}`, textStyle(10, PALETTE.ocra)),
+        this.add.text(x0 + 162 + maxLvl(spot) * 16 + 6, y0 + 44, `LIV. ${lvl}/${maxLvl(spot)}${lvl < maxLvl(spot) ? ` · +${pw} potenza` : ' · MASSIMO'}`, textStyle(10, PALETTE.ocra)),
         this.add.text(x0 + 162, y0 + 62, T.desc, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 178));
       if (spot === 'radar' && lvl > 0) items.push(this.link('‹ registro', x0 + W - 16, y0 + 90, () => this.openPanel(spot, '')));
       // Laboratorio e Arsenale: da qui all'albero della ricerca (armamenti e tecnologie)
       if (spot === 'laboratorio' || spot === 'arsenale') {
         items.push(this.link(spot === 'arsenale' ? 'albero: armamenti ›' : 'albero della ricerca ›', x0 + W - 16, y0 + 90, () => this.openTree(spot === 'arsenale' ? 'armamenti' : 'esercito')));
-        if (spot === 'laboratorio') items.push(this.link(`archivio della Caduta (${loreFragments(this.profile).length}/${loreTotal}) ›`, x0 + 16, y0 + H - 104, () => this.openPanel('laboratorio', 'archivio'), 0));
+        if (spot === 'laboratorio') items.push(this.link(`archivio della Caduta (${loreFragments(this.profile).length}/${loreTotal}) ›`, x0 + 16, y0 + H - 132, () => this.openPanel('laboratorio', 'archivio'), 0));
       }
       // tutti i livelli: fatti, il prossimo evidenziato, quelli dopo
       T.levels.forEach((txt, i) => {
@@ -557,9 +577,18 @@ export class CampScene extends Phaser.Scene {
         const pct = 1 - (c.until - now) / total;
         items.push(this.add.rectangle(x0 + 16, y0 + H - 70, W - 32, 10, 0x1d3a31).setOrigin(0));
         items.push(this.add.rectangle(x0 + 16, y0 + H - 70, (W - 32) * Phaser.Math.Clamp(pct, 0, 1), 10, PALETTE.ruggine).setOrigin(0));
-        items.push(this.btn(`IN COSTRUZIONE · ${fmtTime(c.until - now)}`, x0 + 16, y0 + H - 54, W - 32, false, () => {}));
+        // accanto al tempo: finisci subito pagando metallo (come al Mercato)
+        const half = (W - 32 - 8) / 2, cost = rushCost(c.until, now), ok = this.profile.stash.metallo >= cost;
+        items.push(this.btn(`IN COSTRUZIONE · ${fmtTime(c.until - now)}`, x0 + 16, y0 + H - 54, half, false, () => {}, 12));
+        items.push(this.btn(`FINISCI ORA · ${cost} METALLO`, x0 + 24 + half, y0 + H - 54, half, ok, () => {
+          if (!rush(this.profile, 'construction', Date.now())) return;
+          analytics.design(['mercato', 'accelera', 'construction'], cost);
+          saveProfile(this.profile);
+          this.closePanel();
+          this.settleAll(false);
+        }, 12));
       } else if (next) {
-        items.push(this.bagRow(next.cost, x0 + 16, y0 + H - 84, this.profile.stash));
+        this.costChips(items, next.cost, next.timeSec, x0 + 16, y0 + H - 110, W - 32);
         const block = buildBlock(this.profile, spot);
         const why = { busy: 'cantiere occupato', cost: 'risorse insufficienti', comando: `serve il centro di comando liv. ${lvl}`, max: '' } as const;
         const lbl = block ? why[block] : `${lvl ? 'MIGLIORA' : 'COSTRUISCI'} · ${fmtTime(next.timeSec * 1000)}`;
@@ -578,6 +607,113 @@ export class CampScene extends Phaser.Scene {
       }
     }
     this.panel = this.add.container(0, 0, items).setDepth(40);
+    if (fresh) {
+      this.panel.setAlpha(0).setY(8);
+      this.tweens.add({ targets: this.panel, alpha: 1, y: 0, duration: 170, ease: 'Quad.easeOut' });
+    }
+  }
+
+  /** Mercato: scambi tra risorse, rifornimenti per la prossima campagna, lavori finiti subito. Solo risorse di gioco. */
+  private fillShop(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, _H: number) {
+    const p = this.profile, P = this.portrait, S = BALANCE.shop, now = Date.now();
+    const done = (msg: string) => {
+      saveProfile(p);
+      this.updateStash();
+      buzz(12);
+      this.toast(msg, PALETTE.radioattivo);
+      this.openPanel('mercato');
+    };
+    items.push(this.add.text(x0 + 16, y0 + 10, shopText.title, textStyle(18, INK)),
+      this.add.text(x0 + 16, y0 + 44, shopText.desc, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 32));
+    const g = this.add.graphics(); // icone: aggiunte in fondo, sopra le schede
+    const tile = (x: number, y: number, w: number, h: number, ok: boolean, on: boolean, run: () => void) => {
+      const r = this.add.rectangle(x, y, w, h, on ? 0x1b2634 : PALETTE.pannello).setOrigin(0).setStrokeStyle(1, on ? PALETTE.ocra : ok ? PALETTE.linea : 0x2a3340)
+        .setAlpha(ok || on ? 1 : 0.55);
+      if (ok) r.setInteractive({ useHandCursor: true }).on('pointerup', run);
+      items.push(r);
+    };
+    // scambio: 50 di una → 30 di un'altra
+    let y = y0 + (P ? 82 : 70);
+    items.push(this.add.text(x0 + 16, y, shopText.trade, textStyle(10, PALETTE.ocra)));
+    y += 18;
+    const pairs = RESOURCES.flatMap((a) => RESOURCES.filter((b) => b !== a).map((b) => [a, b] as const));
+    const cols = P ? 2 : 3, tw = (W - 32 - (cols - 1) * 6) / cols, th = 36;
+    pairs.forEach(([a, b], k) => {
+      const x = x0 + 16 + (k % cols) * (tw + 6), ty = y + Math.floor(k / cols) * (th + 6);
+      const ok = p.stash[a] >= S.trade.give;
+      tile(x, ty, tw, th, ok, false, () => { if (trade(p, a, b)) done(`SCAMBIO · −${S.trade.give} ${RESOURCE_INFO[a].name.toLowerCase()} · +${S.trade.get} ${RESOURCE_INFO[b].name.toLowerCase()}`); });
+      drawResourceIcon(g, a, x + 18, ty + th / 2, 7);
+      items.push(this.add.text(x + 30, ty + th / 2, String(S.trade.give), textStyle(13, ok ? INK : PALETTE.tenue)).setOrigin(0, 0.5),
+        this.add.text(x + tw / 2, ty + th / 2, '→', textStyle(13, PALETTE.ocra)).setOrigin(0.5));
+      drawResourceIcon(g, b, x + tw - 44, ty + th / 2, 7);
+      items.push(this.add.text(x + tw - 32, ty + th / 2, String(S.trade.get), textStyle(13, ok ? PALETTE.ok : PALETTE.tenue)).setOrigin(0, 0.5));
+    });
+    y += Math.ceil(pairs.length / cols) * (th + 6) + 10;
+    // rifornimenti: uno per tipo, valgono per la prossima campagna
+    items.push(this.add.text(x0 + 16, y, shopText.supplies, textStyle(10, PALETTE.ocra)));
+    y += 18;
+    const scols = P ? 1 : 3, sw = (W - 32 - (scols - 1) * 6) / scols, sh = P ? 44 : 64;
+    SUPPLIES.forEach((k, i) => {
+      const T = shopText.items[k], D = S.supplies[k], own = (p.supplies ?? []).includes(k), ok = !own && canAfford(p.stash, D.cost);
+      const x = x0 + 16 + (i % scols) * (sw + 6), ty = y + Math.floor(i / scols) * (sh + 6);
+      tile(x, ty, sw, sh, ok, own, () => { if (buySupply(p, k)) done(`${T.name.toUpperCase()} · pronti per la prossima campagna`); });
+      items.push(this.add.text(x + 10, ty + 6, T.name.toUpperCase(), textStyle(11, own ? PALETTE.ocra : INK)),
+        this.add.text(x + 10, ty + 22, T.desc, textStyle(9, PALETTE.tenue, false)));
+      if (own) items.push(this.add.text(x + sw - 10, ty + (P ? sh / 2 : sh - 12), '✓ PRONTO', textStyle(10, PALETTE.ocra)).setOrigin(1, 0.5));
+      else this.costRow(g, items, D.cost, P ? x + sw - 150 : x + 10, P ? ty + sh / 2 : ty + sh - 12, p.stash);
+    });
+    y += Math.ceil(SUPPLIES.length / scols) * (sh + 6) + 10;
+    // lavori in corso: finiti subito pagando metallo
+    items.push(this.add.text(x0 + 16, y, shopText.rush, textStyle(10, PALETTE.ocra)));
+    y += 18;
+    const jobs = [
+      { what: 'construction' as const, job: p.construction, name: p.construction ? `${buildingText[p.construction.id].name} liv. ${p.buildings[p.construction.id] + 1}` : '' },
+      { what: 'research' as const, job: p.research, name: p.research ? techInfo(p.research.id).name : '' },
+    ].filter((j) => j.job && j.job.until > now);
+    if (!jobs.length) items.push(this.add.text(x0 + 16, y + 4, 'Nessun cantiere o ricerca in corso.', textStyle(11, PALETTE.tenue, false)));
+    jobs.forEach((j, i) => {
+      const cost = rushCost(j.job!.until, now), ok = p.stash.metallo >= cost;
+      items.push(this.btn(`FINISCI ORA: ${j.name.toUpperCase()} · ${cost} METALLO`, x0 + 16, y + i * 46, W - 32, ok, () => {
+        if (!rush(p, j.what, Date.now())) return;
+        analytics.design(['mercato', 'accelera', j.what], cost);
+        saveProfile(p);
+        this.closePanel();
+        this.settleAll(false);
+      }, 12));
+    });
+    items.push(g);
+  }
+
+  /** Costo del prossimo livello a schede: icona, quanto serve, quanto hai (barra verde se basta, rossa se no) e tempo. */
+  private costChips(items: Phaser.GameObjects.GameObject[], cost: Bag, timeSec: number, x: number, y: number, w: number) {
+    const have = this.profile.stash, rs = RESOURCES.filter((r) => cost[r] > 0), n = rs.length + 1, cw = (w - (n - 1) * 6) / n, ch = 48;
+    const g = this.add.graphics();
+    items.push(g);
+    rs.forEach((r, i) => {
+      const cx = x + i * (cw + 6), ok = have[r] >= cost[r];
+      g.fillStyle(PALETTE.pannello, 1).fillRect(cx, y, cw, ch).lineStyle(1, ok ? PALETTE.linea : PALETTE.ko, 1).strokeRect(cx, y, cw, ch);
+      drawResourceIcon(g, r, cx + 16, y + 18, 8);
+      g.fillStyle(PALETTE.linea, 1).fillRect(cx + 8, y + ch - 9, cw - 16, 4);
+      g.fillStyle(ok ? 0x7ee2a8 : PALETTE.ko, 1).fillRect(cx + 8, y + ch - 9, (cw - 16) * Math.min(1, have[r] / cost[r]), 4);
+      items.push(this.add.text(cx + 30, y + 18, String(cost[r]), textStyle(15, ok ? INK : PALETTE.ko)).setOrigin(0, 0.5),
+        this.add.text(cx + cw - 8, y + 18, `hai ${have[r]}`, textStyle(9, PALETTE.tenue, false)).setOrigin(1, 0.5));
+    });
+    const tx = x + rs.length * (cw + 6);
+    g.fillStyle(PALETTE.pannello, 1).fillRect(tx, y, cw, ch).lineStyle(1, PALETTE.linea, 1).strokeRect(tx, y, cw, ch);
+    items.push(this.add.text(tx + cw / 2, y + 14, 'TEMPO', textStyle(9, PALETTE.tenue)).setOrigin(0.5),
+      this.add.text(tx + cw / 2, y + 31, fmtTime(timeSec * 1000), textStyle(14, INK)).setOrigin(0.5));
+  }
+
+  /** Costo in fila: icona, quanto serve (rosso se non basta). */
+  private costRow(g: Phaser.GameObjects.Graphics, items: Phaser.GameObjects.GameObject[], cost: Bag, x: number, y: number, have: Bag) {
+    let cx = x;
+    for (const r of RESOURCES) {
+      if (!cost[r]) continue;
+      drawResourceIcon(g, r, cx + 6, y, 6);
+      const t = this.add.text(cx + 15, y, String(cost[r]), textStyle(11, have[r] < cost[r] ? PALETTE.ko : INK)).setOrigin(0, 0.5);
+      items.push(t);
+      cx += t.width + 26;
+    }
   }
 
   /** Modalità test: sblocca tutto per provare armi, civiltà e ricerche senza aspettare; si torna indietro azzerando il profilo. */

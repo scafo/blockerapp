@@ -104,6 +104,7 @@ export class RunScene extends Phaser.Scene {
       for (const r of RESOURCES) profile.stash[r] = Math.max(0, profile.stash[r] - opts.stake[r]);
       profile.activeStake = { bag: { ...opts.stake }, fee: opts.exitFee };
     }
+    if (!opts.tutorial && profile.supplies?.length) profile.supplies = []; // i rifornimenti del Mercato partono con questa campagna
     saveProfile(profile);
     this.map = generateMap(data.seed, loadWorld(), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count, opts.tutorial ? 0 : BALANCE.bots.count,
       opts.front.aiDistance);

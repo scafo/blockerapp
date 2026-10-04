@@ -59,8 +59,9 @@ export class LoadScene extends Phaser.Scene {
     // intestazione
     const pad = P ? 18 : 32;
     this.add.text(pad, pad, 'ASHEN ATLAS', textStyle(14, PALETTE.ocra)).setLetterSpacing(4);
-    this.add.text(width - pad, pad + 2, `ARCHIVIO DI COMANDO · DOC. ${String(311 + k * 47).padStart(4, '0')}`, textStyle(10, PALETTE.tenue, false))
-      .setOrigin(1, 0).setLetterSpacing(2);
+    // in verticale il protocollo va sotto il titolo (sulla stessa riga non ci stanno)
+    this.add.text(P ? pad : width - pad, P ? pad + 24 : pad + 2, `ARCHIVIO DI COMANDO · DOC. ${String(311 + k * 47).padStart(4, '0')}`, textStyle(10, PALETTE.tenue, false))
+      .setOrigin(P ? 0 : 1, 0).setLetterSpacing(2);
 
     // titolo, citazione, fonte
     const wrap = Math.min(660, width - 2 * pad);

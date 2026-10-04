@@ -216,6 +216,17 @@ export const BALANCE = {
     recruitCost: 10, // ARRUOLA: risorse dallo zaino...
     recruitTroops: 30, // ...per queste truppe subito
   },
+  // Mercato della base: solo risorse di gioco (niente soldi veri, niente casse a sorpresa). Scambi in perdita, rifornimenti
+  // per la prossima campagna (uno per tipo, si consumano quando parte), cantiere e ricerca finiti subito pagando metallo.
+  shop: {
+    trade: { give: 50, get: 30 }, // 50 di una risorsa → 30 di un'altra
+    supplies: {
+      truppe: { cost: { metallo: 0, benzina: 20, cibo: 60 }, mods: { startTroops: 80 } },
+      mappe: { cost: { metallo: 20, benzina: 50, cibo: 0 }, mods: { fogIntel: 10 } },
+      sabbia: { cost: { metallo: 60, benzina: 0, cibo: 20 }, mods: { ownedDefenseMult: 1.1 } },
+    },
+    rushPerMin: 8, // metallo per ogni minuto che manca (arrotondato in su)
+  },
   // Prima run guidata: 1 sola IA che non attacca, senza limite di tempo né eventi, si vince con goalProvinces province.
   tutorial: {
     aiCount: 1,
