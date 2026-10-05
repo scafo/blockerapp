@@ -69,6 +69,7 @@ export class CampScene extends Phaser.Scene {
   private panelKey = '';
   private lastToast: Phaser.GameObjects.Text | null = null;
   private burst!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private navBtns: { btn: Button; on: () => boolean }[] = [];
 
   constructor() {
     super('Camp');
@@ -383,16 +384,41 @@ export class CampScene extends Phaser.Scene {
     // azione principale: fondo oro e un alone che respira piano dietro (attira l'occhio senza muovere il tasto)
     const glow = this.add.rectangle(play.x - 5, play.y - 5, bw + 10, 66, PALETTE.ocra, 0.22).setOrigin(0).setDepth(19);
     this.tweens.add({ targets: glow, alpha: 0.04, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    // albero della ricerca (armamenti e tecnologie): accanto a GIOCA, sempre a portata
-    if (this.profile.runs > 0) {
-      // RICERCA e MERCATO: accanto a GIOCA (orizzontale) o affiancati sopra GIOCA (verticale)
-      const rw = P ? (bw - 8) / 2 : 140, rh = P ? 44 : 56, ry = P ? height - B - 56 - 52 : height - B - 56;
-      const res = new Button(this, this.profile.research ? 'RICERCA ⏱' : 'RICERCA', rw, rh, () => this.openTree('armamenti'), P ? 14 : 16);
-      res.setPosition(P ? (width - bw) / 2 : width - PAD - bw - 10 - rw, ry).setDepth(20);
-      const shop = new Button(this, 'MERCATO', rw, rh, () => this.openPanel('mercato'), P ? 14 : 16);
-      shop.setPosition(P ? (width - bw) / 2 + rw + 8 : width - PAD - bw - 20 - 2 * rw, ry).setDepth(20);
-    }
+    // cornice: QG, Operazioni, Ricerca, Arsenale, Mercato, Archivio — una riga sopra GIOCA, sempre a portata
+    if (this.profile.runs > 0) this.drawNav(width, height, B);
     if (!P) this.add.text(PAD, height - B, 'Tocca una postazione o il convoglio', textStyle(11, INK, false)).setOrigin(0, 1);
+  }
+
+  /** Cornice di navigazione: 6 voci verso le schede già esistenti (preparazione, albero, arsenale, mercato, registro). */
+  private drawNav(width: number, height: number, B: number) {
+    const items: { label: string; on: () => boolean; run: () => void }[] = [
+      { label: 'QG', on: () => this.panelSpot === null && !this.scene.isActive('Tree'),
+        run: () => { if (this.scene.isActive('Tree')) this.scene.stop('Tree'); this.closePanel(); } },
+      { label: 'OPERAZIONI', on: () => this.panelSpot === 'gioca', run: () => this.openPanel('gioca') },
+      { label: this.profile.research ? 'RICERCA ⏱' : 'RICERCA', on: () => this.scene.isActive('Tree'), run: () => this.openTree('armamenti') },
+      { label: 'ARSENALE', on: () => this.panelSpot === 'arsenale', run: () => this.openPanel('arsenale') },
+      { label: 'MERCATO', on: () => this.panelSpot === 'mercato', run: () => this.openPanel('mercato') },
+      { label: 'ARCHIVIO', on: () => this.panelSpot === 'radar', run: () => this.openPanel('radar') },
+    ];
+    // stretto (telefono verticale): 2 righe da 3, altrimenti 1 riga da 6 (etichette leggibili, non accavallate)
+    const n = items.length, gap = 6, bh = 36, rowGap = 6, minBw = 92;
+    const cols = (width - 2 * PAD - (n - 1) * gap) / n >= minBw ? n : Math.ceil(n / 2);
+    const rows = Math.ceil(n / cols);
+    const bw = Math.min(150, (width - 2 * PAD - (cols - 1) * gap) / cols);
+    const totalH = rows * bh + (rows - 1) * rowGap, yTop = height - B - 56 - 8 - totalH; // blocco appena sopra GIOCA
+    const totalW = cols * bw + (cols - 1) * gap, x0 = Math.max(PAD, width - PAD - totalW);
+    this.navBtns = items.map((it, i) => {
+      const r = Math.floor(i / cols), c = i % cols;
+      const b = new Button(this, it.label, bw, bh, it.run, 11);
+      b.setPosition(x0 + c * (bw + gap), yTop + r * (bh + rowGap)).setDepth(50); // sopra il pannello aperto (depth 40): sempre raggiungibile
+      return { btn: b, on: it.on };
+    });
+    this.refreshNav();
+  }
+
+  /** Aggiorna quale voce della cornice risulta attiva (dopo aver aperto/chiuso una scheda o l'albero). */
+  private refreshNav() {
+    for (const { btn, on } of this.navBtns) btn.setOn(on());
   }
 
   /** GIOCA: la prima volta parte la run guidata, poi si apre la preparazione della campagna. */
@@ -451,6 +477,7 @@ export class CampScene extends Phaser.Scene {
     this.panel?.destroy();
     this.panel = null;
     this.panelSpot = null;
+    this.refreshNav();
   }
 
   /** Scheda a destra con dettagli e azione (costruisci / migliora / spedisci / ritira). */
@@ -459,6 +486,7 @@ export class CampScene extends Phaser.Scene {
     this.panel?.destroy();
     if (mode !== undefined || spot !== this.panelSpot) this.panelMode = mode ?? '';
     this.panelSpot = spot;
+    this.refreshNav();
     this.panelKey = this.panelState(spot, Date.now());
     const { width, height } = view(this);
     const wide = spot === 'gioca' || ((spot === 'laboratorio' || spot === 'radar') && this.panelMode !== 'build' && this.profile.buildings[spot] > 0);
@@ -967,6 +995,7 @@ export class CampScene extends Phaser.Scene {
   refreshAfterTree() {
     this.updateStash();
     for (const id of BUILDINGS) this.redrawSpot(id);
+    this.refreshNav();
   }
 
 
