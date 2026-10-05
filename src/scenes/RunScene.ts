@@ -23,6 +23,7 @@ import { drawUnitHp, drawUnitSymbol } from '../ui/unitSymbols';
 import { isNaval, unitInfo, type Unit } from '../game/units';
 import type { Boat } from '../game/boats';
 import type { HudScene } from './HudScene';
+import { setupCamera, zoomAt } from './run/CameraControl';
 
 const S = BALANCE.map.hexSize;
 // profondità dei livelli della mappa
@@ -185,7 +186,7 @@ export class RunScene extends Phaser.Scene {
 
     this.redrawOwned();
     this.redrawFrontier(true);
-    this.setupCamera();
+    setupCamera(this);
     this.setupInput();
 
     this.scene.launch('Hud');
@@ -1400,25 +1401,23 @@ export class RunScene extends Phaser.Scene {
 
   // ---------- camera & input ----------
 
-  private setupCamera() {
-    const cam = this.cameras.main;
-    const m = 400;
-    cam.setBounds(-m, -m, WORLD_W + 2 * m, WORLD_H + 2 * m);
-    cam.setZoom(CAM.startZoom * UI()); // lo zoom della camera conta i pixel reali dello schermo
-    const { x, y } = center(this.map.starts[0]);
-    cam.centerOn(x, y);
+  /** Usata da run/CameraControl.ts dopo uno zoom: le etichette del fronte si ridisegnano subito. */
+  resetLabelTimer(): void {
+    this.labelTimer = 0;
   }
 
-  private zoomAt(sx: number, sy: number, z: number) {
-    const cam = this.cameras.main;
-    const nz = Phaser.Math.Clamp(z, CAM.minZoom * UI(), CAM.maxZoom * UI());
-    const w = cam.width / 2, h = cam.height / 2;
-    const wx = cam.scrollX + w + (sx - w) / cam.zoom;
-    const wy = cam.scrollY + h + (sy - h) / cam.zoom;
-    cam.setZoom(nz);
-    cam.scrollX = wx - w - (sx - w) / nz;
-    cam.scrollY = wy - h - (sy - h) / nz;
-    this.labelTimer = 0;
+  /** Centra la telecamera su una casella (per future schermate: "vai a..."). Nessun cambio di zoom. */
+  centerOn(tile: number): void {
+    const { x, y } = center(tile);
+    this.cameras.main.centerOn(x, y);
+  }
+
+  /**
+   * Evidenzia un insieme di caselle con uno stile (placeholder: non disegna ancora nulla).
+   * Implementazione vera in arrivo con gli strati vettoriali (R0b); la firma esiste già per C2/C3.
+   */
+  highlight(tiles: number[], style: string): void {
+    void tiles; void style;
   }
 
   /** Coordinate schermo → casella (−1 se fuori). */
@@ -1491,7 +1490,7 @@ export class RunScene extends Phaser.Scene {
         const [a, b] = pts;
         const d = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
         const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-        if (this.pinchDist > 0) this.zoomAt(mid.x, mid.y, cam.zoom * (d / this.pinchDist));
+        if (this.pinchDist > 0) zoomAt(this, mid.x, mid.y, cam.zoom * (d / this.pinchDist));
         if (this.lastMid) {
           cam.scrollX -= (mid.x - this.lastMid.x) / cam.zoom;
           cam.scrollY -= (mid.y - this.lastMid.y) / cam.zoom;
@@ -1533,7 +1532,7 @@ export class RunScene extends Phaser.Scene {
     });
 
     this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
-      this.zoomAt(p.x, p.y, this.cameras.main.zoom * (dy > 0 ? 0.88 : 1.14));
+      zoomAt(this, p.x, p.y, this.cameras.main.zoom * (dy > 0 ? 0.88 : 1.14));
     });
   }
 
