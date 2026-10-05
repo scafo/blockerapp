@@ -3,9 +3,11 @@ import { BALANCE } from '../config/balance';
 import { PALETTE } from '../config/palette';
 import bulletins from '../data/bulletins.json';
 import { RESOURCES, RESOURCE_INFO, bagTotal } from '../game/resources';
-import { addToStash, stashCap } from '../game/camp';
+import { stashCap } from '../game/camp';
+import { applyRunResult } from '../game/progress';
 import type { RunSummary } from '../game/RunState';
-import { loadProfile, saveProfile } from '../save/storage';
+import { loadProfile } from '../save/storage';
+import { profileStore } from '../save/profileStore';
 import { analytics } from '../analytics/analytics';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
@@ -31,20 +33,8 @@ export class ResultScene extends Phaser.Scene {
   create(sum: RunSummary) {
     uiCamera(this);
     const profile = loadProfile();
-    const lostCap = addToStash(profile, sum.kept); // oltre la capienza del Deposito si perde
-    profile.activeStake = null; // la puntata è stata giocata fino in fondo
-    profile.runs++;
-    // registro della Sala Radar
-    profile.history = [{ at: Date.now(), civ: sum.civ, campaign: sum.campaign, outcome: sum.outcome, tiles: sum.maxTiles, timeMs: sum.timeMs }, ...(profile.history ?? [])].slice(0, 20);
-    if (sum.outcome === 'victory') profile.wins++;
-    // vittoria sull'ultimo fronte sbloccato: si apre il successivo (e diventa quello scelto)
-    let unlocked = -1;
-    if (sum.outcome === 'victory' && !sum.tutorial && sum.front >= (profile.frontMax ?? 0) && sum.front < BALANCE.fronts.length - 1) {
-      unlocked = profile.frontMax = sum.front + 1;
-      profile.front = unlocked;
-    }
-    profile.bestTiles = Math.max(profile.bestTiles, sum.maxTiles);
-    saveProfile(profile);
+    const { lostCap, unlocked } = applyRunResult(profile, sum, Date.now());
+    profileStore.save(profile);
     analytics.runEnd(sum.outcome, sum.reason, sum.maxTiles, sum.timeMs, sum.seed);
     analytics.resources('source', sum.kept, 'run', sum.outcome);
 

@@ -9,6 +9,7 @@
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
     "check:land": "vite-node scripts/check-land-mask.ts",
+    "check:progress": "vite-node scripts/check-progress.ts",
     "build:single": "node scripts/build-single.mjs",
     "build:map": "vite-node scripts/build-map.ts"
   },

@@ -4,7 +4,9 @@ import { civMods, civUnlocked, civInfo } from './civs';
 import { BASE_MODS, combine, type Mods } from './mods';
 import { techMods } from './tech';
 import type { BuildingId, ExpeditionKind, Profile } from '../save/storage';
-import { RESOURCES, type Bag } from './resources';
+import type { LoadData } from '../scenes/LoadScene';
+import { randomSeed } from '../map/rng';
+import { RESOURCES, bagTotal, type Bag } from './resources';
 
 export const BUILDINGS: BuildingId[] = ['arsenale', 'laboratorio', 'comando', 'radar', 'deposito'];
 export const EXPEDITIONS: ExpeditionKind[] = ['breve', 'media', 'lunga'];
@@ -82,6 +84,50 @@ export function playerPower(p: Profile): number {
   const b = p.buildings;
   return b.arsenale * W.arsenale + b.comando * W.comando + b.laboratorio * W.laboratorio + b.deposito * W.deposito + b.radar * W.radar
     + p.techs.filter((id) => id in BALANCE.tech).length * W.tech;
+}
+
+export const FRONT_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+
+/** Fronte attivo pronto per la visualizzazione: indice, numero romano, i dati, la tua potenza, se sei più debole del consigliato. */
+export function displayFront(p: Profile): { index: number; roman: string; def: FrontDef; power: number; weak: boolean } {
+  const index = activeFront(p), def = BALANCE.fronts[index], power = playerPower(p);
+  return { index, roman: FRONT_ROMAN[index], def, power, weak: power < def.power };
+}
+
+export interface PowerPlan {
+  yours: number;
+  recommended: number;
+  gap: number; // quanto manca (0 se sei già pronto)
+  ready: boolean;
+}
+
+/** Confronta la tua potenza con quella consigliata per un fronte (di base quello attivo). */
+export function powerPlan(p: Profile, target: number = activeFront(p)): PowerPlan {
+  const yours = playerPower(p);
+  const clamped = Math.max(0, Math.min(target, BALANCE.fronts.length - 1));
+  const recommended = BALANCE.fronts[clamped].power;
+  return { yours, recommended, gap: Math.max(0, recommended - yours), ready: yours >= recommended };
+}
+
+/** Dati per avviare subito una campagna con le impostazioni già scelte nel profilo (tasto GIOCA nelle schermate). */
+export function lastRunConfig(_p: Profile): LoadData {
+  return { next: 'Run', data: { seed: randomSeed() } };
+}
+
+export interface BaseAlert {
+  id: 'cantiere-libero' | 'ricerca-ferma' | 'squadra-rientrata' | 'deposito-pieno';
+  urgent: boolean;
+}
+
+/** Condizioni che meritano un avviso nella base: unica fonte, le schermate la leggono senza duplicarla. */
+export function baseAlerts(p: Profile, now: number): BaseAlert[] {
+  const out: BaseAlert[] = [];
+  if (!p.construction) out.push({ id: 'cantiere-libero', urgent: false });
+  if (!p.research) out.push({ id: 'ricerca-ferma', urgent: false });
+  if (p.expedition && p.expedition.until <= now) out.push({ id: 'squadra-rientrata', urgent: true });
+  const cap = stashCap(p);
+  if (Number.isFinite(cap) && bagTotal(p.stash) >= cap * 0.9) out.push({ id: 'deposito-pieno', urgent: true });
+  return out;
 }
 
 const emptyStake = (): Bag => ({ metallo: 0, benzina: 0, cibo: 0 });

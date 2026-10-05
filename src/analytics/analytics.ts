@@ -61,6 +61,21 @@ export const analytics = {
     if (enabled) safe(() => GA.addProgressionEvent(status, 'run', part(seed), undefined, maxTiles));
   },
 
+  /** Grado del comandante salito (meccaniche nuove, onda 5): tier = indice in merit.tiers. */
+  rank(tier: number) {
+    this.design(['progressione', 'grado'], tier);
+  },
+
+  /** Ordine del giorno completato o cambiato (meccaniche nuove). */
+  dailyOrder(id: string, done: boolean) {
+    this.design(['giornaliero', id, done ? 'fatto' : 'cambiato']);
+  },
+
+  /** Si torna dopo un'assenza: quante ore sono passate (rapporto del mattino, meccaniche nuove). */
+  returnAfter(hours: number) {
+    this.design(['rientro', 'ore'], Math.round(hours));
+  },
+
   /** Bottino portato a casa (Source) o speso nell'accampamento (Sink). */
   resources(flow: 'source' | 'sink', bag: Bag, itemType: 'run' | 'edificio' | 'spedizione' | 'ricerca', itemId: string) {
     for (const [r, v] of Object.entries(bag)) {

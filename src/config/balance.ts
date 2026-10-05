@@ -357,6 +357,55 @@ export const BALANCE = {
     campaignChoiceAfterRuns: 1, // la durata si sceglie dopo la run guidata
     civChoiceAfterRuns: 3, // le civiltà dopo qualche campagna (un sistema nuovo alla volta)
   },
+  // — meccaniche nuove (piano schermate/retention): tutte spente finché Nico non le conferma —
+  features: {
+    orders: false, // ordini del giorno
+    morningReport: false, // rapporto del mattino + calendario 7gg
+    rendita: false, // rendita del Centro di Comando
+    merit: false, // grado del comandante
+    stars: false, // stelle per fronte
+    medals: false, // onorificenze
+    archive: false, // archivio della Caduta a puntate
+    gradualUnlock: false, // sblocco graduale delle schermate nella prima settimana
+  },
+  // — navigazione (schermate B1+): quando sblocca ogni voce, se features.gradualUnlock è attivo —
+  ui: {
+    navUnlock: { comando: 0, operazioni: 0, ricerca: 3, arsenale: 1, estrazione: 2, mercato: 4 }, // runs minimi
+  },
+  // — HUD (interfaccia in campagna, C0+) —
+  hud: {
+    toastMs: 2200,
+  },
+  // — grado del comandante (Merito): sale sempre, anche perdendo —
+  merit: {
+    perRun: 10,
+    perWin: 25,
+    tiers: [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200], // soglie di merito per grado (10 gradi)
+  },
+  // — ordini del giorno: 3 al giorno, un cambio gratis —
+  daily: {
+    count: 3,
+    freeReroll: 1,
+  },
+  // — rendita del Centro di Comando: matura da sola, tetto a 12h, si ritira nel QG —
+  rendita: {
+    capHours: 12,
+  },
+  // — stelle per fronte: vittoria, capitale mai persa, vittoria entro il 60% del tempo —
+  stars: {
+    fastWinShare: 0.6,
+  },
+  // — onorificenze: 3 livelli, premio fisso e toppa —
+  medals: {
+    tiers: ['recluta', 'veterano', 'elite'] as const,
+  },
+  // — archivio della Caduta: documenti a puntate nei caricamenti —
+  archive: {
+    docCount: 36,
+    skipKnownAfterMs: 2500, // i caricamenti già letti si saltano prima
+  },
+  weekly: {}, // operazione della settimana (P2): riservato
+
   // Civiltà: bonus (sempre) + edificio unico (sugli insediamenti, cioè rovine possedute). Testi in src/data/civs.json.
   civs: {
     republica: { unit: 'guardia', unlock: null, bonus: { ownedDefenseMult: 1.2 }, building: { settlementDefense: 6 } },

@@ -30,6 +30,26 @@ export interface Profile {
   name?: string; // nome del comandante (sulla mappa al posto di "TU")
   nameAsked?: boolean; // il nome è già stato chiesto una volta
   tree?: number; // 1 = armamenti già convertiti in ricerche (albero della ricerca)
+
+  // — campi nuovi (piano schermate/retention), tutti opzionali e retrocompatibili —
+  firstSeen?: number; // epoch ms della primissima apertura
+  lastSeen?: number; // epoch ms dell'ultima apertura (per il rapporto del mattino / premio di rientro)
+  sessions?: number; // numero di aperture del gioco
+  daysPlayed?: number; // giorni di calendario distinti in cui si è giocato (streak non si azzera mai)
+  lastDay?: string; // ultimo giorno (YYYY-MM-DD, ora locale) già contato in daysPlayed
+  xp?: number; // merito accumulato (grado del comandante)
+  rank?: number; // grado attuale (indice in merit.tiers)
+  orders?: { day: string; ids: string[]; done: string[]; rerolled: boolean } | null; // ordini del giorno attivi
+  stars?: Record<number, number>; // stelle ottenute per fronte (bitmask: 1 vittoria, 2 capitale mai persa, 4 vittoria veloce)
+  medals?: string[]; // onorificenze ottenute (chiavi)
+  patch?: string; // toppa di reparto scelta (decorativa)
+  loreSeen?: string[]; // documenti dell'archivio della Caduta già letti
+  eventSeen?: string[]; // eventi di carta già visti in questa run (si azzera a ogni campagna da chi gestisce la run)
+  records?: Record<string, number>; // record personali (es. province massime per fronte)
+  renditaAt?: number; // epoch ms dell'ultimo ritiro della rendita del Centro di Comando
+  daily?: Record<string, number>; // contatori giornalieri generici (chiave = id + giorno)
+  weekly?: Record<string, number>; // contatori settimanali generici (riservato all'operazione della settimana)
+  bestProvinces?: number; // record di province in una run (sostituisce bestTiles, che resta solo nello storico)
 }
 
 export interface CampaignRecord {
@@ -39,19 +59,46 @@ export interface CampaignRecord {
   outcome: string;
   tiles: number;
   timeMs: number;
+  provinces?: number; // province massime raggiunte (sostituisce tiles per le run nuove)
+  front?: number; // fronte giocato
+  kept?: number; // bottino totale portato a casa
+  stake?: number; // puntata totale messa in gioco
 }
 
-const KEY = 'ashen-atlas:profile';
+const REAL_KEY = 'ashen-atlas:profile';
+let ACTIVE_KEY = REAL_KEY;
+
+/**
+ * Sposta dove si legge/scrive il profilo (solo per i profili di prova di devProfiles.ts: ?profile=...).
+ * Da chiamare una sola volta, molto presto, prima di ogni loadProfile/saveProfile/hasLocalProfile.
+ */
+export function setActiveProfileKey(key: string): void {
+  ACTIVE_KEY = key;
+}
+
+/** True se un profilo di prova (?profile=...) è attivo: il ripristino da IndexedDB e il backup lo rispettano. */
+export const isDevProfile = (): boolean => ACTIVE_KEY !== REAL_KEY;
+
+/** True se c'è già un profilo in localStorage (per capire se vale la pena tentare un ripristino da IndexedDB). */
+export function hasLocalProfile(): boolean {
+  try {
+    return !!localStorage.getItem(ACTIVE_KEY);
+  } catch {
+    return false;
+  }
+}
 
 export const freshProfile = (): Profile => ({
   v: 1, stash: emptyBag(), runs: 0, wins: 0, bestTiles: 0,
   buildings: { arsenale: 0, comando: 0, deposito: 0, laboratorio: 0, radar: 0 }, construction: null, expedition: null, expeditionsDone: 0,
   civ: 'republica', campaign: 'standard', techs: [], deck: [], research: null, history: [], tree: 1,
+  firstSeen: Date.now(), lastSeen: Date.now(), sessions: 0, daysPlayed: 0, xp: 0, rank: 0, bestProvinces: 0,
+  orders: null, stars: {}, medals: [], loreSeen: [], eventSeen: [], records: {}, daily: {}, weekly: {},
 });
 
 export function loadProfile(): Profile {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(ACTIVE_KEY);
     if (!raw) return freshProfile();
     const p = migrate(JSON.parse(raw)) as Partial<Profile>;
     const f = freshProfile();
@@ -93,7 +140,7 @@ export function resetProfile(): Profile {
 
 export function saveProfile(p: Profile) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(p));
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify(p));
   } catch {
     /* storage pieno o bloccato: si gioca lo stesso */
   }

@@ -11,7 +11,9 @@ import { RunScene } from './scenes/RunScene';
 import { DevScene } from './scenes/dev/DevScene';
 import { DPR } from './ui/screen';
 import { installHotkeys } from './ui/hotkeys';
+import { initDevProfile } from './save/devProfiles';
 
+initDevProfile(); // ?profile=nuovo|dopo1|medio|max: sposta il salvataggio su una chiave di prova, prima di tutto
 installHotkeys();
 import bodyUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-500-normal.woff2';
 import bodyBoldUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-700-normal.woff2';
