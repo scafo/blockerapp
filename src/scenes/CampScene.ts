@@ -118,6 +118,8 @@ export class CampScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-ENTER', () => { if (!this.panel && !document.getElementById('name-ask')) this.onPlay(); });
     this.input.keyboard?.on('keydown-ESC', () => this.closePanel());
     this.scale.once('resize', () => this.scene.restart());
+    // alcune WebView (app iOS) al primissimo avvio leggono il notch come 0: un ricontrollo rapido corregge il layout
+    this.time.delayedCall(300, () => { if (safeInsets().top !== this.safe.top) this.scene.restart(); });
   }
 
   update(_t: number, delta: number) {

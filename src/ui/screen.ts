@@ -1,9 +1,11 @@
 // Schermi ad alta densità: il gioco disegna a DPR× (testi e linee nitidi) ma i layout ragionano in punti CSS.
 import Phaser from 'phaser';
+import { Capacitor } from '@capacitor/core';
 
 const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
-
-const lowEnd = (navigator.hardwareConcurrency || 4) <= 4; // telefoni economici: meno pixel da riempire
+// dentro la WebView dell'app iOS, navigator.hardwareConcurrency a volte mente (riporta ≤4 anche su telefoni recenti):
+// lì ci fidiamo della piattaforma nativa, non del numero di core.
+const lowEnd = Capacitor.getPlatform() === 'ios' ? false : (navigator.hardwareConcurrency || 4) <= 4; // telefoni economici: meno pixel da riempire
 // nitidezza prima di tutto (si valida su browser): densità reale fino a 3, 2 sui dispositivi deboli
 export const DPR = Math.max(1, Math.min(window.devicePixelRatio || 1, lowEnd ? 2 : 3));
 export const LOW_END = lowEnd;
@@ -83,6 +85,7 @@ export function safeInsets(): { top: number; right: number; bottom: number; left
   probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;'
     + 'padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);';
   document.body.append(probe);
+  void probe.offsetHeight; // forza il layout prima di leggere lo stile: in alcune WebView env() torna 0 se letto nello stesso istante
   const cs = getComputedStyle(probe), k = uiScale();
   const out = { top: parseFloat(cs.paddingTop) / k || 0, right: parseFloat(cs.paddingRight) / k || 0,
     bottom: parseFloat(cs.paddingBottom) / k || 0, left: parseFloat(cs.paddingLeft) / k || 0 };
