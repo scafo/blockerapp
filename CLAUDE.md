@@ -171,7 +171,7 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   Sasso-carta-forbice per classi (`beats` è una lista in `src/data/units.json`). **Mazzo** di 4 truppe scelto in "Prepara la campagna"
   (come Clash). Centro di Comando a 5 livelli (liv. 4: +1 unità in campo, liv. 5: abilità −25% ricarica). Le IA usano le truppe di terra
   che hai sbloccato. Numeri in `balance.ts` (`units`, `abilities`, `camp`).
-- **Grafica (Figma "Estetica")**: mappa = celle quadrate luminose tipo heatmap (righe sfalsate come una matrice di LED), mare a puntini blu,
+- (SUPERATO dallo stile moderno sopra) **Grafica (Figma "Estetica", prima versione)**: mappa = celle quadrate luminose tipo heatmap (righe sfalsate come una matrice di LED), mare a puntini blu,
   coste/confini bianchi, nomi gialli e capitali rosse da terminale, anomalie magenta, bagliore (bloom) che si spegne da solo se gli FPS
   scendono sotto 40, righe di scansione, barra di stato con coordinate. HQ = planimetria tattica vista dall'alto in verde terminale
   (moduli collegati al Centro di Comando, radar che spazza, convoglio in missione, toppe di reparto). Avvio da terminale.
@@ -179,7 +179,7 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   istantanei, +1000 truppe e abilità con ricarica ×0,25 in campagna (`balance.test`); si esce azzerando il profilo.
 - **Nitidezza**: densità reale dello schermo fino a 3×; font Barlow Semi Condensed (dati) + Oswald (titoli) + Share Tech Mono (archivio nei caricamenti), nessun testo sotto 11 pt
   (`textSize` in `src/ui/style.ts`), pixel allineati sulle camere di interfaccia, canvas a misura CSS esatta; testi della mappa disegnati nello spazio dello schermo (`src/render/MapLabels.ts`),
-  sempre nitidi a ogni zoom; mappa statica in texture a tasselli 2,6× (1,6× sui dispositivi deboli).
+  sempre nitidi a ogni zoom; mappa statica in texture a tasselli 1,6× (1,2× sui dispositivi deboli).
 
 - **Ritmo e progressione** (ultima richiesta di Nico: gioco più lento, partite fino a 30 min, primo impero → nemici troppo forti →
   potenziare): durate 10/20/30 min (`campaigns`); crescita 0,045 per casella pesata dal terreno; **sovraestensione** (`overextension`):
@@ -234,7 +234,7 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   (`provCost`); attacco, avanzata (una provincia ogni `flow.stepMs`), IA, pedine (entrano = prendono la provincia), navi, bombardamento:
   tutto per provincia. Premio alla prima presa (`provinceReward`), capitale = truppe. Traguardi, run guidata e HUD contano province.
   Forme: `src/map/provinceShapes.ts` (anelli di tratti condivisi dalla carta pronta). Disegno: campiture statiche (mare, toni per
-  nazione) in texture a tasselli; colori delle fazioni = sagome bianche in atlante tinte (`src/render/ProvinceLayer.ts`); confini
+  nazione) in texture a tasselli; colori delle fazioni = sagome bianche in atlante tinte (`src/render/TerritoryLayer.ts`); confini
   (province, nazioni, coste, potenze), città e capitali vettoriali a spessore costante, solo nell'inquadratura. Bilanciamento (`sim.ts 1 8 0 1`): giocatore attivo 7/8 vittorie in 2,5–4 min (difesa casella 6/3/12, Frammento 160, crescita 0,08, IA `actChance` 0,12).
 - **Pausa strategica (HOI4)**: ❚❚ o SPAZIO/P. Tempo fermo, mappa comandabile: tocchi e trascinamenti mettono province nel **piano**
   (`RunState.plan`, evidenziate), pedine/abilità/navi prendono ordini; alla ripresa il piano parte (attacco o avanzata, in ordine).
@@ -246,7 +246,7 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   sfondo dell'HQ e della schermata finale.
 - **Sistemi dal Figma** (numeri in `balance.ts`: `campaigns`, `progression`, `civs`, `tech`, `camp.radarFogBonus`; testi in `src/data/civs.json`,
   `tech.json`, `buildings.json`; logica in `src/game/civs.ts`, `tech.ts`, `mods.ts`, `camp.ts`):
-  **Campagne** breve 5 min ×0,8 risorse / standard 8 min / lunga 12 min ×1,4 (si sceglie dopo la run guidata).
+  **Campagne** breve 10 min ×0,7 risorse / standard 20 min / lunga 30 min ×1,4 (si sceglie dopo la run guidata).
   **Civiltà** (scelta dopo 3 campagne; Republica e Imperium libere, Aristocrazia = 3 vittorie, Cabal = 3 spedizioni): bonus sempre attivo +
   edificio unico che agisce sugli insediamenti + unità unica con Arsenale liv. 3 (Legionari, Guardia, Prototipo, Infiltrati: stessa classe
   della base nel sasso-carta-forbice). Le IA sono le altre tre potenze, con colore e simbolo fissi per civiltà (`assignFactions`).

@@ -2,6 +2,7 @@
 // disegnati in punti d'interfaccia e mostrati a grandezza costante sullo schermo. Forma + colore: leggibili anche per i daltonici.
 import Phaser from 'phaser';
 import type { UnitType } from '../config/balance';
+import { PALETTE } from '../config/palette';
 
 const INK = 0x0b1118;
 
@@ -67,5 +68,5 @@ export function drawUnitSymbol(g: Phaser.GameObjects.Graphics, type: UnitType, f
 export function drawUnitHp(g: Phaser.GameObjects.Graphics, pct: number, friendly: boolean) {
   const w = 24, y = friendly ? 12 : 17;
   g.clear().fillStyle(INK, 0.9).fillRect(-w / 2 - 1, y - 1, w + 2, 4.5);
-  g.fillStyle(pct > 0.5 ? 0x7ee2a8 : pct > 0.25 ? 0xf2a93b : 0xff5252, 1).fillRect(-w / 2, y, w * Phaser.Math.Clamp(pct, 0, 1), 2.5);
+  g.fillStyle(pct > 0.5 ? PALETTE.radioattivo : pct > 0.25 ? PALETTE.allerta : PALETTE.ko, 1).fillRect(-w / 2, y, w * Phaser.Math.Clamp(pct, 0, 1), 2.5);
 }

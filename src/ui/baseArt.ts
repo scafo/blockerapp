@@ -188,10 +188,10 @@ export function drawBuilding(c: Ctx, id: string, x: number, y: number, w: number
     g.fillStyle(ART.shadow, 0.45).fillCircle(cx + 5 * k, cy + 5 * k, r);
     g.fillStyle(0x16212c, 1).fillCircle(cx, cy, r).lineStyle(1, ART.steel, 0.6).strokeCircle(cx, cy, r).strokeCircle(cx, cy, r * 0.6).strokeCircle(cx, cy, r * 0.25);
     const sweep = scene.add.graphics({ x: cx, y: cy });
-    sweep.fillStyle(0x7ee2a8, 0.18).slice(0, 0, r, -0.7, 0, false).fillPath();
-    sweep.lineStyle(1.5, 0x7ee2a8, 0.9).lineBetween(0, 0, r, 0);
+    sweep.fillStyle(PALETTE.radioattivo, 0.18).slice(0, 0, r, -0.7, 0, false).fillPath();
+    sweep.lineStyle(1.5, PALETTE.radioattivo, 0.9).lineBetween(0, 0, r, 0);
     scene.tweens.add({ targets: sweep, rotation: Math.PI * 2, duration: 3000, repeat: -1 });
-    const blip = scene.add.circle(cx + r * 0.45, cy - r * 0.3, 1.8 * k, 0x7ee2a8);
+    const blip = scene.add.circle(cx + r * 0.45, cy - r * 0.3, 1.8 * k, PALETTE.radioattivo);
     scene.tweens.add({ targets: blip, alpha: 0, duration: 1500, yoyo: true, repeat: -1 });
     c.deco.push(sweep, blip);
   } else if (id === 'arsenale') {

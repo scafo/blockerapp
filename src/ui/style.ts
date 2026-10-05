@@ -17,3 +17,14 @@ export const textStyle = (size: number, color: number = PALETTE.carta, bold = tr
   color: hex(color),
   resolution: UI(), // testi nitidi sugli schermi ad alta densità e ingranditi
 });
+
+/** Numero in formato italiano (punto delle migliaia, virgola decimale): 12345 → "12.345", 3.5 → "3,5". */
+export const fmtNum = (n: number, decimals = 0): string =>
+  n.toLocaleString('it-IT', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+
+/** Tasso con segno, come "+0,2/min" o "-1,5/s" (stessa convenzione già usata in giro nel codice). */
+export const fmtRate = (perTime: number, unit: string, decimals = 1): string =>
+  `${perTime >= 0 ? '+' : ''}${fmtNum(perTime, decimals)}/${unit}`;
+
+/** Singolare/plurale italiano semplice: plural(1,'provincia','province') → "provincia". */
+export const plural = (n: number, singular: string, pluralForm: string): string => (n === 1 ? singular : pluralForm);

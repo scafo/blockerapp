@@ -1,5 +1,7 @@
 // Stile "sala operativa dopo la Caduta": blu notte e acciaio freddi, oro pallido (la luce degli angeli caduti)
-// per gli accenti, colori forti solo per le fazioni. Niente effetti da monitor.
+// per gli accenti, colori forti solo per le fazioni. Niente effetti da monitor, niente verde terminale: ogni colore
+// "positivo" (vita piena, rapporto buono, risorsa sufficiente) usa `radioattivo` (ghiaccio), non il verde.
+// — interfaccia —
 export const PALETTE = {
   ocra: 0xd8b86e, // accento (oro pallido): bordi attivi, titoli, valori importanti
   ruggine: 0xe8604c,
@@ -7,10 +9,13 @@ export const PALETTE = {
   carta: 0xe9eef3, // testo chiaro
   inchiostro: 0x0b1118, // pannelli e fondo
   pannello: 0x121a24, // pannelli rialzati
+  pannelloAlto: 0x1b2634, // pannello sotto il mouse (hover)
+  oroChiaro: 0xfff1c4, // oro pallido più chiaro: filo del bottone primario
   linea: 0x2a3a4d, // bordi discreti
   tenue: 0x8a9bb0, // testo secondario
-  radioattivo: 0x8fd6ff, // ghiaccio: segnale, abilità, selezioni
+  radioattivo: 0x8fd6ff, // ghiaccio: segnale, abilità, selezioni, e ogni stato "positivo" (mai verde)
   oceano: 0x070d14,
+  // — mappa —
   factions: [
     { fill: 0x2f8cff, border: 0xc2dcff }, // Republica
     { fill: 0xe23a3f, border: 0xffbdbd }, // Imperium

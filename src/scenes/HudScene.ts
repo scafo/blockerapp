@@ -543,7 +543,7 @@ export class HudScene extends Phaser.Scene {
     const bar = this.add.graphics();
     bar.fillStyle(PALETTE.pannello, 1).fillRect(bx, by, bw, 8).lineStyle(1, PALETTE.linea, 1).lineBetween(bx + bw / 2, by - 2, bx + bw / 2, by + 10);
     const half = (bw / 2) * Math.min(1, Math.abs(op) / 100);
-    bar.fillStyle(op >= 0 ? 0x7ee2a8 : PALETTE.ko, 1).fillRect(op >= 0 ? bx + bw / 2 : bx + bw / 2 - half, by, half, 8);
+    bar.fillStyle(op >= 0 ? PALETTE.radioattivo : PALETTE.ko, 1).fillRect(op >= 0 ? bx + bw / 2 : bx + bw / 2 - half, by, half, 8);
     items.push(bar, this.add.text(bx, by + 12, `opinione ${op > 0 ? '+' : ''}${op}`, textStyle(10, PALETTE.tenue, false)));
     // azioni
     const acts: { label: string; color: number; run: () => void }[] = [];
@@ -833,7 +833,7 @@ export class HudScene extends Phaser.Scene {
       const pct = unit.hp / unit.maxHp;
       const beats = info.beats.map((b) => unitInfo(b).short.toLowerCase()).join(', ') || '—';
       cells([
-        { k: 'VITA', v: `${Math.ceil(unit.hp)}/${Math.round(unit.maxHp)}`, c: pct > 0.5 ? 0x7ee2a8 : pct > 0.25 ? PALETTE.allerta : PALETTE.ko },
+        { k: 'VITA', v: `${Math.ceil(unit.hp)}/${Math.round(unit.maxHp)}`, c: pct > 0.5 ? PALETTE.radioattivo : pct > 0.25 ? PALETTE.allerta : PALETTE.ko },
         { k: 'ATTACCO', v: String(U.attack) },
         { k: 'GITTATA', v: String(U.range) },
         { k: 'PASSO', v: `${(U.moveMs / 1000).toFixed(1).replace('.', ',')} s` },
@@ -858,14 +858,14 @@ export class HudScene extends Phaser.Scene {
       const work = ready ? WORK_NAME[ready] : prog ? `cantiere ${mmss(prog.leftMs)}` : (() => { const w = st.workOf(p); return w ? WORK_NAME[w] : '—'; })();
       const cost = o === PLAYER ? 0 : st.provCost(PLAYER, p);
       cells([
-        { k: 'PADRONE', v: ownerName, c: o === PLAYER ? 0x7ee2a8 : F && seen ? F.fill : PALETTE.carta },
+        { k: 'PADRONE', v: ownerName, c: o === PLAYER ? PALETTE.radioattivo : F && seen ? F.fill : PALETTE.carta },
         ...(rel ? [{ k: 'RAPPORTO', v: rel === 'guerra' ? 'in guerra' : rel === 'alleanza' ? 'alleati' : 'in pace', c: rel === 'guerra' ? PALETTE.ko : PALETTE.ocra }] : []),
         { k: 'DIFESA', v: seen || o === NEUTRAL ? String(st.provDefense(p)) : '?' },
         { k: 'PRODUCE', v: `${st.provPerMin(p).toFixed(1).replace('.', ',')} ${resName}/min` },
         { k: 'COSTRUZIONE', v: work, c: prog ? PALETTE.allerta : PALETTE.carta },
         o === PLAYER ? { k: 'RIFORNIMENTO', v: `${Math.round(st.supply[p] * 100)}%${st.capitalProv[PLAYER] === p ? ' · capitale' : ''}`,
-          c: st.supply[p] >= 0.95 ? 0x7ee2a8 : st.supply[p] >= 0.6 ? PALETTE.allerta : PALETTE.ko }
-          : { k: 'PER PRENDERLA', v: seen || o === NEUTRAL ? `${cost} truppe` : '?', c: st.troops > cost ? 0x7ee2a8 : PALETTE.ko },
+          c: st.supply[p] >= 0.95 ? PALETTE.radioattivo : st.supply[p] >= 0.6 ? PALETTE.allerta : PALETTE.ko }
+          : { k: 'PER PRENDERLA', v: seen || o === NEUTRAL ? `${cost} truppe` : '?', c: st.troops > cost ? PALETTE.radioattivo : PALETTE.ko },
       ]);
       if (own && !grid) {
         if (ready || prog) items.push(this.add.text(12, actY + 8, ready ? workDesc(ready, resName) : 'Cantiere aperto: la costruzione resta alla provincia.', textStyle(11, PALETTE.carta, false)));

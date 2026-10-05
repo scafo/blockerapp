@@ -694,7 +694,7 @@ export class CampScene extends Phaser.Scene {
       g.fillStyle(PALETTE.pannello, 1).fillRect(cx, y, cw, ch).lineStyle(1, ok ? PALETTE.linea : PALETTE.ko, 1).strokeRect(cx, y, cw, ch);
       drawResourceIcon(g, r, cx + 16, y + 18, 8);
       g.fillStyle(PALETTE.linea, 1).fillRect(cx + 8, y + ch - 9, cw - 16, 4);
-      g.fillStyle(ok ? 0x7ee2a8 : PALETTE.ko, 1).fillRect(cx + 8, y + ch - 9, (cw - 16) * Math.min(1, have[r] / cost[r]), 4);
+      g.fillStyle(ok ? PALETTE.radioattivo : PALETTE.ko, 1).fillRect(cx + 8, y + ch - 9, (cw - 16) * Math.min(1, have[r] / cost[r]), 4);
       items.push(this.add.text(cx + 30, y + 18, String(cost[r]), textStyle(15, ok ? INK : PALETTE.ko)).setOrigin(0, 0.5),
         this.add.text(cx + cw - 8, y + 18, `hai ${have[r]}`, textStyle(9, PALETTE.tenue, false)).setOrigin(1, 0.5));
     });

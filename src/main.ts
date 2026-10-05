@@ -8,7 +8,11 @@ import { LoadScene } from './scenes/LoadScene';
 import { TreeScene } from './scenes/TreeScene';
 import { ResultScene } from './scenes/ResultScene';
 import { RunScene } from './scenes/RunScene';
+import { DevScene } from './scenes/dev/DevScene';
 import { DPR } from './ui/screen';
+import { installHotkeys } from './ui/hotkeys';
+
+installHotkeys();
 import bodyUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-500-normal.woff2';
 import bodyBoldUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-700-normal.woff2';
 import titleUrl from '@fontsource/oswald/files/oswald-latin-600-normal.woff2';
@@ -45,6 +49,10 @@ function boot() {
   if (!fontsReady) return;
   const { w, h } = size();
   if (w < MIN || h < MIN) return; // aspetta che la pagina abbia una misura vera
+  // solo la prima scena dell'elenco si avvia da sola: ?debug=widgets apre la galleria al posto del gioco vero
+  const debugWidgets = new URLSearchParams(location.search).get('debug') === 'widgets';
+  const scenes = [BootScene, CampScene, RunScene, HudScene, ResultScene, TreeScene, LoadScene, DevScene];
+  if (debugWidgets) scenes.unshift(scenes.pop()!); // DevScene (ultima) va in testa
   game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'game',
@@ -54,7 +62,7 @@ function boot() {
     input: { activePointers: 3 },
     // pixelArt esplicito: con zoom 1/DPR Phaser lo accenderebbe da solo (texture ingrandite a quadretti sui telefoni)
     render: { antialias: true, pixelArt: false },
-    scene: [BootScene, CampScene, RunScene, HudScene, ResultScene, TreeScene, LoadScene],
+    scene: scenes,
   });
   // debug/test: accesso al gioco dalla console
   (window as unknown as { __game: Phaser.Game }).__game = game;
