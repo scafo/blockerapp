@@ -1,24 +1,24 @@
-// Pedine sulla mappa in stile sala radar: simboli militari essenziali (rettangolo = tue, rombo = nemiche, cerchio = navi),
+// Pedine sulla mappa come segni della pianta: simboli militari essenziali (rettangolo = tue, rombo = nemiche, cerchio = navi),
 // disegnati in punti d'interfaccia e mostrati a grandezza costante sullo schermo. Forma + colore: leggibili anche per i daltonici.
 import Phaser from 'phaser';
 import type { UnitType } from '../config/balance';
 import { PALETTE } from '../config/palette';
 
-const INK = 0x0b1118;
+const INK = PALETTE.inchiostro; // fondo ardesia dentro la cornice
 
 /** Simbolo della pedina centrato in (0,0): cornice, segno della specialità, alone tenue. */
 export function drawUnitSymbol(g: Phaser.GameObjects.Graphics, type: UnitType, friendly: boolean, color: number) {
   const naval = type === 'cannoniera';
-  // alone radar
-  g.fillStyle(color, 0.16).fillCircle(0, 0, 17);
-  g.lineStyle(1.6, color, 1).fillStyle(INK, 0.88);
+  // niente alone: cornice netta su fondo ardesia, come le stanze della pianta
+  g.lineStyle(1.8, color, 1).fillStyle(INK, 0.95);
   // cornice: rettangolo (tue), rombo (nemiche), cerchio (navi)
   let hw = 12, hh = 8; // area utile del segno
   if (naval) {
     g.fillCircle(0, 0, 11).strokeCircle(0, 0, 11);
     hw = 7; hh = 6;
   } else if (friendly) {
-    g.fillRect(-13, -9, 26, 18).strokeRect(-13, -9, 26, 18);
+    g.fillRect(-13, -9, 26, 18);
+    g.fillStyle(color, 1).fillRect(-13.9, -9.9, 27.8, 1.8).fillRect(-13.9, 8.1, 27.8, 1.8).fillRect(-13.9, -8.1, 1.8, 16.2).fillRect(12.1, -8.1, 1.8, 16.2); // cornice ad angoli netti
   } else {
     const pts = [{ x: 0, y: -14 }, { x: 14, y: 0 }, { x: 0, y: 14 }, { x: -14, y: 0 }];
     g.fillPoints(pts, true).strokePoints(pts, true, true);

@@ -40,6 +40,9 @@ export const FACTION_INFO: FactionInfo[] = [];
 /** Quante fazioni hanno una riga nell'elenco (giocatore + imperi: vengono prima delle milizie). */
 export const majorCount = () => FACTION_INFO.filter((f) => f.kind !== 'bot').length;
 
+/** Indici delle fazioni nell'elenco (un impero caduto in una campagna precedente è diventato milizia: non sono per forza i primi). */
+export const majorIds = () => FACTION_INFO.flatMap((f, id) => (f.kind !== 'bot' ? [id] : []));
+
 /** A inizio campagna: tu con la tua potenza e il tuo nome, imperi con potenze diverse e nomi casuali, milizie. */
 export function setupFactions(kinds: FactionKind[], player: CivId, playerName: string, seed: string) {
   const rng = createRng(seed + ':nomi');

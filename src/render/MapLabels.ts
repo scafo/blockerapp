@@ -5,17 +5,19 @@ import { BALANCE } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
 import { FACTION_INFO } from '../game/factions';
 import { UI, view } from '../ui/screen';
-import { FONT, FONT_TITLE, textStyle } from '../ui/style';
+import { FONT_PIXEL } from '../ui/style';
 import { drawSymbol } from '../ui/symbols';
 
 export interface WorldLabel { x: number; y: number; text: string; color: number }
 export interface NationLabel { x: number; y: number; name: string; size: number; width: number; tile: number; known?: boolean }
+export interface PlaceLabel { x: number; y: number; name: string; kind: 'city' | 'sea' }
 export interface FactionTag { x: number; y: number; visible: boolean; scale: number }
 
 /** Quello che la scena della mappa espone alle etichette. */
 export interface LabelSource {
   cameras: { main: Phaser.Cameras.Scene2D.Camera };
   nationLabels: NationLabel[];
+  placeLabels: PlaceLabel[];
   frontLabels: WorldLabel[];
   factionTags: FactionTag[];
   worldToLonLat(x: number, y: number): [number, number];
@@ -33,12 +35,13 @@ export class MapLabels {
     this.tags = FACTION_INFO.map((f) => {
       const g = scene.add.graphics(), bot = f.kind === 'bot';
       drawSymbol(g, f.symbol, 0, bot ? -10 : -12, bot ? 4.5 : 6, f.fill, PALETTE.mappa.fondo);
-      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT, fontSize: bot ? '11px' : '13px', fontStyle: 'bold', color: hex(f.border), resolution: UI(), backgroundColor: '#0b1118dd', padding: { x: 4, y: 2 } }).setOrigin(0.5, 0);
+      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT_PIXEL, fontSize: '14px', fontStyle: '400', color: hex(f.border), resolution: UI(),
+        stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5, 0).setLetterSpacing(1);
       const c = scene.add.container(0, 0, [g, t]).setVisible(false);
       this.layer.add(c);
       return c;
     });
-    this.status = scene.add.text(0, 0, '', textStyle(11, PALETTE.tenue, false)).setOrigin(0.5, 1);
+    this.status = scene.add.text(0, 0, '', { fontFamily: FONT_PIXEL, fontSize: '14px', color: '#f2f2f2', backgroundColor: '#000000', resolution: UI() }).setOrigin(0.5, 1);
     this.layer.add(this.status);
   }
 
@@ -65,23 +68,44 @@ export class MapLabels {
         if (!inView(sx, sy)) continue;
         // corpo del nome in proporzione alla larghezza del paese sullo schermo; troppo piccolo = niente nome
         const screenW = (l.width * cam.zoom) / UI(), chars = l.name.length;
-        const size = Math.floor(Phaser.Math.Clamp(((0.75 * screenW) / chars - 2) / 0.62, 0, 13));
-        if (size < 9) continue;
-        const tw = chars * (0.62 * size + 2), bx = [sx - tw / 2 - 4, sy - size / 2 - 3, sx + tw / 2 + 4, sy + size / 2 + 3];
+        const size = 15; // corpo fisso come nel terminale
+        if ((0.9 * screenW) / chars < 9) continue; // il nome non ci sta nel paese
+        const tw = chars * 0.6 * size, bx = [sx - tw / 2 - 4, sy - size / 2 - 3, sx + tw / 2 + 4, sy + size / 2 + 3];
         if (placed.some((q) => bx[0] < q[2] && bx[2] > q[0] && bx[1] < q[3] && bx[3] > q[1])) continue;
         placed.push(bx);
         let t = this.names[n];
         if (!t) {
           t = this.scene.add.text(0, 0, '', {
-            fontFamily: FONT_TITLE, fontSize: '13px', fontStyle: '600', color: hex(PALETTE.mappa.nome), resolution: UI(),
-            stroke: hex(PALETTE.inchiostro), strokeThickness: 2,
-          }).setOrigin(0.5).setLetterSpacing(2).setAlpha(0.8);
+            fontFamily: FONT_PIXEL, fontSize: '15px', fontStyle: '400', color: hex(PALETTE.mappa.nome), resolution: UI(),
+            backgroundColor: '#000000', padding: { x: 1, y: 0 },
+          }).setOrigin(0.5);
           this.layer.add(t);
           this.names.push(t);
         }
         if (t.text !== l.name) t.setText(l.name);
         if (t.style.fontSize !== `${size}px`) t.setFontSize(size);
-        t.setPosition(Math.round(sx), Math.round(sy)).setVisible(true).setAlpha(l.known === false ? 0.2 : 0.7); // sotto la nebbia appena accennati
+        t.setColor(hex(PALETTE.mappa.nome)).setPosition(Math.round(sx), Math.round(sy)).setVisible(true).setAlpha(1);
+        n++;
+      }
+      // città in rosso e mari in grigio, come nel terminale (dopo le nazioni: prendono gli spazi liberi)
+      for (const l of src.placeLabels) {
+        const [sx, sy] = this.toScreen(cam, l.x, l.y);
+        if (!inView(sx, sy)) continue;
+        const size = 15, tw = l.name.length * 0.6 * size, pad = 26; // più aria attorno a città e mari: carta meno affollata
+        const bx = [sx - tw / 2 - pad, sy - size / 2 - pad, sx + tw / 2 + pad, sy + size / 2 + pad];
+        if (placed.some((q) => bx[0] < q[2] && bx[2] > q[0] && bx[1] < q[3] && bx[3] > q[1])) continue;
+        placed.push(bx);
+        let t = this.names[n];
+        if (!t) {
+          t = this.scene.add.text(0, 0, '', {
+            fontFamily: FONT_PIXEL, fontSize: '15px', fontStyle: '400', color: '#ffffff', resolution: UI(),
+            backgroundColor: '#000000', padding: { x: 1, y: 0 },
+          }).setOrigin(0.5);
+          this.layer.add(t);
+          this.names.push(t);
+        }
+        if (t.text !== l.name) t.setText(l.name);
+        t.setColor(l.kind === 'city' ? '#a52a24' : '#a5adb1').setPosition(Math.round(sx), Math.round(sy)).setVisible(true).setAlpha(1);
         n++;
       }
     }
@@ -94,7 +118,7 @@ export class MapLabels {
       if (!inView(sx, sy, 10)) continue;
       let t = this.front[f];
       if (!t) {
-        t = this.scene.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', fontStyle: 'bold', color: '#ffffff', resolution: UI(), stroke: '#020409', strokeThickness: 3 }).setOrigin(0.5);
+        t = this.scene.add.text(0, 0, '', { fontFamily: FONT_PIXEL, fontSize: '14px', fontStyle: '400', color: '#f2f2f2', resolution: UI(), stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5);
         this.layer.add(t);
         this.front.push(t);
       }
@@ -115,7 +139,7 @@ export class MapLabels {
 
     // barra di stato da terminale: centro della vista e zoom
     const [lon, lat] = src.worldToLonLat(cam.scrollX + cam.width / 2, cam.scrollY + cam.height / 2);
-    this.status.setText(`CENTRO ${lat.toFixed(2)}, ${lon.toFixed(2)}   ZOOM ${zoom.toFixed(2)}`).setPosition(width / 2, height - 4).setVisible(width >= 1100);
+    this.status.setText(`center: ${lat.toFixed(3)}, ${lon.toFixed(3)}   zoom: ${zoom.toFixed(2)}`).setPosition(width / 2, height - 4).setVisible(false); // la barra la disegna la carta da terminale
   }
 
   /** Insegna di fazione sotto il punto (punti CSS dello schermo), −1 se nessuna. */
@@ -133,7 +157,7 @@ export class MapLabels {
   /** Scritta che sale da un punto della mappa (bottino, costi, ordini). */
   float(src: LabelSource, x: number, y: number, msg: string, color: number, delay = 0) {
     const [sx, sy] = this.toScreen(src.cameras.main, x, y);
-    const t = this.scene.add.text(Math.round(sx), Math.round(sy), msg, { fontFamily: FONT, fontSize: '14px', fontStyle: 'bold', color: hex(color), resolution: UI(), stroke: '#020409', strokeThickness: 4 }).setOrigin(0.5).setAlpha(0);
+    const t = this.scene.add.text(Math.round(sx), Math.round(sy), msg, { fontFamily: FONT_PIXEL, fontSize: '14px', fontStyle: '400', color: hex(color), resolution: UI(), stroke: '#000000', strokeThickness: 4 }).setOrigin(0.5).setAlpha(0);
     this.layer.add(t);
     this.scene.tweens.add({ targets: t, y: sy - 22, alpha: { from: 1, to: 0 }, delay, duration: 900, ease: 'Quad.easeOut', onComplete: () => t.destroy() });
   }

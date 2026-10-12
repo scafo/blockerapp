@@ -36,6 +36,14 @@ export interface RunOptions {
   abilities: AbilityType[]; // abilità a ricarica sbloccate
   maxUnitsBonus: number;
   abilityCdMult: number;
+  world?: WorldCarry; // impero persistente: cosa riporti dalla campagna precedente in questo mondo
+}
+
+/** Quello che una campagna eredita dalla precedente nello stesso mondo. */
+export interface WorldCarry {
+  campaign: number; // campagne già chiuse in questo mondo (cambia il caso delle IA e degli eventi)
+  core: number[]; // province del nucleo
+  rivals: { id: number; relation: 'guerra' | 'pace' | 'alleanza'; opinion: number }[];
 }
 
 /** Tutto sbloccato, niente eventi: usato dal simulatore e come ripiego. */
@@ -62,12 +70,9 @@ export function unlockedUnits(p: Profile, civ: CivId = activeCiv(p)): UnitType[]
 export const unlockedAbilities = (p: Profile): AbilityType[] =>
   p.techs.map((id) => BALANCE.tech[id]?.ability).filter((a): a is AbilityType => !!a);
 
-/** Mazzo della campagna: le scelte del giocatore ancora valide, completate con le sbloccate fino a 4. */
+/** Truppe della campagna: niente mazzo (2026-10-12, Nico), in campagna ci sono tutte quelle sbloccate. */
 export function deckOf(p: Profile, civ: CivId = activeCiv(p)): UnitType[] {
-  const open = unlockedUnits(p, civ);
-  const deck = (p.deck ?? []).filter((t) => open.includes(t)).slice(0, BALANCE.units.deckSize);
-  for (const t of open) if (deck.length < BALANCE.units.deckSize && !deck.includes(t)) deck.push(t);
-  return deck;
+  return unlockedUnits(p, civ);
 }
 
 /** Civiltà e durata davvero disponibili (le scelte si sbloccano con le campagne giocate). */

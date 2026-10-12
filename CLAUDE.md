@@ -105,6 +105,16 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 ## Note del developer (stato e comandi)
 
+- **Carta da terminale** (Nico, 12 ottobre 2026: "fai come questa, uguale identica" su una mappa d'Europa in un terminale):
+  tutta la mappa della campagna passa da un filtro sulla camera (`src/render/RetroPipeline.ts`) che la trasforma in puntini braille
+  (celle 9×19 punti, 2 colonne × 4 righe di puntini 3×2, griglia fissa sullo schermo). Terra nera piena, mare pervinca su blu notte,
+  confini nazionali e tra potenze = linee chiare sottili che accendono i puntini dove passano (una sola fila). Territorio a puntini del
+  colore della potenza. Nomi in DejaVu Sans Mono 15 (`FONT_PIXEL`, file in `src/assets/fonts/`): nazioni giallo pallido, città
+  rosse e mari grigi (`src/data/places.json`), sempre su fondino nero. Niente rilievo, reticolo, confini di provincia né velo
+  della nebbia (`fog.shade: false`). Carta in **Mercatore** come il riferimento (`src/map/projection.ts`; griglia 960×612,
+  latitudini −58…78; `npm run build:map` rigenerata). Colori in `palette.ts` (`mappa`, `factions`). Confronto col riferimento:
+  `concept-mappa/confronto-terminale.png`. Concept d'arte della home e della mappa (generati, solo riferimento) in `concept-home/` e
+  `concept-mappa/`; bozza di style bible in `STYLE.md`.
 - **Assalti, logistica, mappa da vicino, pedine** (ultima richiesta di Nico): le province di una fazione **non si prendono
   subito**: paghi le truppe e parte un assalto di 3–15 s (`battle` in `balance.ts`, `RunState.startBattle/battlesTick`;
   anello che si riempie con le sciabole sulla mappa); alla fine si vince se il difensore non si è rinforzato oltre ~18%

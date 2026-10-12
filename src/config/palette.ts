@@ -1,44 +1,44 @@
-// Stile "sala operativa dopo la Caduta": blu notte e acciaio freddi, oro pallido (la luce degli angeli caduti)
-// per gli accenti, colori forti solo per le fazioni. Niente effetti da monitor, niente verde terminale: ogni colore
-// "positivo" (vita piena, rapporto buono, risorsa sufficiente) usa `radioattivo` (ghiaccio), non il verde.
+// Stile "planimetria tecnica" (riferimento di Nico: pianta di una struttura su fondo ardesia): fondo ardesia, riquadri con
+// filo avorio e testo avorio condensato, riquadri pieni avorio per ciò che è attivo, etichette secondarie verde acqua,
+// rosso solo per i punti critici. Le chiavi sono quelle di sempre (tutta l'interfaccia le usa), i valori sono nuovi.
 // — interfaccia —
 export const PALETTE = {
-  ocra: 0xd8b86e, // accento (oro pallido): bordi attivi, titoli, valori importanti
-  ruggine: 0xe8604c,
-  allerta: 0xf2a93b, // ambra: timer, cantieri, avvisi
-  carta: 0xe9eef3, // testo chiaro
-  inchiostro: 0x0b1118, // pannelli e fondo
-  pannello: 0x121a24, // pannelli rialzati
-  pannelloAlto: 0x1b2634, // pannello sotto il mouse (hover)
-  oroChiaro: 0xfff1c4, // oro pallido più chiaro: filo del bottone primario
-  linea: 0x2a3a4d, // bordi discreti
-  tenue: 0x8a9bb0, // testo secondario
-  radioattivo: 0x8fd6ff, // ghiaccio: segnale, abilità, selezioni, e ogni stato "positivo" (mai verde)
-  oceano: 0x070d14,
-  // — mappa —
+  ocra: 0x6cc7c2, // accento verde acqua: titoli, etichette, valori importanti
+  ruggine: 0xd23a2e, // rosso dei punti critici
+  allerta: 0xe0b04a, // timer, cantieri, avvisi
+  carta: 0xeeeee4, // avorio: testo e fili dei riquadri
+  inchiostro: 0x1f2830, // ardesia: fondo e pannelli
+  pannello: 0x232d36, // pannelli
+  pannelloAlto: 0x2d3944, // pannello sotto il mouse
+  oroChiaro: 0xffffff, // filo del bottone principale
+  linea: 0x8e989c, // fili discreti dei pannelli
+  tenue: 0x95a1a6, // testo secondario
+  radioattivo: 0x7ad6d1, // verde acqua chiaro: selezioni, stati positivi
+  oceano: 0x1a2229,
+  // — mappa — carta da terminale (riferimento di Nico): terra nera, mare a puntini blu, confini a puntini chiari
+  // `fill` = colore dei puntini del territorio; `border` = colore del confine della potenza
   factions: [
-    { fill: 0x2f8cff, border: 0xc2dcff }, // Republica
-    { fill: 0xe23a3f, border: 0xffbdbd }, // Imperium
-    { fill: 0x9b5cf2, border: 0xdfcbff }, // Aristocrazia
-    { fill: 0xeaa21c, border: 0xffe3a3 }, // Cabal
+    { fill: 0x4fc3d8, border: 0xa6ecf7 }, // Republica: ciano
+    { fill: 0xe05a47, border: 0xffc4b8 }, // Imperium: rosso
+    { fill: 0xb57ad6, border: 0xe2c2f2 }, // Aristocrazia: viola
+    { fill: 0xe0b040, border: 0xf6dc96 }, // Cabal: ocra
   ],
-  // carta politica alla Call of War: nazioni in toni smorzati, province con bordi sottili
   mappa: {
-    fondo: 0x0a141f, // mare aperto
-    mareCosta: 0x173049, // acque basse lungo le coste
-    reticolo: 0x13263a, // meridiani e paralleli
-    nazioni: [0x4c5a6b, 0x52625c, 0x5c6070, 0x47606a, 0x5d5869, 0x506866, 0x62665a, 0x555b72], // ardesia, acciaio, salvia
-    deserto: 0x7a7060, // tinta delle province desertiche
-    confine: 0xd5dee8, // confini nazionali
-    provincia: 0x10171f, // confini di provincia
-    costa: 0x9cbad3,
-    nome: 0xe9eef3, // nomi delle nazioni
-    capitale: 0xe9c46a,
-    segno: 0xc5d0db, // città, rovine
-    segnale: 0xc78cff, // la luce fredda della Caduta
+    fondo: 0x7a82b0, // mare: puntini color pervinca (campionati dall'immagine di riferimento)
+    mareCosta: 0x7a82b0,
+    reticolo: 0x7a82b0,
+    nazioni: [0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000], // terra nera
+    deserto: 0x000000,
+    confine: 0xeef0f0, // confini nazionali: puntini bianchi
+    provincia: 0x444444,
+    costa: 0x000000,
+    nome: 0xe1e496, // nomi delle nazioni: giallo pallido
+    capitale: 0x96231e, // capitali: rosso scuro
+    segno: 0xd8d8d8,
+    segnale: 0xe8f1ff,
   },
   ok: 0xffffff,
-  ko: 0xff5252,
+  ko: 0xd23a2e,
 } as const;
 
 export const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');

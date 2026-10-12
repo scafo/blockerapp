@@ -8,6 +8,11 @@ export const textSize = (size: number) => Math.round(Math.max(12, size * 1.2));
 export const FONT_TITLE = 'Oswald, "Arial Narrow", sans-serif';
 /** Font da terminale (archivio e flussi di dati nei caricamenti, come le scritte sull'immagine della nave). */
 export const FONT_MONO = '"Share Tech Mono", "Courier New", monospace';
+/** Carta (STYLE.md): serif classico per i nomi dell'atlante, mono tecnico per numeri e sigle sulla mappa. */
+export const FONT_SERIF = '"Cormorant Garamond", Georgia, serif';
+export const FONT_DATA = '"IBM Plex Mono", "Courier New", monospace';
+/** Font a pixel da terminale per le scritte della mappa (carta retro). */
+export const FONT_PIXEL = '"DejaVu Sans Mono", Menlo, monospace'; // il font del terminale dell'immagine di riferimento
 
 export const textStyle = (size: number, color: number = PALETTE.carta, bold = true): Phaser.Types.GameObjects.Text.TextStyle => ({
   // dati in Barlow (500, grassetto 700); i titoli grandi in condensato militare

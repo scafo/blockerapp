@@ -5,7 +5,7 @@ import buildingText from '../data/buildings.json';
 import frontText from '../data/fronts.json';
 import {
   BUILDINGS, EXPEDITIONS, activeCiv, buildBlock, campaignChoice, canAfford, civChoice, collectExpedition, deckOf, expeditionCost, unlockedUnits,
-  activeFront, enableTestMode, expeditionTimeSec, fmtTime, nextLevel, playerPower, settle, startBuild, startExpedition, stashCap, tents, unlockedAbilities,
+  activeFront, enableTestMode, expeditionTimeSec, fmtTime, nextLevel, playerPower, settle, startBuild, startExpedition, stashCap, tents,
   SUPPLIES, buySupply, rush, rushCost, trade,
 } from '../game/camp';
 import shopText from '../data/shop.json';
@@ -21,6 +21,7 @@ import { analytics } from '../analytics/analytics';
 import { FPS_KEY, fpsEnabled } from '../ui/debug';
 import { askName } from '../ui/nameInput';
 import { canStake, recoverStake, runOptions, stakeIndex } from '../game/camp';
+import { currentWorld } from '../game/world';
 import { Button } from '../ui/Button';
 import { buzz } from '../ui/haptics';
 import { drawResourceIcon } from '../ui/resourceIcons';
@@ -29,9 +30,16 @@ import { safeInsets, uiCamera, view } from '../ui/screen';
 import { drawPatch } from '../ui/symbols';
 import { drawUnitIcon } from '../ui/unitIcons';
 import { civImage, coverImage, fade } from '../ui/images';
-import { ashFall, drawBuilding, drawCompound, drawGround, drawLot, drawRoad, drawScaffold, drawTower, truck } from '../ui/baseArt';
+import { drawGround } from '../ui/baseArt';
+import { dashedBox, note, sheet } from '../ui/schematic';
 
 const PAD = 12;
+// pianta della base (riferimento di Nico: planimetria tecnica su ardesia)
+const NAV_W = 190; // colonna di navigazione a sinistra (orizzontale)
+const KEY_W = 200; // legenda e uscita a destra (orizzontale)
+const TEAL = PALETTE.ocra; // etichette in corsivo verde acqua
+const RED = PALETTE.ruggine; // uscita / punti critici
+const italic = (size: number, color: number = TEAL): Phaser.Types.GameObjects.Text.TextStyle => ({ ...textStyle(size, color, false), fontStyle: 'italic', padding: { right: 3 } });
 // risorse mostrate l'ultima volta che la base era aperta: al rientro da una campagna i numeri scorrono fino ai nuovi
 let shownStash: number[] | null = null;
 const maxLvl = (id: BuildingId) => BALANCE.camp.buildings[id].length;
@@ -62,14 +70,15 @@ export class CampScene extends Phaser.Scene {
   private capText: Phaser.GameObjects.Text | null = null;
   private statusText: Phaser.GameObjects.Text | null = null;
   private timerTexts = new Map<Spot, Phaser.GameObjects.Text>();
+  private boardTexts = new Map<string, Phaser.GameObjects.Text[]>(); // bacheca operativa: valore e nota di ogni riga
   private panel: Phaser.GameObjects.Container | null = null;
   private panelSpot: Spot | null = null;
   private panelMode = ''; // laboratorio: '' ricerche · 'archivio' · 'build'; radar: '' registro · 'build'
   private refreshAcc = 0;
   private panelKey = '';
-  private lastToast: Phaser.GameObjects.Text | null = null;
+  private lastToast: Phaser.GameObjects.Container | null = null;
   private burst!: Phaser.GameObjects.Particles.ParticleEmitter;
-  private navBtns: { btn: Button; on: () => boolean }[] = [];
+  private navBtns: { btn: { setOn: (on: boolean) => void; setVisible: (v: boolean) => void }; on: () => boolean }[] = [];
 
   constructor() {
     super('Camp');
@@ -88,6 +97,7 @@ export class CampScene extends Phaser.Scene {
     if (this.profile.runs >= 1 && !this.profile.name && !this.profile.nameAsked) this.time.delayedCall(600, () => this.editName(true));
     this.spots = new Map();
     this.timerTexts = new Map();
+    this.boardTexts = new Map();
     this.panel = null;
     this.panelSpot = null;
     const { width, height } = view(this);
@@ -98,11 +108,11 @@ export class CampScene extends Phaser.Scene {
     this.safe = safeInsets();
     const st = this.safe.top, sb = this.safe.bottom;
     this.plan = this.portrait ? { x: PAD, y: 164 + st, w: width - 2 * PAD, h: height - 164 - 150 - st - sb }
-      : { x: PAD, y: 114 + st, w: width - 2 * PAD, h: height - 114 - 76 - st - sb };
-    this.k = this.portrait ? Math.min(this.plan.w / 400, 1.2) : Math.min(this.plan.w / 820, this.plan.h / 230, 1.6);
+      : { x: PAD + 20, y: 150 + st, w: width - 2 * PAD - 20 - KEY_W - 24, h: height - 150 - 40 - st - sb };
+    this.k = this.portrait ? Math.min(this.plan.w / 400, 1.2) : Math.min(this.plan.w / 820, this.plan.h / 560, 1.3);
     const frac: Record<MapSpot, [number, number]> = this.portrait
       ? { comando: [0.5, 0.41], laboratorio: [0.27, 0.13], radar: [0.73, 0.13], arsenale: [0.27, 0.68], deposito: [0.73, 0.68], spedizione: [0.5, 0.88] }
-      : { comando: [0.5, 0.5], laboratorio: [0.3, 0.16], radar: [0.7, 0.16], arsenale: [0.16, 0.66], deposito: [0.84, 0.66], spedizione: [0.5, 0.95] };
+      : { comando: [0.5, 0.44], laboratorio: [0.15, 0.16], radar: [0.85, 0.16], arsenale: [0.15, 0.74], deposito: [0.85, 0.74], spedizione: [0.5, 0.9] };
     this.spotPos = Object.fromEntries(Object.entries(frac).map(([id, [fx, fy]]) => [id, { x: this.plan.x + this.plan.w * fx, y: this.plan.y + this.plan.h * fy }])) as typeof this.spotPos;
     this.drawBackdrop();
     this.drawCenter();
@@ -130,6 +140,7 @@ export class CampScene extends Phaser.Scene {
     const now = Date.now();
     const d = new Date(now);
     this.clock?.setText(`HQ // ${civInfo(activeCiv(this.profile)).name.toUpperCase()} · SETTORE 07 · ${d.toTimeString().slice(0, 8)}`);
+    this.updateBoard();
     const c = this.profile.construction;
     for (const [spot, t] of this.timerTexts) {
       if (spot === 'spedizione') {
@@ -199,7 +210,7 @@ export class CampScene extends Phaser.Scene {
       const v = p.stash[r];
       const t = this.stashTexts[i];
       if (!t) return;
-      t.setColor(hex(finite && v >= cap ? PALETTE.ko : RESOURCE_INFO[r].color));
+      t.setColor(hex(finite && v >= cap ? PALETTE.ko : INK));
       const from = shownStash?.[i];
       if (from !== undefined && from !== v && !this.counting[i]) this.countTo(i, from, v);
       else if (!this.counting[i]) t.setText(String(v));
@@ -209,119 +220,162 @@ export class CampScene extends Phaser.Scene {
     this.capText?.setText(finite ? `DEPOSITO · capienza ${cap} per risorsa` : 'DEPOSITO · senza limite (test)');
     const now = Date.now(), c = p.construction, rs = p.research;
     const parts = [
-      c ? `🔨 ${buildingText[c.id].name} liv. ${p.buildings[c.id] + 1} · ${fmtTime(c.until - now)}` : '🔨 cantiere libero',
-      rs ? `⚗ ${techInfo(rs.id).name} · ${fmtTime(rs.until - now)}` : '⚗ nessuna ricerca',
-    ];
+      c ? `🔨 ${buildingText[c.id].name} liv. ${p.buildings[c.id] + 1} · ${fmtTime(c.until - now)}` : '',
+      rs ? `⚗ ${techInfo(rs.id).name} · ${fmtTime(rs.until - now)}` : '',
+    ].filter(Boolean);
     this.statusText?.setText(parts.join('   ')).setColor(hex(c || rs ? PALETTE.allerta : PALETTE.tenue));
   }
 
   // ---------- disegno ----------
 
-  /** Fondo: l'immagine della potenza scelta (Figma), virata al freddo e velata; sopra la planimetria dell'HQ. */
+  /** Fondo: ardesia con la grana della carta stampata (niente foto: è una pianta). */
   private drawBackdrop() {
     const { width, height } = view(this);
     this.cameras.main.setBackgroundColor(SKY);
     drawGround(this, width, height);
-    // l'immagine della potenza appena accennata, come un riflesso sul vetro della sala operativa
-    const img = coverImage(this, civImage(activeCiv(this.profile)), 0, 0, width, height, 0.35).setTint(0x9fb4cc).setAlpha(0.12);
-    this.tweens.add({ targets: img, alpha: 0.06, duration: 6000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    fade(this, 0, 0, width, height * 0.22, SKY, 0.9, 0);
-    fade(this, 0, height * 0.78, width, height * 0.22, SKY, 0, 0.85);
   }
 
-  /** La base: piazzale recintato, torrette coi fari, strade dal Centro di Comando a ogni postazione, alloggi. */
+  /** La pianta: anello di corridoi attorno al Centro di Comando, un corridoio a gomito verso ogni ala, condotte tratteggiate. */
   private drawCenter() {
-    const b = this.plan, c = this.spotPos.comando, k = this.k;
-    const g = this.add.graphics();
-    const corners = drawCompound(g, b, k);
-    for (const [id, p] of Object.entries(this.spotPos)) if (id !== 'comando') drawRoad(g, c.x, c.y, p.x, p.y, k);
-    // uscita del convoglio verso il bordo
-    const sp = this.spotPos.spedizione;
-    drawRoad(g, sp.x, sp.y, sp.x, b.y + b.h + 30, k);
-    corners.forEach((q, i) => drawTower(this, q.x, q.y, k, [Math.PI * 0.15, Math.PI * 0.65, Math.PI * 1.15, Math.PI * 1.65][i]));
-    // alloggi: una baracca ogni tenda, in fila in un angolo libero
-    // in verticale a metà del lato sinistro (in basso c'è la rimessa), in orizzontale in basso a sinistra
-    const n = tents(this.profile), ax = b.x + (this.portrait ? 14 : 40) * k, ay = this.portrait ? c.y + 16 * k : b.y + b.h - 30 * k;
-    for (let i = 0; i < n; i++) {
-      const x = ax + i * 15 * k;
-      g.fillStyle(0x000000, 0.4).fillRect(x + 2, ay + 2, 11 * k, 7 * k);
-      g.fillStyle(0x3a4a3a, 1).fillRect(x, ay, 11 * k, 7 * k).lineStyle(1, 0x55684f, 1).lineBetween(x, ay + 3.5 * k, x + 11 * k, ay + 3.5 * k);
+    const c = this.spotPos.comando, cf = this.footprint('comando'), g = this.add.graphics();
+    const node = (x: number, y: number) => g.fillStyle(INK, 1).fillCircle(x, y, 3);
+    const off = 34 * this.k, rl = c.x - cf.w / 2 - off, rr = c.x + cf.w / 2 + off, rt = c.y - cf.h / 2 - off, rb = c.y + cf.h / 2 + off;
+    g.lineStyle(1.5, INK, 0.9).strokeRect(rl, rt, rr - rl, rb - rt);
+    // ingressi del Centro di Comando sui quattro lati
+    g.lineBetween(c.x, rt, c.x, c.y - cf.h / 2).lineBetween(c.x, rb, c.x, c.y + cf.h / 2).lineBetween(rl, c.y, c.x - cf.w / 2, c.y).lineBetween(rr, c.y, c.x + cf.w / 2, c.y);
+    for (const [x, y] of [[c.x, rt], [c.x, rb], [rl, c.y], [rr, c.y]]) node(x, y);
+    // ali agli angoli: dal lato della stanza in orizzontale fino all'anello, poi in verticale fino all'angolo
+    for (const id of ['laboratorio', 'radar', 'arsenale', 'deposito'] as const) {
+      const p = this.spotPos[id], f = this.footprint(id), right = p.x > c.x, top = p.y < c.y;
+      const sx = right ? p.x - f.w / 2 : p.x + f.w / 2, cx = right ? rr : rl, cy = top ? rt : rb;
+      g.lineStyle(1.5, INK, 0.9).lineBetween(sx, p.y, cx, p.y).lineBetween(cx, p.y, cx, cy);
+      node(cx, cy);
     }
-    this.add.text(ax, ay - 4, `ALLOGGI ${n}${this.portrait ? '\n' : ' · '}CAMPAGNE ${this.profile.runs}`, textStyle(9, PALETTE.ocra, false)).setOrigin(0, 1).setAlpha(0.85);
-    // intestazione con l'ora (aggiornata in update); in verticale non c'è posto
-    if (!this.portrait) this.clock = this.add.text(b.x + b.w - 30, b.y - 14, '', textStyle(10, PALETTE.ocra, false)).setOrigin(1, 0.5);
-    else this.clock = null;
-    ashFall(this, view(this).width, view(this).height);
+    // estrazione: dal fondo dell'anello
+    const S = this.spotPos.spedizione, sf = this.footprint('spedizione');
+    g.lineBetween(c.x, rb, S.x, S.y - sf.h / 2);
+    // condotte di ventilazione (tratteggiate) tra le ali dello stesso lato
+    const dash = (x0: number, y0: number, x1: number, y1: number) => {
+      const n = Math.floor(Math.hypot(x1 - x0, y1 - y0) / 6);
+      for (let i = 0; i < n; i += 2) g.fillStyle(INK, 0.55).fillRect(x0 + ((x1 - x0) * i) / n - 1, y0 + ((y1 - y0) * i) / n - 1, 2, 2);
+    };
+    const L = this.spotPos.laboratorio, R = this.spotPos.radar, A = this.spotPos.arsenale, D = this.spotPos.deposito;
+    const fl = this.footprint('laboratorio'), fa = this.footprint('arsenale');
+    dash(L.x, L.y + fl.h / 2 + 24, A.x, A.y - fa.h / 2 - 6);
+    dash(R.x, R.y + fl.h / 2 + 24, D.x, D.y - fa.h / 2 - 6);
+    this.clock = null;
+    if (!this.portrait) this.drawSideRooms();
+  }
+
+  /**
+   * Stanze laterali sulle condotte (orizzontale): a sinistra gli Alloggi (un posto per ogni tenda, crescono con le
+   * campagne), a destra l'Archivio della Caduta (un vano per ogni frammento di lore; si tocca per leggerli).
+   */
+  private drawSideRooms() {
+    const k = this.k, w = Math.max(160 * k, 172), h = Math.max(74 * k, 64), g = this.add.graphics();
+    const room = (cx: number, cy: number, name: string, sub: string, n: number, total: number, onTap?: () => void) => {
+      const l = cx - w / 2, t = cy - h / 2;
+      g.fillStyle(PALETTE.inchiostro, 1).fillRect(l, t, w, h).lineStyle(1.5, INK, 0.9).strokeRect(l, t, w, h);
+      const title = this.add.text(l + 12, t + 8, name, textStyle(12, INK));
+      title.setScale(Math.min(1, (w - 24) / Math.max(1, title.width)));
+      this.add.text(l + 12, t + 8 + title.displayHeight, sub, italic(11));
+      const gap = 3, cw = (w - 24 - (total - 1) * gap) / total, ch = 8 * k + 3, cy0 = t + h - 9 - ch;
+      for (let i = 0; i < total; i++) {
+        const bx = l + 12 + i * (cw + gap);
+        if (i < n) g.fillStyle(INK, 1).fillRect(bx, cy0, cw, ch);
+        else g.lineStyle(1, INK, 0.4).strokeRect(bx, cy0, cw, ch);
+      }
+      if (onTap) {
+        const hit = this.add.rectangle(cx, cy, w + 12, h + 12, 0xffffff, 0.001).setInteractive({ useHandCursor: true }).setDepth(7);
+        let pressed = false;
+        hit.on('pointerdown', () => { pressed = true; buzz(8); }).on('pointerout', () => { pressed = false; })
+          .on('pointerup', () => { if (pressed) { pressed = false; onTap(); } });
+      }
+    };
+    const L = this.spotPos.laboratorio, A = this.spotPos.arsenale, R = this.spotPos.radar, D = this.spotPos.deposito;
+    const n = tents(this.profile), max = BALANCE.camp.tentsMax, frags = loreFragments(this.profile).length;
+    room(L.x, (L.y + A.y) / 2, 'ALLOGGI', `${n} posti su ${max}`, n, max);
+    room(R.x, (R.y + D.y) / 2, 'ARCHIVIO DELLA CADUTA', `${frags} di ${loreTotal} frammenti`, frags, loreTotal, () => this.openPanel('laboratorio', 'archivio'));
   }
 
   /** Ingombro dell'edificio di una postazione (punti). */
   private footprint(id: MapSpot) {
     const k = this.k;
-    return id === 'comando' ? { w: 160 * k, h: 88 * k } : id === 'spedizione' ? { w: 112 * k, h: 60 * k } : { w: 122 * k, h: 70 * k };
+    return id === 'comando' ? { w: 250 * k, h: 120 * k } : id === 'spedizione' ? { w: 250 * k, h: 56 * k } : id === 'arsenale' ? { w: 210 * k, h: 92 * k } : { w: 170 * k, h: 92 * k };
   }
 
   private makeSpot(id: MapSpot, x: number, y: number) {
     const { w, h } = this.footprint(id);
     const g = this.add.graphics();
-    const label = this.add.text(x, y + h / 2 + 12, id === 'spedizione' ? 'ESTRAZIONE' : buildingText[id].name.toUpperCase(), textStyle(10, PALETTE.carta))
-      .setOrigin(0.5).setDepth(6);
-    const timer = this.add.text(x, y + h / 2 + 24, '', textStyle(10, PALETTE.allerta)).setOrigin(0.5, 0).setDepth(6);
+    const label = this.add.text(x, y, '', textStyle(14, PALETTE.carta)).setDepth(6);
+    const timer = this.add.text(x, y + h / 2 + 6, '', textStyle(10, PALETTE.allerta)).setOrigin(0.5, 0).setDepth(6);
     this.timerTexts.set(id, timer);
     this.spots.set(id, { x, y, g, deco: [], label });
-    const hit = this.add.rectangle(x, y + 8, w + 16, h + 36, 0xffffff, 0.001).setInteractive({ useHandCursor: true }).setDepth(7);
-    hit.on('pointerdown', () => { this.tapRing(id, PALETTE.ocra, 1); buzz(8); });
+    const hit = this.add.rectangle(x, y, w + 12, h + 12, 0xffffff, 0.001).setInteractive({ useHandCursor: true }).setDepth(7);
+    let pressed = false; // apre solo se il tocco è iniziato qui (non il rilascio del ✕ di una scheda appena chiusa)
+    hit.on('pointerdown', () => { pressed = true; this.tapRing(id, PALETTE.ocra, 1); buzz(8); });
+    hit.on('pointerout', () => { pressed = false; });
     // il Laboratorio costruito apre direttamente l'albero della ricerca
-    hit.on('pointerup', () => (id === 'laboratorio' && this.profile.buildings.laboratorio > 0 ? this.openTree('esercito') : this.openPanel(id)));
+    hit.on('pointerup', () => {
+      if (!pressed) return;
+      pressed = false;
+      if (id === 'laboratorio' && this.profile.buildings.laboratorio > 0) this.openTree('esercito');
+      else this.openPanel(id);
+    });
   }
 
-  /** Edificio della postazione: lotto libero, cantiere o costruito (più dettagli col livello); targa col nome e livello. */
+  /**
+   * Postazione come stanza della pianta: nome per intero, livello, una cella per ogni livello lungo il fondo (piena se
+   * raggiunto, ambra se in cantiere). Il Centro di Comando è pieno avorio; un lotto libero è tratteggiato.
+   */
   private redrawSpot(id: MapSpot) {
     const spot = this.spots.get(id)!;
     spot.deco.forEach((d) => d.destroy());
     spot.deco = [];
     const g = spot.g.clear();
-    const k = this.k, x = spot.x, y = spot.y, { w, h } = this.footprint(id);
+    const x = spot.x, y = spot.y, { w, h } = this.footprint(id);
     const lvl = id === 'spedizione' ? 1 : this.profile.buildings[id];
     const building = id !== 'spedizione' && this.profile.construction?.id === id;
-    const ctx = { scene: this as Phaser.Scene, g, deco: spot.deco, k };
-    const civ = CIV_STYLE[activeCiv(this.profile)];
-    if (lvl > 0) drawBuilding(ctx, id, x, y, w, h, lvl, civ);
-    else drawLot(ctx, x, y, w, h);
-    if (building) drawScaffold(ctx, x, y, w, h);
-    if (id === 'spedizione') this.drawConvoy(spot, g, x, y, w, h);
-    // targa: nome sotto l'edificio, livello nel distintivo (alla Clash)
-    const lw = spot.label.width + 22;
-    g.fillStyle(PALETTE.inchiostro, 0.88).fillRoundedRect(x - lw / 2, y + h / 2 + 4, lw, 17, 4).lineStyle(1, lvl > 0 ? PALETTE.ocra : PALETTE.linea, 0.8)
-      .strokeRoundedRect(x - lw / 2, y + h / 2 + 4, lw, 17, 4);
-    spot.label.setAlpha(lvl > 0 || building ? 1 : 0.6);
-    if (lvl === 0 && !building) spot.deco.push(this.add.text(x, y, '[ + ] LOTTO LIBERO', textStyle(10, PALETTE.ocra)).setOrigin(0.5).setAlpha(0.8));
+    const name = id === 'spedizione' ? 'Squadre di estrazione' : buildingText[id].name;
+    const l = x - w / 2, t = y - h / 2;
+    const big = id === 'comando', solid = big && lvl > 0;
+    if (lvl > 0) g.fillStyle(solid ? INK : PALETTE.inchiostro, 1).fillRect(l, t, w, h);
+    if (lvl > 0 || building) g.lineStyle(1.5, building ? PALETTE.allerta : INK, 1).strokeRect(l, t, w, h);
+    else for (let i = 0; i < (w + h) * 2; i += 8) { // lotto libero: riquadro tratteggiato
+      const per = i < w ? [l + i, t] : i < w + h ? [l + w, t + i - w] : i < 2 * w + h ? [l + w - (i - w - h), t + h] : [l, t + h - (i - 2 * w - h)];
+      g.fillStyle(INK, 0.5).fillRect(per[0] - 1, per[1] - 1, 3, 1.5);
+    }
+    const ink = solid ? PALETTE.inchiostro : INK, live = lvl > 0 || building;
+    spot.label.setText(name.toUpperCase()).setStyle(textStyle(big ? 20 : 14, ink)).setOrigin(0, 0).setPosition(l + 12, t + 10).setAlpha(live ? 1 : 0.6);
+    spot.label.setScale(Math.min(1, (w - 24) / Math.max(1, spot.label.width / spot.label.scaleX))); // il nome sta dentro la stanza
     if (id !== 'spedizione') {
       const n = maxLvl(id);
-      if (lvl > 0) {
-        const bx = x - lw / 2 - 2, by = y + h / 2 + 12, r = 10;
-        g.fillStyle(lvl >= n ? PALETTE.ocra : PALETTE.inchiostro, 1).fillCircle(bx, by, r).lineStyle(1.5, PALETTE.ocra, 1).strokeCircle(bx, by, r);
-        spot.deco.push(this.add.text(bx, by, String(lvl), textStyle(11, lvl >= n ? PALETTE.inchiostro : PALETTE.ocra)).setOrigin(0.5).setDepth(6));
+      const sub = building ? 'in costruzione' : lvl === 0 ? 'da costruire' : `livello ${lvl} di ${n}`;
+      spot.deco.push(this.add.text(l + 12, t + 10 + spot.label.height, sub, italic(11, solid ? PALETTE.inchiostro : building ? PALETTE.allerta : TEAL)).setAlpha(live ? 1 : 0.7));
+      // celle dei livelli lungo il fondo della stanza
+      const gap = 4, ch = 10 * this.k + 4, cw = (w - 24 - (n - 1) * gap) / n, cy = t + h - 10 - ch;
+      for (let i = 0; i < n; i++) {
+        const bx = l + 12 + i * (cw + gap), done = i < lvl, now = building && i === lvl;
+        const fill = done ? (solid ? PALETTE.inchiostro : INK) : solid ? INK : PALETTE.inchiostro;
+        g.fillStyle(fill, 1).fillRect(bx, cy, cw, ch).lineStyle(1.2, now ? PALETTE.allerta : ink, done || now ? 1 : 0.45).strokeRect(bx, cy, cw, ch);
       }
-      // si può migliorare adesso: freccia verde che pulsa sulla targa
+      // si può migliorare adesso: freccia verde acqua nell'angolo
       if (lvl < n && !building && !buildBlock(this.profile, id)) {
-        const up = this.add.text(x + lw / 2 + 4, y + h / 2 + 12, '▲', textStyle(13, PALETTE.ok)).setOrigin(0, 0.5).setDepth(6);
+        const up = this.add.text(l + w - 10, t + 8, '▲', textStyle(13, solid ? PALETTE.inchiostro : PALETTE.radioattivo)).setOrigin(1, 0).setDepth(6);
         this.tweens.add({ targets: up, y: up.y - 3, alpha: 0.4, duration: 600, yoyo: true, repeat: -1 });
         spot.deco.push(up);
       }
-    }
-    void k;
+    } else this.drawConvoy(spot, g, x, y, w, h);
   }
 
-  /** Squadre di estrazione: camion in rimessa, oppure in missione (uno corre sulla strada d'uscita) o di ritorno (!). */
+  /** Squadre di estrazione: in rimessa, in missione (un puntino corre sul corridoio d'uscita) o di ritorno (!). */
   private drawConvoy(spot: { deco: Phaser.GameObjects.GameObject[] }, g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number) {
-    const k = this.k, e = this.profile.expedition, away = e && e.until > Date.now(), ready = e && e.until <= Date.now();
-    const ctx = { scene: this as Phaser.Scene, g, deco: spot.deco, k };
-    if (!away) {
-      for (let i = 0; i < 2; i++) truck(ctx, x + w * 0.2, y - h * 0.18 + i * h * 0.36, k, ready ? 0x8a7a3e : 0x5b6e57);
-    } else {
-      const dot = this.add.rectangle(x, y + h * 0.2, 10 * k, 5 * k, 0x5b6e57).setStrokeStyle(1, 0x7d8f74);
-      this.tweens.add({ targets: dot, y: this.plan.y + this.plan.h + 24, alpha: 0.2, duration: 2600, repeat: -1 });
-      spot.deco.push(dot, this.add.text(x + w * 0.22, y - 6 * k, 'IN MISSIONE', textStyle(9, PALETTE.allerta, false)).setOrigin(0.5));
+    const e = this.profile.expedition, away = e && e.until > Date.now(), ready = e && e.until <= Date.now();
+    void g;
+    if (away) {
+      const dot = this.add.rectangle(x, y + h / 2, 6, 6, PALETTE.allerta);
+      this.tweens.add({ targets: dot, y: this.plan.y + this.plan.h + 20, alpha: 0.2, duration: 2600, repeat: -1 });
+      spot.deco.push(dot);
     }
     if (ready) {
       const bang = this.add.text(x + w / 2 + 8, y - h * 0.3, '!', textStyle(22, PALETTE.allerta)).setOrigin(0.5);
@@ -334,30 +388,33 @@ export class CampScene extends Phaser.Scene {
 
   private drawHud() {
     const { width, height } = view(this);
-    // scorta in alto a sinistra
     const P = this.portrait;
-    // scorta alla Clash: risorse grandi nel loro colore, barra di riempimento sulla capienza del Deposito
     const T = PAD + this.safe.top, B = PAD + this.safe.bottom; // margini sicuri in alto e in basso
-    const panelW = P ? width - 2 * PAD : 360, panelY = P ? T + 52 : T, step = P ? (panelW - 20) / 3 : 116;
-    this.add.rectangle(PAD, panelY, panelW, 74, PALETTE.inchiostro, 0.84).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
-    this.capText = this.add.text(PAD + 10, panelY + 6, '', textStyle(10, PALETTE.ocra));
+    // scorta: riquadro della pianta con le tre risorse (filo avorio, numeri avorio, capienza in corsivo)
+    const panelW = P ? width - 2 * PAD : NAV_W, panelY = P ? T + 52 : T, rowH = 22;
+    const boxH = P ? 58 : 30 + RESOURCES.length * rowH;
+    this.add.rectangle(PAD, panelY, panelW, boxH, PALETTE.inchiostro, 0.96).setOrigin(0).setStrokeStyle(1.5, INK, 0.9);
+    this.capText = this.add.text(PAD + 10, panelY + 6, '', italic(10));
     const ig = this.add.graphics();
     this.stashBars = [];
-    this.stashBarW = step - 22;
+    this.stashBarW = P ? (panelW - 40) / 3 - 30 : panelW - 110;
     this.stashTexts = RESOURCES.map((r, i) => {
-      const x = PAD + 12 + i * step;
-      drawResourceIcon(ig, r, x + 10, panelY + 38, 10);
-      this.add.rectangle(x, panelY + 60, this.stashBarW, 5, PALETTE.linea).setOrigin(0);
-      this.stashBars.push(this.add.rectangle(x, panelY + 60, 0, 5, RESOURCE_INFO[r].color).setOrigin(0));
-      return this.add.text(x + 26, panelY + 38, '0', textStyle(22, RESOURCE_INFO[r].color)).setOrigin(0, 0.5);
+      const x = P ? PAD + 12 + i * ((panelW - 20) / 3) : PAD + 10, y = P ? panelY + 36 : panelY + 30 + i * rowH + rowH / 2;
+      drawResourceIcon(ig, r, x + 7, y, 7);
+      if (!P) {
+        this.add.text(x + 20, y, RESOURCE_INFO[r].name.toUpperCase(), textStyle(10, INK)).setOrigin(0, 0.5);
+        this.add.rectangle(x + 86, y + 6, this.stashBarW, 2, LINE, 0.5).setOrigin(0);
+        this.stashBars.push(this.add.rectangle(x + 86, y + 6, 0, 2, INK).setOrigin(0));
+      }
+      return this.add.text(P ? x + 20 : PAD + panelW - 10, y, '0', textStyle(15, INK)).setOrigin(P ? 0 : 1, 0.5);
     });
-    // sotto: cantiere e ricerca in corso (alla Clash: chi lavora e quanto manca)
-    this.statusText = this.add.text(PAD + 2, panelY + 80, '', textStyle(10, PALETTE.carta, false));
-    // titolo in alto a destra
-    // 5 tocchi sul titolo = contatore FPS nelle run (per i test sui telefoni economici, anche dentro l'app)
+    // cantiere e ricerca in corso
+    // verticale: cantiere e ricerca sotto la scorta (in orizzontale li mostra la bacheca operativa)
+    this.statusText = P ? this.add.text(PAD + 2, panelY + boxH + 6, '', italic(10, PALETTE.tenue)) : null;
+    // titolo in alto a destra (5 tocchi = contatore FPS nelle run)
     let taps = 0;
     const titleX = P ? width / 2 : width - PAD, titleO = P ? 0.5 : 1;
-    this.add.text(titleX, T + 4, 'ASHEN ATLAS', textStyle(20, INK)).setOrigin(titleO, 0)
+    this.add.text(titleX, T + 2, 'ASHEN ATLAS', textStyle(20, INK)).setOrigin(titleO, 0)
       .setInteractive().on('pointerup', () => {
         if (++taps < 5) return;
         taps = 0;
@@ -370,50 +427,128 @@ export class CampScene extends Phaser.Scene {
         this.toast(on ? 'Contatore FPS attivo nelle run' : 'Contatore FPS spento', PALETTE.carta);
       });
     const p = this.profile;
-    // tasto TEST (giallo se attiva): apre la modalità test
-    const testBtn = this.add.text(P ? width - PAD : titleX - 150, P ? T + 4 : T + 8, p.test ? '[ TEST ATTIVO ]' : '[ TEST ]', textStyle(11, PALETTE.allerta))
+    // tasto TEST solo in sviluppo o con ?test=1 nell'indirizzo: i tester del link pubblico non lo vedono
+    const testOk = import.meta.env.DEV || p.test || new URLSearchParams(location.search).has('test');
+    if (testOk) this.add.text(P ? width - PAD : titleX - 150, P ? T + 4 : T + 7, p.test ? '[ TEST ATTIVO ]' : '[ TEST ]', textStyle(11, PALETTE.allerta))
       .setOrigin(1, 0).setInteractive({ useHandCursor: true }).on('pointerup', () => this.openPanel('test'));
-    void testBtn;
-    // potenza e fronte (alla Call of War: il punteggio della tua nazione)
     const power = playerPower(p), front = p.frontMax ?? 0;
-    this.add.text(titleX, T + 30, `⛨ ${(p.name || 'COMANDANTE').toUpperCase()} ✎  ·  POTENZA ${power} · FRONTE ${ROMAN[front]} · ${p.wins} vittorie`, textStyle(11, PALETTE.ocra))
+    this.add.text(titleX, T + 28, `${p.name || 'Comandante'} ✎ · potenza ${power} · fronte ${ROMAN[front]} · ${p.wins} vittorie`, italic(11))
       .setOrigin(titleO, 0).setInteractive({ useHandCursor: true }).on('pointerup', () => this.editName());
-    // GIOCA: in basso a destra (orizzontale) o grande in basso al centro (verticale, sotto il pollice)
-    const bw = P ? Math.min(260, width - 2 * PAD) : 150;
-    // dopo la run guidata GIOCA apre la preparazione: civiltà e durata della campagna
-    const play = new Button(this, 'GIOCA ▶', bw, 56, () => this.onPlay(), 20).setPrimary();
-    play.setPosition(P ? (width - bw) / 2 : width - PAD - bw, height - B - 56).setDepth(20);
-    // azione principale: fondo oro e un alone che respira piano dietro (attira l'occhio senza muovere il tasto)
-    const glow = this.add.rectangle(play.x - 5, play.y - 5, bw + 10, 66, PALETTE.ocra, 0.22).setOrigin(0).setDepth(19);
-    this.tweens.add({ targets: glow, alpha: 0.04, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-    // cornice: QG, Operazioni, Ricerca, Arsenale, Mercato, Archivio — una riga sopra GIOCA, sempre a portata
-    if (this.profile.runs > 0) this.drawNav(width, height, B);
-    if (!P) this.add.text(PAD, height - B, 'Tocca una postazione o il convoglio', textStyle(11, INK, false)).setOrigin(0, 1);
+    // legenda (KEY) tratteggiata in basso a destra, con l'uscita rossa = GIOCA
+    const kw = P ? width - 2 * PAD : KEY_W, kh = P ? 0 : 150, kx = P ? PAD : width - PAD - kw, ky = height - B - kh;
+    if (!P) {
+      const kg = this.add.graphics();
+      for (let i = 0; i < (kw + kh) * 2; i += 7) {
+        const q = i < kw ? [kx + i, ky] : i < kw + kh ? [kx + kw, ky + i - kw] : i < 2 * kw + kh ? [kx + kw - (i - kw - kh), ky + kh] : [kx, ky + kh - (i - 2 * kw - kh)];
+        kg.fillStyle(INK, 0.8).fillRect(q[0] - 1, q[1] - 1, 2.5, 2.5);
+      }
+      this.add.text(kx + kw / 2, ky + 12, 'LEGENDA', textStyle(12, INK)).setOrigin(0.5, 0);
+      const row = (yy: number, draw: (x: number, y: number) => void, txt: string) => { draw(kx + 18, yy); this.add.text(kx + 40, yy, txt, textStyle(9, INK, false)).setOrigin(0, 0.5); };
+      row(ky + 42, (x, y) => kg.lineStyle(1.2, INK, 1).strokeRect(x - 8, y - 5, 16, 10), 'LIVELLO DA COSTRUIRE');
+      row(ky + 62, (x, y) => kg.fillStyle(INK, 1).fillRect(x - 8, y - 5, 16, 10), 'LIVELLO COSTRUITO');
+      row(ky + 82, (x, y) => kg.lineStyle(1.5, INK, 1).lineBetween(x - 9, y, x + 9, y), 'CORRIDOIO');
+      row(ky + 102, (x, y) => { for (let i = -8; i <= 8; i += 4) kg.fillStyle(INK, 0.8).fillRect(x + i - 1, y - 1, 2, 2); }, 'CONDOTTA');
+      row(ky + 122, (x, y) => kg.fillStyle(RED, 1).fillCircle(x, y, 7).lineStyle(1, INK, 0.8).strokeCircle(x, y, 7), 'USCITA VERSO IL FRONTE');
+    }
+    // GIOCA: l'uscita della base (cerchio rosso) + riquadro avorio pieno, sopra la legenda
+    const bw = P ? Math.min(260, width - 2 * PAD) : KEY_W, bh = 52;
+    const play = new Button(this, 'AVVIA CAMPAGNA', bw - (P ? 0 : 46), bh, () => this.onPlay(), 16).setPrimary();
+    play.setPosition(P ? (width - bw) / 2 : kx + 46, P ? height - B - bh : ky - bh - 14).setDepth(20);
+    if (!P) {
+      const ex = kx + 20, ey = play.y + bh / 2, eg = this.add.graphics().setDepth(20);
+      eg.fillStyle(RED, 1).fillCircle(ex, ey, 17).lineStyle(1.5, INK, 0.9).strokeCircle(ex, ey, 17);
+      eg.lineStyle(2, PALETTE.inchiostro, 1).lineBetween(ex - 7, ey - 3, ex + 7, ey - 3).lineBetween(ex - 5, ey + 2, ex + 5, ey + 2).lineBetween(ex, ey - 8, ex, ey - 3);
+      eg.lineStyle(1.5, INK, 0.9).lineBetween(ex + 17, ey, kx + 46, ey);
+      const pulse = this.add.circle(ex, ey, 17, RED, 0.35).setDepth(19);
+      this.tweens.add({ targets: pulse, scale: 1.6, alpha: 0, duration: 1400, repeat: -1, ease: 'Quad.easeOut' });
+    }
+    if (this.profile.runs > 0 && P) this.drawNav(width, height, B); // in orizzontale il Mercato è una riga della bacheca
+    if (!P) this.drawBoard(width - PAD - KEY_W, T + 62, KEY_W, play.y - 22 - (T + 62));
   }
 
-  /** Cornice di navigazione: 6 voci verso le schede già esistenti (preparazione, albero, arsenale, mercato, registro). */
-  private drawNav(width: number, height: number, B: number) {
-    const items: { label: string; on: () => boolean; run: () => void }[] = [
-      { label: 'QG', on: () => this.panelSpot === null && !this.scene.isActive('Tree'),
-        run: () => { if (this.scene.isActive('Tree')) this.scene.stop('Tree'); this.closePanel(); } },
-      { label: 'OPERAZIONI', on: () => this.panelSpot === 'gioca', run: () => this.openPanel('gioca') },
-      { label: this.profile.research ? 'RICERCA ⏱' : 'RICERCA', on: () => this.scene.isActive('Tree'), run: () => this.openTree('armamenti') },
-      { label: 'ARSENALE', on: () => this.panelSpot === 'arsenale', run: () => this.openPanel('arsenale') },
-      { label: 'MERCATO', on: () => this.panelSpot === 'mercato', run: () => this.openPanel('mercato') },
-      { label: 'ARCHIVIO', on: () => this.panelSpot === 'radar', run: () => this.openPanel('radar') },
+  /**
+   * Bacheca operativa (orizzontale, colonna destra): cosa succede in base e cosa fare adesso. Ogni riga apre la sua scheda.
+   * I valori si aggiornano in update() (tempi dei cantieri, delle ricerche e delle squadre).
+   */
+  private drawBoard(x: number, y: number, w: number, hMax: number) {
+    const p = this.profile, rowH = 50, rows: { key: string; label: string; run: () => void }[] = [
+      { key: 'fronte', label: 'Prossimo fronte', run: () => this.openPanel('gioca', 'fronti') },
+      { key: 'cantiere', label: 'Cantiere', run: () => { const c = p.construction; this.openPanel(c ? c.id : 'comando'); } },
+      { key: 'ricerca', label: 'Ricerca', run: () => this.openTree('esercito') },
+      { key: 'squadre', label: 'Squadre di estrazione', run: () => this.openPanel('spedizione') },
+      ...(p.runs > 0 ? [{ key: 'mercato', label: 'Mercato', run: () => this.openPanel('mercato') }] : []),
     ];
-    // stretto (telefono verticale): 2 righe da 3, altrimenti 1 riga da 6 (etichette leggibili, non accavallate)
-    const n = items.length, gap = 6, bh = 36, rowGap = 6, minBw = 92;
-    const cols = (width - 2 * PAD - (n - 1) * gap) / n >= minBw ? n : Math.ceil(n / 2);
-    const rows = Math.ceil(n / cols);
-    const bw = Math.min(150, (width - 2 * PAD - (cols - 1) * gap) / cols);
-    const totalH = rows * bh + (rows - 1) * rowGap, yTop = height - B - 56 - 8 - totalH; // blocco appena sopra GIOCA
-    const totalW = cols * bw + (cols - 1) * gap, x0 = Math.max(PAD, width - PAD - totalW);
+    const n = Math.min(rows.length, Math.floor((hMax - 20) / rowH));
+    if (n <= 0) return;
+    const h = n * rowH + 16, g = this.add.graphics();
+    g.fillStyle(PALETTE.inchiostro, 0.96).fillRect(x, y, w, h).lineStyle(1.5, INK, 0.9).strokeRect(x, y, w, h);
+    this.add.text(x + 8, y, ' Bacheca operativa ', italic(11)).setOrigin(0, 0.5).setBackgroundColor(hex(PALETTE.inchiostro));
+    this.boardTexts.clear();
+    rows.slice(0, n).forEach((r, i) => {
+      const ry = y + 10 + i * rowH;
+      if (i) for (let dx = 10; dx < w - 10; dx += 5) g.fillStyle(INK, 0.4).fillRect(x + dx, ry - 1, 1.5, 1.5);
+      const hit = this.add.rectangle(x + 2, ry + 1, w - 4, rowH - 2, PALETTE.pannelloAlto, 0).setOrigin(0).setInteractive({ useHandCursor: true });
+      hit.on('pointerover', () => hit.setFillStyle(PALETTE.pannelloAlto, 1)).on('pointerout', () => hit.setFillStyle(PALETTE.pannelloAlto, 0)).on('pointerup', r.run);
+      this.add.text(x + 12, ry + 6, r.label, italic(10));
+      const v = this.add.text(x + 12, ry + 19, '', textStyle(13, INK)).setWordWrapWidth(w - 36).setMaxLines(1);
+      const sub = this.add.text(x + 12, ry + 35, '', textStyle(9, PALETTE.tenue, false)).setWordWrapWidth(w - 36).setMaxLines(1);
+      this.add.text(x + w - 12, ry + rowH / 2, '›', textStyle(16, TEAL)).setOrigin(1, 0.5);
+      this.boardTexts.set(r.key, [v, sub]);
+    });
+    this.updateBoard();
+  }
+
+  private updateBoard() {
+    if (!this.boardTexts.size) return;
+    const p = this.profile, now = Date.now();
+    const set = (k: string, v: string, sub: string, color: number = INK, subColor: number = PALETTE.tenue) => {
+      const t = this.boardTexts.get(k);
+      if (!t) return;
+      if (t[0].text !== v) t[0].setText(v);
+      if (t[1].text !== sub) t[1].setText(sub);
+      t[0].setColor(hex(color));
+      t[1].setColor(hex(subColor));
+    };
+    const fi = activeFront(p), F = BALANCE.fronts[fi], power = playerPower(p), weak = power < F.power;
+    set('fronte', `${ROMAN[fi]} · ${F.name}`, `potenza consigliata ${F.power} · tua ${power}`, INK, weak ? PALETTE.ko : PALETTE.tenue);
+    const c = p.construction;
+    if (c) set('cantiere', `${buildingText[c.id].name} → liv. ${p.buildings[c.id] + 1}`, `finisce tra ${fmtTime(c.until - now)}`, INK, PALETTE.allerta);
+    else set('cantiere', 'libero', 'tocca una stanza per migliorarla', PALETTE.tenue);
+    const r = p.research;
+    if (r) set('ricerca', techInfo(r.id).name, `finisce tra ${fmtTime(r.until - now)}`, INK, PALETTE.allerta);
+    else set('ricerca', 'nessuna in corso', p.buildings.laboratorio ? 'apri l\'albero della ricerca' : 'serve il Laboratorio', PALETTE.tenue);
+    const e = p.expedition;
+    if (!e) set('squadre', 'in base', 'pronte a partire', PALETTE.tenue);
+    else if (e.until > now) set('squadre', 'in missione', `tornano tra ${fmtTime(e.until - now)}`, INK, PALETTE.allerta);
+    else set('squadre', 'di ritorno', 'ritira il bottino', PALETTE.radioattivo, PALETTE.radioattivo);
+    set('mercato', 'scambi e rifornimenti', 'risorse, scorte, lavori finiti subito');
+  }
+
+  /** Navigazione: riquadri verde acqua con la freccia che entra da sinistra, come i rimandi agli altri piani della pianta. */
+  private drawNav(width: number, height: number, B: number) {
+    // le altre voci (ricerca, arsenale, archivio, operazioni) sono già le stanze della pianta e l'uscita rossa
+    const items: { label: string; on: () => boolean; run: () => void }[] = [
+      { label: 'Mercato', on: () => this.panelSpot === 'mercato', run: () => this.openPanel('mercato') },
+    ];
+    const P = this.portrait, bh = 30, gap = 6, cols = 1;
+    const bw = P ? 140 : NAV_W - 26;
+    const x0 = P ? PAD + 26 : PAD + 26, y0 = P ? height - B - 52 - 10 - bh : this.safe.top + PAD + 30 + RESOURCES.length * 22 + 30;
+    // rimando verde acqua con la freccia che entra da sinistra, come "→ Floor 3.2" della pianta
+    const g = this.add.graphics().setDepth(50);
+    void width;
     this.navBtns = items.map((it, i) => {
-      const r = Math.floor(i / cols), c = i % cols;
-      const b = new Button(this, it.label, bw, bh, it.run, 11);
-      b.setPosition(x0 + c * (bw + gap), yTop + r * (bh + rowGap)).setDepth(50); // sopra il pannello aperto (depth 40): sempre raggiungibile
-      return { btn: b, on: it.on };
+      const r = Math.floor(i / cols), c = i % cols, x = x0 + c * (bw + gap), y = y0 + r * (bh + gap);
+      g.lineStyle(1.2, TEAL, 0.9).lineBetween(PAD, y + bh / 2, x, y + bh / 2).fillStyle(TEAL, 1).fillTriangle(x, y + bh / 2, x - 6, y + bh / 2 - 4, x - 6, y + bh / 2 + 4);
+      const bg = this.add.rectangle(x, y, bw, bh, PALETTE.inchiostro, 1).setOrigin(0).setStrokeStyle(1.2, TEAL, 0.9).setDepth(50);
+      const txt = this.add.text(x + 10, y + bh / 2, it.label, italic(12)).setOrigin(0, 0.5).setDepth(51);
+      bg.setInteractive({ useHandCursor: true }).on('pointerup', it.run)
+        .on('pointerover', () => { if (!it.on()) bg.setFillStyle(PALETTE.pannelloAlto, 1); })
+        .on('pointerout', () => { if (!it.on()) bg.setFillStyle(PALETTE.inchiostro, 1); });
+      const btn = {
+        setOn: (on: boolean) => { bg.setFillStyle(on ? TEAL : PALETTE.inchiostro, 1); txt.setColor(hex(on ? PALETTE.inchiostro : TEAL)); },
+        setVisible: (v: boolean) => { bg.setVisible(v); txt.setVisible(v); },
+      };
+      return { btn, on: it.on };
     });
     this.refreshNav();
   }
@@ -479,6 +614,7 @@ export class CampScene extends Phaser.Scene {
     this.panel?.destroy();
     this.panel = null;
     this.panelSpot = null;
+    for (const { btn } of this.navBtns) btn.setVisible(true);
     this.refreshNav();
   }
 
@@ -495,22 +631,20 @@ export class CampScene extends Phaser.Scene {
     const prep = spot === 'gioca';
     const bld = !prep && !wide && spot !== 'spedizione' && spot !== 'test' && spot !== 'mercato';
     const shop = spot === 'mercato';
-    const W = Math.min(prep ? 700 : shop ? 560 : wide ? 540 : bld ? 470 : 330, width - 24);
+    const W = Math.min(prep ? 700 : shop ? 560 : wide ? 540 : bld || spot === 'spedizione' ? 470 : 330, width - 24);
     const H = Math.min(prep ? (this.portrait ? 620 : 420) : shop ? (this.portrait ? 520 : 372) : wide ? (this.portrait ? 440 : 350) : bld ? 400 : 290, height - 2 * PAD);
     const x0 = width / 2 - W / 2, y0 = (height - H) / 2;
+    // la scheda può finire più in basso di dove inizia la cornice di navigazione (depth 50, sempre sopra): se così, la
+    // nascondiamo finché la scheda è aperta, altrimenti i suoi pulsanti galleggerebbero sopra il contenuto della scheda.
+    for (const { btn } of this.navBtns) btn.setVisible(false);
     const items: Phaser.GameObjects.GameObject[] = [];
     const shade = this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.6).setOrigin(0).setInteractive();
     shade.on('pointerup', () => this.closePanel());
-    items.push(shade, this.add.rectangle(x0, y0, W, H, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1, PALETTE.linea).setInteractive());
-    const fr = this.add.graphics();
-    fr.lineStyle(1, PALETTE.ocra, 0.35).lineBetween(x0 + 8, y0 + 36, x0 + W - 8, y0 + 36);
-    for (const [cx, cy, dx, dy] of [[x0, y0, 1, 1], [x0 + W, y0, -1, 1], [x0, y0 + H, 1, -1], [x0 + W, y0 + H, -1, -1]]) {
-      fr.lineStyle(3, PALETTE.ocra, 1).lineBetween(cx, cy, cx + dx * 14, cy).lineBetween(cx, cy, cx, cy + dy * 14);
-    }
-    items.push(fr);
-    const close = this.add.text(x0 + W - 12, y0 + 8, '✕', textStyle(18, INK)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
-    close.on('pointerup', () => this.closePanel());
-    items.push(close);
+    // scheda della pianta: fondo ardesia, filo avorio, categoria in corsivo incastrata nel bordo
+    const kind = spot === 'test' ? 'Modalità test' : shop ? 'Mercato' : prep ? 'Operazioni' : spot === 'spedizione' ? 'Rimessa delle squadre'
+      : spot === 'laboratorio' && this.panelMode === 'archivio' ? 'Archivio' : spot === 'radar' && this.panelMode !== 'build' && this.profile.buildings.radar > 0 ? 'Registro'
+      : 'Stanza della base';
+    items.push(shade, ...sheet(this, x0, y0, W, H, kind, () => this.closePanel()));
     const now = Date.now();
 
     if (spot === 'test') {
@@ -547,44 +681,56 @@ export class CampScene extends Phaser.Scene {
           this.burst.setParticleTint(PALETTE.ocra);
           this.burst.explode(30, s.x, s.y);
           this.toast(`+${got.metallo} metallo · +${got.benzina} benzina · +${got.cibo} cibo`, PALETTE.radioattivo);
-        }));
+        }, 16, true));
       } else {
+        // tabella delle missioni: tipo · durata · costo · bottino atteso; si tocca la riga per partire
+        const cx = [x0 + 16, x0 + 16 + (W - 32) * 0.38, x0 + 16 + (W - 32) * 0.56, x0 + 16 + (W - 32) * 0.74], ty = y0 + 92;
+        ['missione', 'durata', 'costo', 'bottino'].forEach((h, k) => items.push(this.add.text(cx[k] + 6, ty, h, italic(10))));
         EXPEDITIONS.forEach((kind: ExpeditionKind, i) => {
           const E = BALANCE.camp.expeditions[kind];
           const cost = expeditionCost(kind);
           const ok = this.profile.stash.cibo >= cost;
-          const lbl = `${T.kinds[kind]} · ${fmtTime(expeditionTimeSec(this.profile, kind) * 1000)} · ${cost ? `${cost} cibo` : 'gratis'}`;
-          items.push(this.btn(lbl, x0 + 16, y0 + 92 + i * 52, W - 32, ok, () => {
-            if (!startExpedition(this.profile, kind, Date.now())) return;
-            analytics.design(['spedizione', 'parti', kind]);
-            saveProfile(this.profile);
-            this.closePanel();
-            this.redrawSpot('spedizione');
-            this.updateStash();
-            this.toast('Le squadre partono. Torneranno con quello che trovano.', PALETTE.carta);
-          }));
-          items.push(this.add.text(x0 + 24, y0 + 92 + i * 52 + 42, `≈ ${E.metallo[0]}–${E.metallo[1]} metallo, ${E.benzina[0]}–${E.benzina[1]} benz., ${E.cibo[0]}–${E.cibo[1]} cibo`,
-            textStyle(9, INK, false)));
+          const ry = ty + 18 + i * 46;
+          const r = this.add.rectangle(x0 + 16, ry, W - 32, 40, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1.2, INK, ok ? 0.75 : 0.25);
+          if (ok) {
+            r.setInteractive({ useHandCursor: true }).on('pointerover', () => r.setFillStyle(PALETTE.pannelloAlto)).on('pointerout', () => r.setFillStyle(PALETTE.inchiostro));
+            r.on('pointerup', () => {
+              if (!startExpedition(this.profile, kind, Date.now())) return;
+              analytics.design(['spedizione', 'parti', kind]);
+              saveProfile(this.profile);
+              this.closePanel();
+              this.redrawSpot('spedizione');
+              this.updateStash();
+              this.toast('Le squadre partono. Torneranno con quello che trovano.', PALETTE.carta);
+            });
+          }
+          items.push(r,
+            this.add.text(cx[0] + 6, ry + 20, T.kinds[kind], textStyle(12, INK)).setOrigin(0, 0.5).setAlpha(ok ? 1 : 0.5),
+            this.add.text(cx[1] + 6, ry + 20, fmtTime(expeditionTimeSec(this.profile, kind) * 1000), textStyle(12, INK)).setOrigin(0, 0.5),
+            this.add.text(cx[2] + 6, ry + 20, cost ? `${cost} cibo` : 'gratis', textStyle(12, ok ? INK : PALETTE.ko)).setOrigin(0, 0.5),
+            this.add.text(cx[3] + 6, ry + 20, `${E.metallo[0]}–${E.metallo[1]} met.\n${E.benzina[0]}–${E.benzina[1]} benz. · ${E.cibo[0]}–${E.cibo[1]} cibo`, textStyle(9, PALETTE.tenue, false)).setOrigin(0, 0.5));
         });
       }
     } else {
       const T = buildingText[spot];
       const lvl = this.profile.buildings[spot];
       // testata: illustrazione animata del modulo, livello, potenza che guadagni migliorando
-      const ig = this.add.graphics();
-      ig.fillStyle(PALETTE.pannello, 1).fillRect(x0 + 16, y0 + 14, 132, 88).lineStyle(1, LINE, 1).strokeRect(x0 + 16, y0 + 14, 132, 88);
-      const ill = { scene: this as Phaser.Scene, g: ig, deco: [] as Phaser.GameObjects.GameObject[], k: 0.8 };
-      drawBuilding(ill, spot, x0 + 82, y0 + 56, 104, 60, Math.max(1, lvl), CIV_STYLE[activeCiv(this.profile)]); // com'è (o sarà) dall'alto
-      // livello a tacche: piene quelle fatte, bordo oro la prossima
-      for (let i = 0; i < maxLvl(spot); i++) {
-        const tx = x0 + 162 + i * 16, ty = y0 + 48;
-        if (i < lvl) ig.fillStyle(PALETTE.ocra, 1).fillRect(tx, ty, 12, 7);
-        else ig.fillStyle(PALETTE.pannello, 1).fillRect(tx, ty, 12, 7).lineStyle(1, i === lvl ? PALETTE.ocra : PALETTE.linea, 1).strokeRect(tx, ty, 12, 7);
+      // pianta della stanza: un vano per livello (pieno se costruito, ambra se in cantiere, tratteggiato se ancora da fare)
+      const ig = this.add.graphics(), n = maxLvl(spot), cols = n > 3 ? 3 : n, rws = Math.ceil(n / cols);
+      items.push(ig);
+      const px = x0 + 16, py = y0 + 18, rw = 132, ph = 84, gp = 6;
+      ig.lineStyle(1.5, INK, 0.9).strokeRect(px, py, rw, ph);
+      const vw = (rw - 12 - (cols - 1) * gp) / cols, vh = (ph - 12 - (rws - 1) * gp) / rws, building = this.profile.construction?.id === spot;
+      for (let i = 0; i < n; i++) {
+        const vx = px + 6 + (i % cols) * (vw + gp), vy = py + 6 + Math.floor(i / cols) * (vh + gp);
+        if (i < lvl) ig.fillStyle(INK, 1).fillRect(vx, vy, vw, vh);
+        else if (building && i === lvl) ig.lineStyle(1.5, PALETTE.allerta, 1).strokeRect(vx, vy, vw, vh);
+        else dashedBox(ig, vx, vy, vw, vh, INK, 0.45);
+        items.push(this.add.text(vx + 4, vy + 3, String(i + 1), textStyle(9, i < lvl ? PALETTE.inchiostro : INK, false)).setAlpha(i < lvl ? 1 : 0.6));
       }
-      items.push(ig, ...ill.deco);
       const pw = BALANCE.power[spot as keyof typeof BALANCE.power] ?? 0;
       items.push(this.add.text(x0 + 162, y0 + 14, T.name.toUpperCase(), textStyle(T.name.length > 14 ? 16 : 20, INK)),
-        this.add.text(x0 + 162 + maxLvl(spot) * 16 + 6, y0 + 44, `LIV. ${lvl}/${maxLvl(spot)}${lvl < maxLvl(spot) ? ` · +${pw} potenza` : ' · MASSIMO'}`, textStyle(10, PALETTE.ocra)),
+        this.add.text(x0 + 162, y0 + 42, `livello ${lvl} di ${maxLvl(spot)}${lvl < maxLvl(spot) ? ` · il prossimo dà +${pw} potenza` : ' · massimo'}`, italic(11)),
         this.add.text(x0 + 162, y0 + 62, T.desc, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 178));
       if (spot === 'radar' && lvl > 0) items.push(this.link('‹ registro', x0 + W - 16, y0 + 90, () => this.openPanel(spot, '')));
       // Laboratorio e Arsenale: da qui all'albero della ricerca (armamenti e tecnologie)
@@ -593,20 +739,26 @@ export class CampScene extends Phaser.Scene {
         if (spot === 'laboratorio') items.push(this.link(`archivio della Caduta (${loreFragments(this.profile).length}/${loreTotal}) ›`, x0 + 16, y0 + H - 132, () => this.openPanel('laboratorio', 'archivio'), 0));
       }
       // tutti i livelli: fatti, il prossimo evidenziato, quelli dopo
+      // tabella dei livelli: numero · cosa sblocca · stato (fatto, prossimo, da fare)
+      const tg = this.add.graphics(), step = T.levels.length > 3 ? 18 : 22, ty = y0 + 110, sx = x0 + W - 90;
+      items.push(tg,
+        this.add.text(x0 + 18, ty, 'liv.', italic(10)), this.add.text(x0 + 52, ty, 'cosa sblocca', italic(10)), this.add.text(sx, ty, 'stato', italic(10)));
       T.levels.forEach((txt, i) => {
-        const mark = i < lvl ? '✓' : i === lvl ? '▶' : '·';
-        const col = i < lvl ? PALETTE.ocra : i === lvl ? INK : PALETTE.tenue;
-        const step = T.levels.length > 3 ? 18 : 22, ly = y0 + 112 + i * step;
-        if (i === lvl) items.push(this.add.rectangle(x0 + 12, ly - 3, W - 24, step, 0x1b2634).setOrigin(0));
-        items.push(this.add.text(x0 + 18, ly, `${mark} LIV. ${i + 1}  ${txt}`, textStyle(T.levels.length > 3 ? 10 : 11, col, i === lvl)).setWordWrapWidth(W - 36));
+        const ly = ty + 16 + i * step, col = i < lvl ? INK : i === lvl ? INK : PALETTE.tenue;
+        if (i === lvl) items.push(this.add.rectangle(x0 + 12, ly - 2, W - 24, step, PALETTE.pannelloAlto).setOrigin(0).setStrokeStyle(1, INK, 0.5));
+        for (let dx = x0 + 14; dx < x0 + W - 14; dx += 5) tg.fillStyle(INK, 0.25).fillRect(dx, ly - 3, 1.5, 1.5);
+        const fs = T.levels.length > 3 ? 10 : 11;
+        items.push(this.add.text(x0 + 18, ly + 1, String(i + 1), textStyle(fs, col)),
+          this.add.text(x0 + 52, ly + 1, txt.replace(/^Armamenti: /, ''), textStyle(fs, col, i === lvl)).setWordWrapWidth(sx - x0 - 60).setMaxLines(1),
+          this.add.text(sx, ly + 1, i < lvl ? 'fatto' : i === lvl ? 'prossimo' : 'da fare', italic(fs, i < lvl ? TEAL : i === lvl ? PALETTE.allerta : PALETTE.tenue)));
       });
       const c = this.profile.construction;
       const next = nextLevel(this.profile, spot);
       if (c && c.id === spot) {
         const total = BALANCE.camp.buildings[spot][lvl].timeSec * 1000;
         const pct = 1 - (c.until - now) / total;
-        items.push(this.add.rectangle(x0 + 16, y0 + H - 70, W - 32, 10, 0x1d3a31).setOrigin(0));
-        items.push(this.add.rectangle(x0 + 16, y0 + H - 70, (W - 32) * Phaser.Math.Clamp(pct, 0, 1), 10, PALETTE.ruggine).setOrigin(0));
+        items.push(this.add.rectangle(x0 + 16, y0 + H - 70, W - 32, 10, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1, INK, 0.6));
+        items.push(this.add.rectangle(x0 + 16, y0 + H - 70, (W - 32) * Phaser.Math.Clamp(pct, 0, 1), 10, PALETTE.allerta).setOrigin(0));
         // accanto al tempo: finisci subito pagando metallo (come al Mercato)
         const half = (W - 32 - 8) / 2, cost = rushCost(c.until, now), ok = this.profile.stash.metallo >= cost;
         items.push(this.btn(`IN COSTRUZIONE · ${fmtTime(c.until - now)}`, x0 + 16, y0 + H - 54, half, false, () => {}, 12));
@@ -631,7 +783,7 @@ export class CampScene extends Phaser.Scene {
           this.redrawSpot(spot as BuildingId);
           this.updateStash();
           this.toast(`Cantiere aperto: ${T.name}`, PALETTE.carta);
-        }));
+        }, 16, true));
       } else {
         items.push(this.add.text(x0 + 16, y0 + H - 44, 'Livello massimo. Il resto lo fa la fantasia.', textStyle(12, PALETTE.ocra)));
       }
@@ -657,7 +809,7 @@ export class CampScene extends Phaser.Scene {
       this.add.text(x0 + 16, y0 + 44, shopText.desc, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 32));
     const g = this.add.graphics(); // icone: aggiunte in fondo, sopra le schede
     const tile = (x: number, y: number, w: number, h: number, ok: boolean, on: boolean, run: () => void) => {
-      const r = this.add.rectangle(x, y, w, h, on ? 0x1b2634 : PALETTE.pannello).setOrigin(0).setStrokeStyle(1, on ? PALETTE.ocra : ok ? PALETTE.linea : 0x2a3340)
+      const r = this.add.rectangle(x, y, w, h, on ? PALETTE.pannelloAlto : PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1, on ? PALETTE.ocra : INK, on ? 1 : ok ? 0.7 : 0.25)
         .setAlpha(ok || on ? 1 : 0.55);
       if (ok) r.setInteractive({ useHandCursor: true }).on('pointerup', run);
       items.push(r);
@@ -721,7 +873,7 @@ export class CampScene extends Phaser.Scene {
     items.push(g);
     rs.forEach((r, i) => {
       const cx = x + i * (cw + 6), ok = have[r] >= cost[r];
-      g.fillStyle(PALETTE.pannello, 1).fillRect(cx, y, cw, ch).lineStyle(1, ok ? PALETTE.linea : PALETTE.ko, 1).strokeRect(cx, y, cw, ch);
+      g.fillStyle(PALETTE.inchiostro, 1).fillRect(cx, y, cw, ch).lineStyle(1.2, ok ? INK : PALETTE.ko, ok ? 0.7 : 1).strokeRect(cx, y, cw, ch);
       drawResourceIcon(g, r, cx + 16, y + 18, 8);
       g.fillStyle(PALETTE.linea, 1).fillRect(cx + 8, y + ch - 9, cw - 16, 4);
       g.fillStyle(ok ? PALETTE.radioattivo : PALETTE.ko, 1).fillRect(cx + 8, y + ch - 9, (cw - 16) * Math.min(1, have[r] / cost[r]), 4);
@@ -729,8 +881,8 @@ export class CampScene extends Phaser.Scene {
         this.add.text(cx + cw - 8, y + 18, `hai ${have[r]}`, textStyle(9, PALETTE.tenue, false)).setOrigin(1, 0.5));
     });
     const tx = x + rs.length * (cw + 6);
-    g.fillStyle(PALETTE.pannello, 1).fillRect(tx, y, cw, ch).lineStyle(1, PALETTE.linea, 1).strokeRect(tx, y, cw, ch);
-    items.push(this.add.text(tx + cw / 2, y + 14, 'TEMPO', textStyle(9, PALETTE.tenue)).setOrigin(0.5),
+    dashedBox(g, tx, y, cw, ch, INK, 0.7);
+    items.push(this.add.text(tx + cw / 2, y + 14, 'tempo', italic(10)).setOrigin(0.5),
       this.add.text(tx + cw / 2, y + 31, fmtTime(timeSec * 1000), textStyle(14, INK)).setOrigin(0.5));
   }
 
@@ -817,36 +969,6 @@ export class CampScene extends Phaser.Scene {
       return;
     }
     if (this.panelMode === 'fronti') return this.fillFronts(items, x0, y0, W, H);
-    if (this.panelMode === 'mazzo') {
-      const open = unlockedUnits(p, civ), deck = deckOf(p, civ), max = BALANCE.units.deckSize;
-      items.push(this.add.text(x0 + 16, y0 + 12, `MAZZO  ${deck.length}/${max}`, textStyle(16, INK)));
-      back();
-      items.push(this.add.text(x0 + 16, y0 + 36, `Porti in campagna ${max} truppe tra quelle sbloccate dall'Arsenale. Tocca per scambiarle.`, textStyle(9, PALETTE.carta, false)).setWordWrapWidth(W - 32));
-      const cols = Math.min(5, Math.max(4, open.length)), cw = (W - 32 - (cols - 1) * 6) / cols;
-      open.forEach((t, k) => {
-        const cx = x0 + 16 + (k % cols) * (cw + 6), cy = y0 + 60 + Math.floor(k / cols) * 82;
-        const sel = deck.includes(t), u = unitInfo(t);
-        const tile = this.add.rectangle(cx, cy, cw, 76, sel ? 0x1b2634 : PALETTE.inchiostro).setOrigin(0).setStrokeStyle(sel ? 2 : 1, sel ? PALETTE.ocra : PALETTE.linea)
-          .setInteractive({ useHandCursor: true });
-        tile.on('pointerup', () => {
-          let next = (p.deck ?? []).length ? deckOf(p, civ) : [...deck];
-          if (next.includes(t)) { if (next.length > 1) next = next.filter((x) => x !== t); }
-          else if (next.length < max) next.push(t);
-          else next = [...next.slice(1), t]; // pieno: esce la prima
-          p.deck = next;
-          saveProfile(p);
-          this.openPanel('gioca', 'mazzo');
-        });
-        const g = this.add.graphics();
-        drawUnitIcon(g, t, cx + cw / 2, cy + 22, 12, sel ? PALETTE.ocra : PALETTE.carta);
-        items.push(tile, g, this.add.text(cx + cw / 2, cy + 42, u.short, textStyle(9, PALETTE.carta)).setOrigin(0.5, 0),
-          this.add.text(cx + cw / 2, cy + 58, `${BALANCE.units[t].cost} truppe`, textStyle(8, PALETTE.ocra, false)).setOrigin(0.5, 0));
-      });
-      if (unlockedAbilities(p).length) {
-        items.push(this.add.text(x0 + 16, y0 + H - 24, '+ abilità: Ricognizione aerea · Bombardamento (sempre con te)', textStyle(9, PALETTE.radioattivo, false)));
-      }
-      return;
-    }
     // vista principale: in testa la potenza scelta (tocca per cambiarla), poi fronte, mazzo, durata
     const info = civInfo(civ), st = CIV_STYLE[civ];
     const bh = this.portrait ? 120 : 104;
@@ -863,9 +985,9 @@ export class CampScene extends Phaser.Scene {
       items.push(hit, this.add.text(x0 + W - 16, y0 + 10, 'cambia potenza ›', textStyle(10, PALETTE.ocra)).setOrigin(1, 0));
     }
     const row = (y: number, h: number, label: string, onClick: (() => void) | null, warn = false) => {
-      const r = this.add.rectangle(x0 + 16, y, W - 32, h, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1, warn ? PALETTE.ko : onClick ? PALETTE.ocra : PALETTE.linea);
-      if (onClick) r.setInteractive({ useHandCursor: true }).on('pointerup', onClick);
-      items.push(r, this.add.text(x0 + 24, y + 6, label, textStyle(9, warn ? PALETTE.ko : PALETTE.ocra)));
+      const r = this.add.rectangle(x0 + 16, y, W - 32, h, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1.2, warn ? PALETTE.ko : INK, warn ? 1 : onClick ? 0.75 : 0.3);
+      if (onClick) r.setInteractive({ useHandCursor: true }).on('pointerup', onClick).on('pointerover', () => r.setFillStyle(PALETTE.pannelloAlto)).on('pointerout', () => r.setFillStyle(PALETTE.inchiostro));
+      items.push(r, this.add.text(x0 + 24, y + 5, label, italic(11, warn ? PALETTE.ko : TEAL)));
       if (onClick) items.push(this.add.text(x0 + W - 24, y + h / 2, '›', textStyle(18, PALETTE.ocra)).setOrigin(1, 0.5));
     };
     let y = y0 + bh + 8;
@@ -876,12 +998,12 @@ export class CampScene extends Phaser.Scene {
       textStyle(10, weak ? PALETTE.ko : PALETTE.carta, false)).setWordWrapWidth(W - 70));
     y += 58;
     const deck = deckOf(p, civ);
-    row(y, 52, `MAZZO · ${deck.length}/${BALANCE.units.deckSize}`, unlockedUnits(p, civ).length > 1 ? () => this.openPanel('gioca', 'mazzo') : null);
+    row(y, 52, `REPARTI · ${deck.length} ${deck.length === 1 ? 'sbloccato' : 'sbloccati'}, tutti in campagna`, null);
     const dg = this.add.graphics();
-    const dx = Math.min(110, (W - 80) / Math.max(1, deck.length));
+    const dx = Math.min(110, (W - 60) / Math.max(1, deck.length));
     deck.forEach((t, k) => drawUnitIcon(dg, t, x0 + 34 + k * dx, y + 34, 8, PALETTE.carta));
     items.push(dg);
-    deck.forEach((t, k) => items.push(this.add.text(x0 + 48 + k * dx, y + 34, unitInfo(t).short, textStyle(9, PALETTE.carta, false)).setOrigin(0, 0.5)));
+    if (dx >= 100) deck.forEach((t, k) => items.push(this.add.text(x0 + 48 + k * dx, y + 34, unitInfo(t).name, textStyle(10, PALETTE.carta, false)).setOrigin(0, 0.5))); // tanti reparti: solo i simboli
     y += 58;
     // nemici del fronte: le loro armi (se ne hanno che tu non hai, servono potenziamenti)
     const eg = this.add.graphics();
@@ -906,9 +1028,16 @@ export class CampScene extends Phaser.Scene {
     y += 36;
     // briefing del fronte: storia, obiettivi, cosa fanno i nemici
     const mm = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}`;
+    // impero persistente: su questo fronte si torna nello stesso mondo finché non vinci
+    const w = currentWorld(p, fi), left = BALANCE.ai.count - (w?.fallen.length ?? 0);
+    const grudges = w?.rivals.filter((r) => r.relation === 'guerra').length ?? 0, allies = w?.rivals.filter((r) => r.relation === 'alleanza').length ?? 0;
+    const worldLine = !w ? 'MONDO NUOVO · su questo fronte il mondo resta tra una campagna e l\'altra finché non vinci.'
+      : `MONDO · campagna ${w.campaigns + 1} · riparti con ${w.core.length + 1} province · imperi caduti ${w.fallen.length}/${BALANCE.ai.count}`
+        + (grudges ? ` · ${grudges} rival${grudges > 1 ? 'i' : 'e'} col rancore` : '') + (allies ? ` · ${allies} allea${allies > 1 ? 'ti' : 'to'}` : '');
     const brief = [
+      worldLine,
       (frontText as { brief: string }[])[fi]?.brief ?? '',
-      'OBIETTIVI · più province di tutti allo scadere, o fai cadere i tre imperi rivali.',
+      `OBIETTIVI · più province di tutti allo scadere, o fai cadere ${left === 3 ? 'i tre imperi rivali' : left === 1 ? "l'ultimo impero rivale" : `i ${left} imperi rimasti`}.`,
       `INTEL · tregua ${mm(F.graceMs)} · prima offensiva a ${mm(F.offensiveFirstMs)} · bunker nemici ${F.aiBunkers} · crescita nemica ×${String(F.aiGrowthMult).replace('.', ',')}`,
     ].join('\n');
     const limit = y0 + H - 64 - (this.portrait ? 48 : 0);
@@ -931,7 +1060,7 @@ export class CampScene extends Phaser.Scene {
     items.push(this.btn('AVVIA LA CAMPAGNA ▶', stack ? x0 + 16 : x0 + 16 + bw + 10, by, bw, true, () => {
       analytics.design(['campagna', 'avvia', `${civ}:${p.campaign}:${fi}`]);
       this.scene.start('Load', { next: 'Run', data: { seed: randomSeed() } });
-    }, 13));
+    }, 13, true));
   }
 
   /** Fronti: la scala della difficoltà (alla Clash). Si sblocca il successivo vincendo; potenza consigliata contro la tua. */
@@ -944,7 +1073,7 @@ export class CampScene extends Phaser.Scene {
     const rh = Math.min(46, (H - 52) / BALANCE.fronts.length - 4);
     BALANCE.fronts.forEach((F, k) => {
       const y = y0 + 44 + k * (rh + 4), open = k <= max, weak = power < F.power;
-      const r = this.add.rectangle(x0 + 16, y, W - 32, rh, k === sel ? 0x1b2634 : PALETTE.inchiostro).setOrigin(0)
+      const r = this.add.rectangle(x0 + 16, y, W - 32, rh, k === sel ? PALETTE.pannelloAlto : PALETTE.inchiostro).setOrigin(0)
         .setStrokeStyle(k === sel ? 2 : 1, k === sel ? PALETTE.ocra : PALETTE.linea).setAlpha(open ? 1 : 0.5).setInteractive({ useHandCursor: open });
       r.on('pointerup', () => {
         if (!open) return this.toast(`Vinci il fronte ${ROMAN[k - 1]} per sbloccarlo`, PALETTE.carta);
@@ -1040,9 +1169,11 @@ export class CampScene extends Phaser.Scene {
     return c;
   }
 
-  private btn(label: string, x: number, y: number, w: number, enabled: boolean, onClick: () => void, size = 16) {
+  /** primary = azione principale della scheda: riquadro avorio pieno (una sola per scheda); le altre solo col filo. */
+  private btn(label: string, x: number, y: number, w: number, enabled: boolean, onClick: () => void, size = 16, primary = false) {
     const b = new Button(this, label, w, 40, () => enabled && onClick(), size);
     b.setPosition(x, y).setAlpha(enabled ? 1 : 0.45);
+    if (primary && enabled) b.setPrimary();
     return b;
   }
 
@@ -1050,9 +1181,7 @@ export class CampScene extends Phaser.Scene {
     const { width } = view(this);
     this.lastToast?.destroy();
     const ty = this.portrait ? 160 : 90;
-    const t = (this.lastToast = this.add.text(width / 2, ty, msg, textStyle(15, color)).setOrigin(0.5).setAlign('center')
-      .setWordWrapWidth(width - 40)
-      .setBackgroundColor(hex(PALETTE.inchiostro)).setPadding(12, 8, 12, 8).setDepth(60).setAlpha(0));
+    const t = (this.lastToast = note(this, width / 2, ty - 20, Math.min(420, width - 40), msg, color).setDepth(60).setAlpha(0));
     this.tweens.add({ targets: t, alpha: 1, y: ty - 10, duration: 220 });
     this.tweens.add({ targets: t, alpha: 0, delay: 2800, duration: 400, onComplete: () => t.destroy() });
   }

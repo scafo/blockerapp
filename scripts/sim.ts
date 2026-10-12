@@ -93,6 +93,8 @@ for (let r = 0; r < runs; r++) {
     for (const e of st.drainEvents()) {
       if (e.type === 'conquer' && e.from === PLAYER && firstContact < 0) firstContact = ms;
       if (e.type === 'encircled' && (e.by === PLAYER || e.from === PLAYER)) pockets++;
+      if (e.type === 'coalition') marks.push(`coalizione-${e.phase} ${Math.round(ms / 1000)}s`);
+      if (e.type === 'ability' && e.by !== PLAYER && e.phase === 'impact') marks.push(`bomba ${Math.round(ms / 1000)}s`);
     }
     // primo confine con un impero (da lì possono dichiarare guerra)
     if (border < 0 && ms % 5000 === 0 && st.factions.some((f) => f.kind === 'empire' && f.alive

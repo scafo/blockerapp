@@ -3,8 +3,8 @@
 export const BALANCE = {
   map: {
     cols: 960, // griglia fine (invisibile): pedine, navi, nebbia; le forme vengono dalla mappa vera (scripts/build-map.ts)
-    rows: 480,
-    latMax: 84,
+    rows: 612, // Mercatore: righe in più perché la carta resti proporzionata (larghezza / altezza ≈ 1,81)
+    latMax: 78, // oltre, il Mercatore allunga all'infinito
     latMin: -58, // niente Antartide
     hexSize: 5 / 3, // raggio esagono in pixel-mondo (griglia fitta: stessa mappa in pixel, più province)
     ruinsCount: 4860,
@@ -52,27 +52,26 @@ export const BALANCE = {
     count: 3,
     // forza, ritmo, tregua e offensive delle IA dipendono dal fronte (vedi `fronts`)
     attacksPerAct: 1, // caselle piccole: più caselle per azione (stesso ritmo di prima in superficie)
-    reserve: 1.25, // attacca solo se truppe > difesa * reserve
-    playerBias: 0.9, // le province del giocatore "sembrano" un po' più deboli
+    reserve: 1.1, // attacca solo se truppe > difesa * reserve (più basso = IA più aggressive)
+    playerBias: 0.8, // le province del giocatore "sembrano" più deboli: le IA puntano di più su di te
     minDistanceBetween: 23, // passi esagonali tra fazioni IA
     releaseLootShare: 0.5, // quota di bottino rilasciata quando eliminata
     workers: 0.15, // anche le IA mandano gente a lavorare: più bottino da rubare
   },
   // Pedine: costano truppe del pool, si muovono casella per casella e conquistano dove passano.
   units: {
-    fanteria: { cost: 60, hp: 60, attack: 6, range: 1, moveMs: 429, captureCost: 0.4 },
-    ricognitori: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 214, captureCost: 0.5 },
-    artiglieria: { cost: 70, hp: 30, attack: 9, range: 4, moveMs: 647, captureCost: 0.8 },
+    fanteria: { cost: 60, hp: 60, attack: 6, range: 1, moveMs: 429, captureCost: 0.4, fuel: 0 },
+    ricognitori: { cost: 45, hp: 35, attack: 7, range: 1, moveMs: 214, captureCost: 0.5, fuel: 6 },
+    artiglieria: { cost: 70, hp: 30, attack: 9, range: 4, moveMs: 647, captureCost: 0.8, fuel: 0 },
     // secondo gruppo dell'Arsenale
-    corazzati: { cost: 90, hp: 110, attack: 9, range: 1, moveMs: 319, captureCost: 0.25 }, // travolgono fanteria e ricognitori
-    genio: { cost: 50, hp: 50, attack: 4, range: 1, moveMs: 498, captureCost: 0.3 }, // fortifica le caselle attorno, ferma i corazzati
-    cannoniera: { cost: 85, hp: 70, attack: 8, range: 4, moveMs: 250, captureCost: 0 }, // nave: copre le coste
+    corazzati: { cost: 90, hp: 110, attack: 9, range: 1, moveMs: 319, captureCost: 0.25, fuel: 12 }, // travolgono fanteria e ricognitori
+    genio: { cost: 50, hp: 50, attack: 4, range: 1, moveMs: 498, captureCost: 0.3, fuel: 0 }, // fortifica le caselle attorno, ferma i corazzati
+    cannoniera: { cost: 85, hp: 70, attack: 8, range: 4, moveMs: 250, captureCost: 0, fuel: 10 }, // nave: copre le coste
     // unità uniche delle civiltà (arsenale liv. 6)
-    legionari: { cost: 80, hp: 90, attack: 7, range: 1, moveMs: 468, captureCost: 0.35 }, // Imperium
-    guardia: { cost: 55, hp: 75, attack: 6, range: 1, moveMs: 429, captureCost: 0.3 }, // Republica
-    prototipo: { cost: 75, hp: 28, attack: 11, range: 6, moveMs: 718, captureCost: 0.8 }, // Aristocrazia
-    infiltrati: { cost: 40, hp: 32, attack: 7, range: 1, moveMs: 190, captureCost: 0.2 }, // Cabal
-    deckSize: 4, // in campagna porti 4 truppe delle sbloccate (il mazzo, come in Clash)
+    legionari: { cost: 80, hp: 90, attack: 7, range: 1, moveMs: 468, captureCost: 0.35, fuel: 0 }, // Imperium
+    guardia: { cost: 55, hp: 75, attack: 6, range: 1, moveMs: 429, captureCost: 0.3, fuel: 0 }, // Republica
+    prototipo: { cost: 75, hp: 28, attack: 11, range: 6, moveMs: 718, captureCost: 0.8, fuel: 0 }, // Aristocrazia
+    infiltrati: { cost: 40, hp: 32, attack: 7, range: 1, moveMs: 190, captureCost: 0.2, fuel: 5 }, // Cabal
     fortifyDefense: 8, // genio: difesa in più sulle sue caselle e su quelle accanto
     supportRange: 4, // cannoniera: caselle di costa coperte dal fuoco
     supportCostMult: 0.7, // costo per prendere una casella coperta dalla cannoniera
@@ -82,7 +81,26 @@ export const BALANCE = {
     maxPerFaction: 4,
     healPerTick: 1, // hp recuperati sul proprio territorio, fuori combattimento
     // captureCost: hp persi conquistando = difesa della casella * captureCost
+    // fuel: benzina dallo zaino per schierare i mezzi (solo il giocatore; le IA non hanno zaino da spendere)
   },
+  // Comandi delle pedine (2026-10-12, Nico): unire/dividere, comportamento, fronte, rifornimento e logoramento
+  unitOps: {
+    mergeMax: 4, // reparti uniti al massimo in una pedina
+    mergeRange: 3, // caselle entro cui due pedine si possono unire
+    autoRadius: 12, // "attacca da sola": cerca nemici entro queste caselle
+    autoEveryMs: 1500, // ogni quanto una pedina ferma cerca un bersaglio o il suo posto sul fronte
+    outsideSupply: 0.85, // fuori dal territorio: rifornimento della tua provincia accanto × questo
+    farSupply: 0.45, // a due province dal tuo territorio
+    attritionBelow: 0.4, // sotto questo rifornimento la pedina perde vita
+    attritionPerTick: 0.8, // vita persa per tick a rifornimento zero
+    healMinSupply: 0.6, // si cura solo se rifornita almeno così
+  },
+  // Rancio (cibo dello zaino): l'esercito mangia; con cibo cresce di più, senza cresce meno
+  food: { perProvPerMin: 0.04, freeProvinces: 3, fedGrowth: 1.15, hungryGrowth: 0.9 },
+  // Coalizione: se diventi troppo grande, gli imperi smettono di farsi la guerra e si alleano contro di te
+  coalition: { ratio: 2.5, minProvinces: 80, endRatio: 1.6, focusBias: 0.7, opinion: -40 }, // sim: si forma a metà campagna, non al primo impero
+  // Bombardamenti nemici (dal Fronte III): un impero in guerra con te colpisce una tua provincia di confine; la contraerea li ferma
+  aiStrike: { fromFront: 2, firstMs: 300_000, everyMs: 240_000, jitterMs: 40_000 }, // per impero in guerra: ~1 bombardamento ogni 1,5 min con tre imperi
   // Abilità a ricarica (Arsenale liv. 5): non sono unità
   abilities: {
     ricognizione: { cooldownMs: 40_000, radius: 13, durationMs: 15_000 }, // ricognizione aerea: svela la zona
@@ -148,7 +166,7 @@ export const BALANCE = {
     aiCityAttraction: 0.6, // le città sembrano più deboli all'IA: le cerca
     nameMinTiles: 40, // nomi delle nazioni solo per le più grandi
     minTilesForCity: 4, // province minuscole (isolette): niente città
-    namesMaxZoom: 3.0, // sopra questo zoom (vista tattica) i nomi delle nazioni spariscono
+    namesMaxZoom: 6.0, // sopra questo zoom (vista tattica) i nomi delle nazioni spariscono
   },
   // Navi: tocchi una costa che non raggiungi via terra; la nave parte dalla tua costa più vicina con la forza d'attacco.
   boats: {
@@ -164,24 +182,24 @@ export const BALANCE = {
     unit: 8,
     boat: 5,
     intel: 18, // raggio già noto attorno alla partenza (esplorato, non sorvegliato)
-    shade: true, // velo sulle zone non viste
-    seenAlpha: 0.26, // già esplorato ma ora fuori vista
-    unseenAlpha: 0.7, // mai visto: la carta si intravede
+    shade: false, // velo sulle zone non viste (spento: la carta da terminale resta pulita; i nemici fuori vista restano nascosti)
+    seenAlpha: 0.14, // già esplorato ma ora fuori vista
+    unseenAlpha: 0.48, // mai visto: la carta sbiadisce (velo color carta)
     blur: 4, // caselle di sfumatura sul bordo della nebbia
-    color: 0x0a121c,
+    color: 0xebe4d4, // carta: dove non vedi, la carta resta bianca (STYLE.md)
   },
   // Milizie provinciali (bot deboli alla OpenFront): poche province ciascuna, difendono e crescono piano; gli imperi
   // (ai.*) si espandono molto di più. All'inizio la terra è quasi tutta libera.
   bots: {
-    count: 36,
+    count: 56,
     nearShare: 0.65, // quota nella regione del giocatore
     near: [12, 110] as [number, number], // distanza dalla partenza del giocatore (passi esagonali)
     minApart: 14, // tra una partenza e l'altra
-    provinces: [1, 3] as [number, number], // province iniziali
+    provinces: [2, 4] as [number, number], // province iniziali
     startTroops: [25, 70] as [number, number],
-    growthMult: 0.4,
-    actChance: 0.004, // per tick: si allargano piano, solo su terra libera vicina
-    homeRadius: 10, // non si allontanano oltre (passi dalla partenza)
+    growthMult: 0.75,
+    actChance: 0.014, // per tick: si allargano su terra libera vicina
+    homeRadius: 16, // non si allontanano oltre (passi dalla partenza)
   },
   // Diplomazia alla HOI4 (rapporti col giocatore): gli imperi partono in pace e possono dichiararti guerra quando vi toccate,
   // le milizie sono ostili. Donazioni = opinione; con l'opinione alta accettano pace e alleanze.
@@ -326,15 +344,21 @@ export const BALANCE = {
     standard: { durationMs: 1_200_000, lootMult: 1 },
     lunga: { durationMs: 1_800_000, lootMult: 1.4 },
   },
+  // Impero persistente: sullo stesso fronte il mondo resta tra una campagna e l'altra (stessa mappa, stessi rivali) finché non vinci.
+  world: {
+    coreMax: 5, // province del nucleo riprese a inizio campagna (le più vicine alla partenza, collegate)
+    grudge: -50, // chi era in guerra con te a fine campagna riparte in pace ma con questa opinione al massimo (riapre presto le ostilità)
+  },
   // Fronti (difficoltà crescente, alla Clash): il successivo si sblocca vincendo il precedente. Le IA si rafforzano (crescita,
   // truppe, unità, difese, bunker, offensive): per andare avanti servono Arsenale, ricerche e postazioni. power = potenza consigliata.
+  // (2026-10-12, Nico: nemici più aggressivi) azioni ×1,6, tregua iniziale dimezzata, offensive prima e più spesse, +1 pedina IA
   fronts: [
-    { name: 'Prima linea', power: 0, lootMult: 1, aiGrowthMult: 0.77, aiStartTroops: 40, aiActChance: 0.042, aiUnits: ['fanteria'], aiUnitHpMult: 0.9, aiDefenseMult: 1, aiBunkers: 0, aiBunkerEveryMs: 0, graceMs: 240_000, offensiveFirstMs: 420_000, offensiveEveryMs: 210_000, maxAiUnits: 1, aiDistance: [34, 60] },
-    { name: 'Valichi del Nord', power: 20, lootMult: 1.3, aiGrowthMult: 0.85, aiStartTroops: 55, aiActChance: 0.051, aiUnits: ['fanteria', 'ricognitori'], aiUnitHpMult: 1, aiDefenseMult: 1.05, aiBunkers: 1, aiBunkerEveryMs: 0, graceMs: 210_000, offensiveFirstMs: 380_000, offensiveEveryMs: 190_000, maxAiUnits: 2, aiDistance: [28, 52] },
-    { name: 'Terre di cenere', power: 45, lootMult: 1.7, aiGrowthMult: 1.2, aiStartTroops: 100, aiActChance: 0.075, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio'], aiUnitHpMult: 1.1, aiDefenseMult: 1.12, aiBunkers: 2, aiBunkerEveryMs: 180_000, graceMs: 180_000, offensiveFirstMs: 330_000, offensiveEveryMs: 165_000, maxAiUnits: 2, aiDistance: [22, 42] },
-    { name: 'Fronte del Lume', power: 75, lootMult: 2.2, aiGrowthMult: 1.28, aiStartTroops: 140, aiActChance: 0.088, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.2, aiDefenseMult: 1.2, aiBunkers: 4, aiBunkerEveryMs: 140_000, graceMs: 150_000, offensiveFirstMs: 280_000, offensiveEveryMs: 145_000, maxAiUnits: 3, aiDistance: [20, 38] },
-    { name: 'Cielo aperto', power: 110, lootMult: 2.8, aiGrowthMult: 1.5, aiStartTroops: 190, aiActChance: 0.1, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.35, aiDefenseMult: 1.3, aiBunkers: 6, aiBunkerEveryMs: 110_000, graceMs: 120_000, offensiveFirstMs: 240_000, offensiveEveryMs: 125_000, maxAiUnits: 3, aiDistance: [18, 34] },
-    { name: "L'Avvento", power: 150, lootMult: 3.5, aiGrowthMult: 1.56, aiStartTroops: 240, aiActChance: 0.112, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.5, aiDefenseMult: 1.4, aiBunkers: 9, aiBunkerEveryMs: 90_000, graceMs: 100_000, offensiveFirstMs: 200_000, offensiveEveryMs: 110_000, maxAiUnits: 4, aiDistance: [16, 30] },
+    { name: 'Prima linea', power: 0, lootMult: 1, aiGrowthMult: 0.77, aiStartTroops: 40, aiActChance: 0.067, aiUnits: ['fanteria'], aiUnitHpMult: 0.9, aiDefenseMult: 1, aiBunkers: 0, aiBunkerEveryMs: 0, graceMs: 120_000, offensiveFirstMs: 252_000, offensiveEveryMs: 126_000, maxAiUnits: 2, aiDistance: [34, 60] },
+    { name: 'Valichi del Nord', power: 20, lootMult: 1.3, aiGrowthMult: 0.85, aiStartTroops: 55, aiActChance: 0.082, aiUnits: ['fanteria', 'ricognitori'], aiUnitHpMult: 1, aiDefenseMult: 1.05, aiBunkers: 1, aiBunkerEveryMs: 0, graceMs: 105_000, offensiveFirstMs: 228_000, offensiveEveryMs: 114_000, maxAiUnits: 3, aiDistance: [28, 52] },
+    { name: 'Terre di cenere', power: 45, lootMult: 1.7, aiGrowthMult: 1.2, aiStartTroops: 100, aiActChance: 0.12, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio'], aiUnitHpMult: 1.1, aiDefenseMult: 1.12, aiBunkers: 2, aiBunkerEveryMs: 180_000, graceMs: 90_000, offensiveFirstMs: 198_000, offensiveEveryMs: 99_000, maxAiUnits: 3, aiDistance: [22, 42] },
+    { name: 'Fronte del Lume', power: 75, lootMult: 2.2, aiGrowthMult: 1.28, aiStartTroops: 140, aiActChance: 0.141, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.2, aiDefenseMult: 1.2, aiBunkers: 4, aiBunkerEveryMs: 140_000, graceMs: 75_000, offensiveFirstMs: 168_000, offensiveEveryMs: 87_000, maxAiUnits: 4, aiDistance: [20, 38] },
+    { name: 'Cielo aperto', power: 110, lootMult: 2.8, aiGrowthMult: 1.5, aiStartTroops: 190, aiActChance: 0.16, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.35, aiDefenseMult: 1.3, aiBunkers: 6, aiBunkerEveryMs: 110_000, graceMs: 60_000, offensiveFirstMs: 144_000, offensiveEveryMs: 75_000, maxAiUnits: 4, aiDistance: [18, 34] },
+    { name: "L'Avvento", power: 150, lootMult: 3.5, aiGrowthMult: 1.56, aiStartTroops: 240, aiActChance: 0.179, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.5, aiDefenseMult: 1.4, aiBunkers: 9, aiBunkerEveryMs: 90_000, graceMs: 50_000, offensiveFirstMs: 120_000, offensiveEveryMs: 66_000, maxAiUnits: 5, aiDistance: [16, 30] },
   ] as FrontDef[],
   // Potenza del giocatore: punti per livello di postazione e per ricerca (si confronta con quella consigliata del fronte)
   power: { arsenale: 8, comando: 6, laboratorio: 4, deposito: 3, radar: 2, tech: 3 },
@@ -342,13 +366,18 @@ export const BALANCE = {
   // Ogni costruzione già avviata rende la prossima più cara (priceStep). Restano alla provincia anche se cambia padrone
   // (le fabbriche nemiche si conquistano). prodAdd = risorse/min in più della provincia; tech = ricerca che le sblocca ('' = subito).
   works: {
-    fabbrica: { troops: 35, timeMs: 30_000, prodAdd: 2, defenseMult: 1, growthTiles: 0, tech: '' },
-    bunker: { troops: 45, timeMs: 40_000, prodAdd: 0, defenseMult: 1.7, growthTiles: 0, tech: '' },
-    caserma: { troops: 60, timeMs: 45_000, prodAdd: 0, defenseMult: 1, growthTiles: 10, tech: 'addestramento' },
-    ospedale: { troops: 40, timeMs: 35_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', heal: 3 }, // pedine qui e accanto: cura ×3
-    radar: { troops: 30, timeMs: 30_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', vision: 7 }, // vista attorno alla provincia
-    porto: { troops: 50, timeMs: 40_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', coastal: true, seaMult: 1.5 }, // navi più lontane, +1 in mare
-    aeroporto: { troops: 70, timeMs: 50_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: 'ricognizione', abilityCdMult: 0.7 }, // abilità più rapide
+    fabbrica: { troops: 35, metal: 8, timeMs: 30_000, prodAdd: 2, defenseMult: 1, growthTiles: 0, tech: '' },
+    bunker: { troops: 45, metal: 6, timeMs: 40_000, prodAdd: 0, defenseMult: 1.7, growthTiles: 0, tech: '' },
+    caserma: { troops: 60, metal: 10, timeMs: 45_000, prodAdd: 0, defenseMult: 1, growthTiles: 10, tech: 'addestramento' },
+    ospedale: { troops: 40, metal: 6, timeMs: 35_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', heal: 3 }, // pedine qui e accanto: cura ×3
+    radar: { troops: 30, metal: 5, timeMs: 30_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', vision: 7 }, // vista attorno alla provincia
+    porto: { troops: 50, metal: 8, timeMs: 40_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', coastal: true, seaMult: 1.5 }, // navi più lontane, +1 in mare
+    aeroporto: { troops: 70, metal: 12, timeMs: 50_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: 'ricognizione', abilityCdMult: 0.7 }, // abilità più rapide
+    // (2026-10-12, Nico) nuovi edifici
+    rifornimenti: { troops: 55, metal: 10, timeMs: 40_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', supplyHub: true }, // deposito: la logistica riparte da qui come dalla capitale
+    ferrovia: { troops: 40, metal: 12, timeMs: 35_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', railMult: 0.45 }, // pedine più veloci qui e nelle tue province accanto
+    contraerea: { troops: 45, metal: 8, timeMs: 35_000, prodAdd: 0, defenseMult: 1, growthTiles: 0, tech: '', antiAir: true }, // ferma i bombardamenti qui e accanto
+    raffineria: { troops: 40, metal: 8, timeMs: 35_000, prodAdd: 2, defenseMult: 1, growthTiles: 0, tech: '', res: 'benzina' }, // +2 benzina/min
   } as Record<WorkId, WorkDef>,
   worksPriceStep: 0.2,
   // Modalità test (HQ → tasto TEST): sblocca tutto e azzera i timer per provare il gioco senza aspettare
@@ -471,10 +500,11 @@ export interface TechDef {
 }
 
 export type TileType = 'terra' | 'rovine';
-export type WorkId = 'fabbrica' | 'bunker' | 'caserma' | 'ospedale' | 'radar' | 'porto' | 'aeroporto';
+export type WorkId = 'fabbrica' | 'bunker' | 'caserma' | 'ospedale' | 'radar' | 'porto' | 'aeroporto' | 'rifornimenti' | 'ferrovia' | 'contraerea' | 'raffineria';
 export interface WorkDef {
-  troops: number; timeMs: number; prodAdd: number; defenseMult: number; growthTiles: number; tech: string;
+  troops: number; metal: number; timeMs: number; prodAdd: number; defenseMult: number; growthTiles: number; tech: string;
   heal?: number; vision?: number; coastal?: boolean; seaMult?: number; abilityCdMult?: number;
+  supplyHub?: boolean; railMult?: number; antiAir?: boolean; res?: Resource;
 }
 export interface FrontDef {
   name: string; power: number; lootMult: number;

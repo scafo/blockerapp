@@ -13,6 +13,7 @@ import namesIt from '../src/data/countries-it.json';
 import terrainSrc from './data/ne-terrain.json'; // Natural Earth 1:10M, regioni fisiche: catene, altopiani, deserti (pubblico dominio)
 import { BALANCE } from '../src/config/balance';
 import { neighbors, WORLD_W, center, lonLat } from '../src/map/hexGrid';
+import { latToV } from '../src/map/projection';
 import { createRng } from '../src/map/rng';
 
 const TARGET = 17700; // province circa
@@ -25,7 +26,7 @@ type Ring = Pt[];
 type Poly = Ring[]; // [esterno, buchi...]
 
 const X = (lon: number) => ((lon + 180) / 360) * WORLD_W;
-const Y = (lat: number) => 1.5 * S * (((latMax - lat) / (latMax - latMin)) * rows - 0.5) + S;
+const Y = (lat: number) => 1.5 * S * (latToV(lat) * rows - 0.5) + S; // Mercatore (src/map/projection.ts)
 
 const area = (r: Ring) => {
   let a = 0;

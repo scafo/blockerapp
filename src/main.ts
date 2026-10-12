@@ -19,6 +19,10 @@ import bodyUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condens
 import bodyBoldUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-700-normal.woff2';
 import titleUrl from '@fontsource/oswald/files/oswald-latin-600-normal.woff2';
 import monoUrl from '@fontsource/share-tech-mono/files/share-tech-mono-latin-400-normal.woff2';
+import serifUrl from '@fontsource/cormorant-garamond/files/cormorant-garamond-latin-600-normal.woff2';
+import dataUrl from '@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2';
+import pixelUrl from '@fontsource/vt323/files/vt323-latin-400-normal.woff2';
+import termUrl from './assets/fonts/DejaVuSansMono.ttf';
 
 analytics.init();
 
@@ -40,6 +44,10 @@ async function loadFonts() {
       new FontFace('Barlow Semi Condensed', `url(${bodyBoldUrl})`, { weight: '700' }),
       new FontFace('Oswald', `url(${titleUrl})`, { weight: '600' }),
       new FontFace('Share Tech Mono', `url(${monoUrl})`, { weight: '400' }),
+      new FontFace('Cormorant Garamond', `url(${serifUrl})`, { weight: '600' }),
+      new FontFace('IBM Plex Mono', `url(${dataUrl})`, { weight: '500' }),
+      new FontFace('VT323', `url(${pixelUrl})`, { weight: '400' }),
+      new FontFace('DejaVu Sans Mono', `url(${termUrl})`, { weight: '400' }),
     ];
     for (const f of await Promise.all(faces.map((x) => x.load()))) document.fonts.add(f);
   } catch {

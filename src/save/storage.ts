@@ -50,6 +50,17 @@ export interface Profile {
   daily?: Record<string, number>; // contatori giornalieri generici (chiave = id + giorno)
   weekly?: Record<string, number>; // contatori settimanali generici (riservato all'operazione della settimana)
   bestProvinces?: number; // record di province in una run (sostituisce bestTiles, che resta solo nello storico)
+  world?: WorldSave | null; // il mondo in corso: resta tra una campagna e l'altra finché non vinci il fronte
+}
+
+/** Impero persistente: stessa mappa e stessi rivali di campagna in campagna, sullo stesso fronte, fino alla vittoria. */
+export interface WorldSave {
+  seed: string; // stessa mappa, stesse partenze
+  front: number; // un mondo per fronte: cambiando fronte se ne apre uno nuovo
+  campaigns: number; // campagne già chiuse in questo mondo
+  core: number[]; // province del nucleo che riprendi alla prossima campagna
+  fallen: number[]; // imperi caduti (indice di fazione): al loro posto nascono milizie
+  rivals: { id: number; name: string; short: string; civ: CivId; relation: 'guerra' | 'pace' | 'alleanza'; opinion: number }[];
 }
 
 export interface CampaignRecord {

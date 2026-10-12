@@ -1,0 +1,27 @@
+{
+  "_nota": "Nomi sulla carta da terminale: città in rosso, mari in grigio (come nell'immagine di riferimento di Nico). Coordinate [lon, lat].",
+  "cities": [
+    ["Londra", -0.13, 51.5], ["Parigi", 2.35, 48.86], ["Berlino", 13.4, 52.52], ["Amburgo", 10.0, 53.55], ["Vienna", 16.37, 48.21],
+    ["Roma", 12.5, 41.9], ["Madrid", -3.7, 40.42], ["Lisbona", -9.14, 38.72], ["Varsavia", 21.0, 52.23], ["Praga", 14.42, 50.08],
+    ["Budapest", 19.04, 47.5], ["Mosca", 37.62, 55.75], ["Stoccolma", 18.07, 59.33], ["Oslo", 10.75, 59.91], ["Copenaghen", 12.57, 55.68],
+    ["Helsinki", 24.94, 60.17], ["Atene", 23.73, 37.98], ["Istanbul", 28.98, 41.01], ["Kiev", 30.52, 50.45], ["Bruxelles", 4.35, 50.85],
+    ["Amsterdam", 4.9, 52.37], ["Dublino", -6.26, 53.35], ["Belgrado", 20.46, 44.79], ["Bucarest", 26.1, 44.43], ["Minsk", 27.56, 53.9],
+    ["Milano", 9.19, 45.46], ["Barcellona", 2.17, 41.39], ["Monaco", 11.58, 48.14], ["San Pietroburgo", 30.32, 59.94],
+    ["Il Cairo", 31.24, 30.04], ["Algeri", 3.06, 36.75], ["Tunisi", 10.18, 36.81], ["Ankara", 32.86, 39.93], ["Teheran", 51.39, 35.69],
+    ["Baghdad", 44.37, 33.31], ["Riad", 46.68, 24.71], ["Casablanca", -7.59, 33.57], ["Lagos", 3.38, 6.52], ["Nairobi", 36.82, -1.29],
+    ["Johannesburg", 28.05, -26.2], ["New York", -74.0, 40.71], ["Washington", -77.04, 38.9], ["Chicago", -87.63, 41.88],
+    ["Los Angeles", -118.24, 34.05], ["Città del Messico", -99.13, 19.43], ["Rio de Janeiro", -43.17, -22.9], ["Buenos Aires", -58.38, -34.6],
+    ["Lima", -77.04, -12.05], ["Bogotà", -74.07, 4.71], ["Pechino", 116.4, 39.9], ["Shanghai", 121.47, 31.23], ["Tokyo", 139.69, 35.69],
+    ["Delhi", 77.21, 28.61], ["Mumbai", 72.88, 19.08], ["Karachi", 67.01, 24.86], ["Giacarta", 106.85, -6.21], ["Sydney", 151.21, -33.87],
+    ["Montréal", -73.57, 45.5], ["Santiago", -70.67, -33.45]
+  ],
+  "seas": [
+    ["Mare del Nord", 3.0, 56.5], ["Mar Baltico", 19.5, 57.5], ["Golfo di Biscaglia", -5.0, 45.0], ["Mar Mediterraneo", 17.5, 34.5],
+    ["Mar Nero", 34.0, 43.3], ["Mar Caspio", 50.5, 41.5], ["Mare Adriatico", 15.5, 43.0], ["Mar Tirreno", 11.5, 39.8], ["Mar Egeo", 25.0, 38.8],
+    ["Mar Rosso", 38.5, 21.0], ["Golfo Persico", 51.0, 27.0], ["Mare di Norvegia", 3.0, 67.0], ["Mare di Barents", 40.0, 73.0],
+    ["Oceano Atlantico", -35.0, 35.0], ["Oceano Atlantico", -20.0, -15.0], ["Oceano Indiano", 75.0, -15.0], ["Oceano Pacifico", -140.0, 15.0],
+    ["Oceano Pacifico", 170.0, 20.0], ["Mar dei Caraibi", -75.0, 15.0], ["Golfo del Messico", -90.0, 25.0], ["Mar Arabico", 64.0, 15.0],
+    ["Golfo del Bengala", 89.0, 15.0], ["Mar Cinese Meridionale", 114.0, 13.0], ["Mar del Giappone", 135.0, 40.0], ["Baia di Hudson", -85.0, 60.0],
+    ["Mar Glaciale Artico", 0.0, 80.0]
+  ]
+}

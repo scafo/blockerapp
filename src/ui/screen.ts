@@ -87,7 +87,10 @@ export function safeInsets(): { top: number; right: number; bottom: number; left
   document.body.append(probe);
   void probe.offsetHeight; // forza il layout prima di leggere lo stile: in alcune WebView env() torna 0 se letto nello stesso istante
   const cs = getComputedStyle(probe), k = uiScale();
-  const out = { top: parseFloat(cs.paddingTop) / k || 0, right: parseFloat(cs.paddingRight) / k || 0,
+  // sotto il notch/Dynamic Island iOS tiene una fascia in più intoccabile (anti-tocco accidentale):
+  // env() dà solo il bordo del sensore, non questa fascia — va aggiunta a mano sull'app nativa.
+  const deadZone = Capacitor.getPlatform() === 'ios' ? 36 : 0;
+  const out = { top: (parseFloat(cs.paddingTop) / k || 0) + deadZone, right: parseFloat(cs.paddingRight) / k || 0,
     bottom: parseFloat(cs.paddingBottom) / k || 0, left: parseFloat(cs.paddingLeft) / k || 0 };
   probe.remove();
   return out;

@@ -7,7 +7,7 @@ export interface ButtonOpts {
   hotkey?: string; // es. "G": piccolo distintivo nell'angolo, solo indicativo (la scorciatoia vera la registra hotkeys.ts)
 }
 
-/** Bottone piatto: pannello scuro, filo d'oro in basso, etichetta chiara. */
+/** Bottone da planimetria tecnica: riquadro ardesia con filo avorio, etichetta avorio; attivo = riquadro avorio pieno. */
 export class Button extends Phaser.GameObjects.Container {
   private bg: Phaser.GameObjects.Rectangle;
   private label: Phaser.GameObjects.Text;
@@ -22,12 +22,13 @@ export class Button extends Phaser.GameObjects.Container {
   private base = { x: 0, y: 0 };
   private pressT: { s: number } = { s: 1 };
   private btnW: number;
+  private term = false; // stile della carta da terminale (campagna): nero, filo grigio, monospazio
 
   constructor(scene: Phaser.Scene, text: string, w: number, h: number, onClick: () => void, size = 16, opts: ButtonOpts = {}) {
     super(scene, 0, 0);
     this.btnW = w;
-    this.bg = scene.add.rectangle(0, 0, w, h, PALETTE.pannello, 0.94).setStrokeStyle(1, PALETTE.linea).setOrigin(0);
-    this.edge = scene.add.rectangle(0, h - 2, w, 2, PALETTE.ocra, 0.9).setOrigin(0); // filo d'oro in basso
+    this.bg = scene.add.rectangle(0, 0, w, h, PALETTE.inchiostro, 0.96).setStrokeStyle(1.5, PALETTE.carta, 0.9).setOrigin(0);
+    this.edge = scene.add.rectangle(0, h - 2, w, 2, PALETTE.carta, 0).setOrigin(0); // (niente filo in basso: il riquadro basta)
     this.focusRing = scene.add.rectangle(-3, -3, w + 6, h + 6, 0, 0)
       .setStrokeStyle(2, PALETTE.radioattivo, 1).setOrigin(0).setVisible(false);
     const labelX = opts.icon ? w / 2 + 10 : w / 2;
@@ -47,12 +48,12 @@ export class Button extends Phaser.GameObjects.Container {
       .on('pointerdown', () => { if (!this.disabled_) this.squash(0.94, 60, 'Quad.easeOut'); })
       .on('pointerover', () => {
         if (this.disabled_) { if (this.disabledReason) this.showReason(); return; }
-        if (!this.active_) this.bg.setFillStyle(PALETTE.pannelloAlto, 0.97);
+        if (!this.active_) this.bg.setFillStyle(this.term ? 0x16181c : PALETTE.pannelloAlto, 0.98);
       })
       .on('pointerout', () => {
         this.hideReason();
         if (this.disabled_) return;
-        if (!this.active_) this.bg.setFillStyle(PALETTE.pannello, 0.94);
+        if (!this.active_) this.bg.setFillStyle(this.term ? 0x000000 : PALETTE.inchiostro, this.term ? 0.92 : 0.96);
         if (this.scale < 1) this.squash(1, 120, 'Quad.easeOut');
       })
       .on('pointerup', () => {
@@ -88,18 +89,27 @@ export class Button extends Phaser.GameObjects.Container {
     this.reasonBubble = undefined;
   }
 
-  /** Azione principale dello schermo (es. GIOCA): fondo oro, etichetta scura, si distingue dalle altre. */
+  /** Azione principale dello schermo (es. GIOCA): riquadro avorio pieno, etichetta ardesia. */
   setPrimary(): this {
     this.setOn(true);
-    this.edge.setFillStyle(PALETTE.oroChiaro, 1);
     return this;
   }
 
   setOn(on: boolean): this {
     this.active_ = on;
-    this.bg.setFillStyle(on ? PALETTE.ocra : PALETTE.pannello, on ? 1 : 0.94);
-    this.label.setColor(hex(on ? PALETTE.inchiostro : PALETTE.carta));
+    const ink = this.term ? 0x000000 : PALETTE.inchiostro, paper = this.term ? 0xd8dadc : PALETTE.carta;
+    this.bg.setFillStyle(on ? paper : ink, on ? 1 : this.term ? 0.92 : 0.96);
+    this.label.setColor(hex(on ? ink : this.term ? 0xf2f2f2 : PALETTE.carta));
     return this;
+  }
+
+  /** Stile della carta da terminale (HUD della campagna): fondo nero, filo grigio chiaro sottile, font del terminale. */
+  terminal(): this {
+    this.term = true;
+    this.bg.setStrokeStyle(1, 0xd8dadc, 0.75);
+    const px = parseInt(String(this.label.style.fontSize), 10) || 16;
+    this.label.setFontFamily('"DejaVu Sans Mono", Menlo, monospace').setFontStyle('normal').setFontSize(Math.max(12, Math.round(px * 0.8))); // il monospazio è più largo
+    return this.setOn(this.active_);
   }
 
   setLabel(text: string): this {

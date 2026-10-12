@@ -12,7 +12,8 @@ const CAM = BALANCE.camera;
 export function setupCamera(scene: RunScene): void {
   const cam = scene.cameras.main;
   const m = 400;
-  cam.setBounds(-m, -m, WORLD_W + 2 * m, WORLD_H + 2 * m);
+  cam.setBounds(0, 0, WORLD_W, WORLD_H); // niente fuori carta
+  void m;
   cam.setZoom(CAM.startZoom * UI()); // lo zoom della camera conta i pixel reali dello schermo
   const { x, y } = center(scene.map.starts[0]);
   cam.centerOn(x, y);
@@ -21,7 +22,9 @@ export function setupCamera(scene: RunScene): void {
 /** Zoom centrato su un punto schermo (pollici/rotella), entro i limiti min/maxZoom. */
 export function zoomAt(scene: RunScene, sx: number, sy: number, z: number): void {
   const cam = scene.cameras.main;
-  const nz = Phaser.Math.Clamp(z, CAM.minZoom * UI(), CAM.maxZoom * UI());
+  // da lontano la carta del mondo riempie lo schermo (niente bordi vuoti attorno)
+  const fill = Math.max(cam.width / WORLD_W, cam.height / WORLD_H);
+  const nz = Phaser.Math.Clamp(z, Math.max(CAM.minZoom * UI(), fill), CAM.maxZoom * UI());
   const w = cam.width / 2, h = cam.height / 2;
   const wx = cam.scrollX + w + (sx - w) / cam.zoom;
   const wy = cam.scrollY + h + (sy - h) / cam.zoom;

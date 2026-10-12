@@ -4,6 +4,7 @@ import { BALANCE } from '../config/balance';
 import { RESOURCES } from './resources';
 import { addToStash } from './camp';
 import type { RunSummary } from './RunState';
+import { recordWorld } from './world';
 import type { Profile } from '../save/storage';
 
 export interface RunResult {
@@ -40,6 +41,7 @@ export function applyRunResult(p: Profile, sum: RunSummary, now: number): RunRes
     ...(p.history ?? []),
   ].slice(0, 20);
   if (sum.outcome === 'victory') p.wins++;
+  recordWorld(p, sum); // impero persistente: cosa resta per la prossima campagna (la vittoria chiude il mondo)
 
   // vittoria sull'ultimo fronte sbloccato: si apre il successivo (e diventa quello scelto)
   let unlocked = -1;

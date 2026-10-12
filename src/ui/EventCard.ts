@@ -1,8 +1,8 @@
 // Carta evento stile Reigns: trascinala a sinistra o a destra (o tocca le scelte). La run è in pausa.
 import Phaser from 'phaser';
-import { PALETTE, hex } from '../config/palette';
+import { PALETTE } from '../config/palette';
 import type { EventChoice, GameEvent } from '../game/events';
-import { textStyle } from './style';
+import { termLabel as italic, termNotch as notch, termStyle as textStyle } from './terminal';
 import { UI, view } from './screen';
 
 const MAX_W = 380;
@@ -26,14 +26,14 @@ export class EventCard extends Phaser.GameObjects.Container {
     const { width, height } = view(scene);
     const W = Math.min(MAX_W, width - 24);
     this.cardW = W;
-    const shade = scene.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.55).setOrigin(0).setInteractive();
+    const shade = scene.add.rectangle(0, 0, width, height, 0x000000, 0.55).setOrigin(0).setInteractive();
     const cx = width / 2, cy = height / 2;
 
-    const bg = scene.add.rectangle(0, 0, W, H, PALETTE.inchiostro).setStrokeStyle(2, ev.rare ? PALETTE.radioattivo : PALETTE.ocra);
-    const head = scene.add.text(-W / 2 + 16, -H / 2 + 12, ev.rare ? '◉ FRAMMENTO DALLA CADUTA' : 'RAPPORTO DAL CAMPO', textStyle(11, ev.rare ? PALETTE.radioattivo : PALETTE.ruggine));
+    const bg = scene.add.rectangle(0, 0, W, H, 0x000000).setStrokeStyle(1, ev.rare ? 0x9fe0a8 : 0xd8dadc, 0.85);
+    const head = notch(scene, -W / 2, -H / 2, ev.rare ? 'Frammento dalla Caduta' : 'Rapporto dal campo', ev.rare ? 0x9fe0a8 : 0x98a1d6);
     const body = scene.add.text(0, -H / 2 + 40, ev.text, textStyle(15, PALETTE.carta, false))
       .setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(W - 40).setLineSpacing(3);
-    const hintTxt = scene.add.text(0, H / 2 - 64, '← trascina la carta →', textStyle(10, PALETTE.ruggine, false)).setOrigin(0.5);
+    const hintTxt = scene.add.text(0, H / 2 - 64, '← trascina la carta →', italic(11)).setOrigin(0.5);
     this.card = scene.add.container(cx, cy, [bg, head, body, hintTxt]);
 
     // scelte sotto la carta (anche toccabili)
@@ -42,7 +42,7 @@ export class EventCard extends Phaser.GameObjects.Container {
       const ok = canChoose(c);
       const t = scene.add.text(cx + (side === 'left' ? -W / 2 + 8 : W / 2 - 8), cy + H / 2 - 26,
         side === 'left' ? `← ${c.label}` : `${c.label} →`, textStyle(15, ok ? PALETTE.carta : PALETTE.tenue))
-        .setOrigin(side === 'left' ? 0 : 1, 0.5).setBackgroundColor(hex(ok ? PALETTE.inchiostro : 0x14221e)).setPadding(10, 7, 10, 7);
+        .setOrigin(side === 'left' ? 0 : 1, 0.5).setBackgroundColor(ok ? '#16181c' : '#000000').setPadding(10, 7, 10, 7);
       if (ok) t.setInteractive({ useHandCursor: true }).on('pointerup', () => this.pick(side));
       return t;
     };

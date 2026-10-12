@@ -29,7 +29,13 @@ export interface Unit {
   moveAcc: number;
   inCombat: boolean;
   lastOrderMs: number;
+  size: number; // reparti uniti nella pedina (attacco e vita si sommano)
+  stance: Stance; // tieni la posizione / attacca da sola
+  front: number; // fazione del fronte assegnato (−1 = nessuno): la pedina tiene (o spinge) quel confine
+  supply: number; // rifornimento attuale (0–1): sotto la soglia si logora
 }
+
+export type Stance = 'tieni' | 'attacca';
 
 /** Moltiplicatore di danno di `a` contro `b`. */
 export function rps(a: UnitType, b: UnitType): number {

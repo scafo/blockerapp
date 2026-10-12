@@ -4,6 +4,7 @@ import { BALANCE, type WorkId } from '../config/balance';
 
 export const WORK_NAME: Record<WorkId, string> = {
   fabbrica: 'Fabbrica', bunker: 'Bunker', caserma: 'Caserma', ospedale: 'Ospedale', radar: 'Radar', porto: 'Porto', aeroporto: 'Aeroporto',
+  rifornimenti: 'Deposito rifornimenti', ferrovia: 'Ferrovia', contraerea: 'Contraerea', raffineria: 'Raffineria',
 };
 export const WORK_DESC: Record<WorkId, string> = {
   fabbrica: `+${BALANCE.works.fabbrica.prodAdd} risorse/min`,
@@ -13,6 +14,10 @@ export const WORK_DESC: Record<WorkId, string> = {
   radar: 'vista +7 caselle',
   porto: 'navi: +50% mare',
   aeroporto: 'abilità −30%',
+  rifornimenti: 'logistica riparte da qui',
+  ferrovia: 'pedine ×2 veloci qui e accanto',
+  contraerea: 'ferma i bombardamenti',
+  raffineria: `+${BALANCE.works.raffineria.prodAdd} benzina/min`,
 };
 
 /** Effetto della costruzione col nome della risorsa della provincia (fabbrica: "+1 metallo/min"). */
@@ -46,6 +51,20 @@ export function drawWorkIcon(g: Phaser.GameObjects.Graphics, w: WorkId, x: numbe
   } else if (w === 'aeroporto') {
     // aereo visto dall'alto
     g.fillRect(x - r * 0.12, y - r, r * 0.24, r * 2).fillRect(x - r, y - r * 0.2, r * 2, r * 0.32).fillRect(x - r * 0.45, y + r * 0.65, r * 0.9, r * 0.22);
+  } else if (w === 'rifornimenti') {
+    // casse impilate
+    g.fillRect(x - r, y + r * 0.05, r * 0.92, r * 0.8).fillRect(x + r * 0.08, y + r * 0.05, r * 0.92, r * 0.8).fillRect(x - r * 0.46, y - r * 0.85, r * 0.92, r * 0.8);
+  } else if (w === 'ferrovia') {
+    // binari con traversine
+    g.fillRect(x - r * 0.6, y - r, r * 0.18, r * 2).fillRect(x + r * 0.42, y - r, r * 0.18, r * 2);
+    for (const k of [-0.75, -0.25, 0.25, 0.75]) g.fillRect(x - r, y + r * k - r * 0.08, r * 2, r * 0.16);
+  } else if (w === 'contraerea') {
+    // cannone puntato in alto su base
+    g.fillRect(x - r, y + r * 0.45, r * 2, r * 0.45).fillRect(x - r * 0.45, y + r * 0.05, r * 0.9, r * 0.45);
+    g.fillPoints([{ x: x - r * 0.12, y: y + r * 0.1 }, { x: x + r * 0.55, y: y - r }, { x: x + r * 0.8, y: y - r * 0.85 }, { x: x + r * 0.15, y: y + r * 0.2 }], true);
+  } else if (w === 'raffineria') {
+    // serbatoio e torre
+    g.fillRect(x - r, y - r * 0.1, r * 1.1, r * 0.95).fillRect(x + r * 0.35, y - r, r * 0.4, r * 1.85).fillRect(x + r * 0.2, y - r * 0.45, r * 0.8, r * 0.14);
   } else {
     // tenda con bandiera
     g.fillTriangle(x - r, y + r * 0.8, x + r, y + r * 0.8, x, y - r * 0.3);

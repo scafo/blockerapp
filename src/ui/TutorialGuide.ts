@@ -1,5 +1,6 @@
 // Prima run guidata: una meccanica alla volta, frecce e anelli, testi di poche parole.
 import Phaser from 'phaser';
+import { brackets } from '../render/termMarks';
 import { BALANCE } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
 import { PLAYER, type RunState } from '../game/RunState';
@@ -37,7 +38,7 @@ export class TutorialGuide {
     scene.tweens.add({ targets: g, y: -8, duration: 380, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     this.arrow = scene.add.container(0, 0, [bob]).setDepth(45);
     this.ring = scene.add.graphics().setDepth(44);
-    this.ring.lineStyle(3, PALETTE.ocra, 1).strokeCircle(0, 0, 18);
+    brackets(this.ring, 0, 0, 18, 3, PALETTE.ocra, 1); // mirino, non anello (carta a griglia)
     scene.tweens.add({ targets: this.ring, scale: { from: 0.8, to: 1.3 }, alpha: { from: 1, to: 0.3 }, duration: 600, yoyo: true, repeat: -1 });
     this.label = scene.add.text(0, 0, '', textStyle(15, PALETTE.carta)).setOrigin(0.5, 0).setDepth(45)
       .setBackgroundColor(hex(PALETTE.inchiostro)).setPadding(10, 6, 10, 6).setAlign('center');
@@ -46,7 +47,7 @@ export class TutorialGuide {
   signal(kind: GuideSignal) {
     const next: Partial<Record<Step, GuideSignal>> = { tap: 'conquer', flow: 'flow', paint: 'paint', unit: 'deploy', order: 'order' };
     if (next[this.step] !== kind) return;
-    const order: Step[] = ['tap', 'troops', 'flow', 'paint', 'unit', 'order', 'goal'];
+    const order: Step[] = ['tap', 'troops', 'unit', 'order', 'goal']; // niente più avanzata lontana né trascinamento
     this.go(order[order.indexOf(this.step) + 1]);
   }
 
@@ -60,7 +61,7 @@ export class TutorialGuide {
   update() {
     const st = this.api.state();
     const age = this.scene.time.now - this.stepAt;
-    if (this.step === 'troops' && age > 3200) this.go('flow');
+    if (this.step === 'troops' && age > 3200) this.go('unit');
     if (this.step === 'paint' && age > 9000) this.go('unit');
 
     switch (this.step) {

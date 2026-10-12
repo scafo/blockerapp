@@ -4,21 +4,23 @@ import Phaser from 'phaser';
 import { PALETTE } from '../config/palette';
 import { drawPatch, type SymbolKind } from './symbols';
 
+// Planimetria tecnica (riferimento di Nico): tutto è disegnato come una pianta su ardesia. I riquadri sono pieni d'ardesia con
+// il filo avorio, i corridoi sono due fili paralleli, niente ombre né luci calde; verde acqua per il Lume, rosso per i fari.
 export const ART = {
-  ground: 0x0c131b,
-  pad: 0x111a24,
-  concrete: 0x1a2531,
-  concreteEdge: 0x2a3a4d,
-  asphalt: 0x161f29,
-  roadLine: 0x34465a,
-  roof: 0x2c3a4a,
-  roofLight: 0x45586e,
-  roofDark: 0x1a2430,
-  shadow: 0x000000,
-  warm: 0xf2c46a,
-  lume: 0x8fd6ff,
-  beacon: 0xff5252,
-  steel: 0x8a9bb0,
+  ground: 0x202830,
+  pad: 0x202830,
+  concrete: 0x202830,
+  concreteEdge: 0xeeeee4,
+  asphalt: 0x202830,
+  roadLine: 0xeeeee4,
+  roof: 0x202830,
+  roofLight: 0xeeeee4,
+  roofDark: 0xeeeee4,
+  shadow: 0x202830, // ombre invisibili: la pianta non ha ombre
+  warm: 0xeeeee4,
+  lume: 0x6cc7c2,
+  beacon: 0xd23a2e,
+  steel: 0xaab2b0,
 };
 
 /** Terreno: fondo scuro con macchie e puntini (texture generata una volta). */
@@ -27,7 +29,7 @@ export function drawGround(scene: Phaser.Scene, w: number, h: number) {
   if (scene.textures.exists(key)) scene.textures.remove(key);
   const tex = scene.textures.createCanvas(key, W, H)!;
   const ctx = tex.getContext();
-  ctx.fillStyle = '#0c131b';
+  ctx.fillStyle = '#202830';
   ctx.fillRect(0, 0, W, H);
   let seed = 7;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -36,7 +38,7 @@ export function drawGround(scene: Phaser.Scene, w: number, h: number) {
     const x = rnd() * W, y = rnd() * H, r = 12 + rnd() * 50;
     const gr = ctx.createRadialGradient(x, y, 0, x, y, r);
     const light = rnd() < 0.55;
-    gr.addColorStop(0, light ? 'rgba(60,78,96,0.16)' : 'rgba(0,0,0,0.25)');
+    gr.addColorStop(0, light ? 'rgba(70,86,96,0.10)' : 'rgba(10,16,20,0.18)');
     gr.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = gr;
     ctx.fillRect(x - r, y - r, r * 2, r * 2);
@@ -44,7 +46,7 @@ export function drawGround(scene: Phaser.Scene, w: number, h: number) {
   // grana fine
   for (let i = 0; i < (W * H) / 30; i++) {
     const v = rnd();
-    ctx.fillStyle = v < 0.5 ? 'rgba(120,140,160,0.06)' : 'rgba(0,0,0,0.18)';
+    ctx.fillStyle = v < 0.5 ? 'rgba(220,226,220,0.07)' : 'rgba(0,0,0,0.16)'; // grana da stampa
     ctx.fillRect(Math.floor(rnd() * W), Math.floor(rnd() * H), 1, 1);
   }
   tex.refresh();
@@ -60,7 +62,7 @@ export function drawCompound(g: Phaser.GameObjects.Graphics, b: { x: number; y: 
   ];
   g.fillStyle(ART.pad, 0.92).fillPoints(pts, true);
   // recinto: doppia linea e paletti
-  g.lineStyle(2, ART.concreteEdge, 0.9).strokePoints(pts, true, true);
+  g.lineStyle(1.5, ART.concreteEdge, 0.9).strokePoints(pts, true, true);
   const inner = pts.map((p) => ({ x: p.x + Math.sign(b.x + b.w / 2 - p.x) * 5, y: p.y + Math.sign(b.y + b.h / 2 - p.y) * 5 }));
   g.lineStyle(1, ART.concreteEdge, 0.5).strokePoints(inner, true, true);
   for (let i = 0; i < pts.length; i++) {
@@ -85,13 +87,8 @@ export function drawRoad(g: Phaser.GameObjects.Graphics, ax: number, ay: number,
 
 /** Torretta d'angolo con faro che spazza piano (cono additivo). */
 export function drawTower(scene: Phaser.Scene, x: number, y: number, k: number, aim: number): Phaser.GameObjects.GameObject[] {
-  const cone = scene.add.graphics({ x, y }).setBlendMode(Phaser.BlendModes.ADD);
-  const L = 120 * k;
-  for (const [spread, a] of [[0.34, 0.035], [0.22, 0.05], [0.11, 0.07]] as const) {
-    cone.fillStyle(0xdfe9f5, a).fillTriangle(0, 0, Math.cos(-spread) * L, Math.sin(-spread) * L, Math.cos(spread) * L, Math.sin(spread) * L);
-  }
-  cone.setRotation(aim);
-  scene.tweens.add({ targets: cone, rotation: aim + 0.9, duration: 4200 + Math.random() * 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  const cone = scene.add.graphics({ x, y }); // niente fasci di luce: sulla pianta la torretta è solo un riquadro
+  void aim;
   const t = scene.add.graphics();
   t.fillStyle(ART.shadow, 0.5).fillRect(x - 5 * k + 3, y - 5 * k + 3, 10 * k, 10 * k);
   t.fillStyle(ART.roof, 1).fillRect(x - 5 * k, y - 5 * k, 10 * k, 10 * k).lineStyle(1, ART.roofLight, 1).strokeRect(x - 5 * k, y - 5 * k, 10 * k, 10 * k);

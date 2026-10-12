@@ -12,6 +12,7 @@ import { analytics } from '../analytics/analytics';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
+import { dots, italic, notch } from '../ui/schematic';
 import { uiCamera, view } from '../ui/screen';
 import { civImage, coverImage, fade } from '../ui/images';
 
@@ -49,12 +50,12 @@ export class ResultScene extends Phaser.Scene {
     // verticale: scheda alta con tutto in colonna; orizzontale: scheda larga
     const W = Math.min(600, width - 32), H = P ? Math.min(520, height - 24) : Math.min(340, height - 24);
     const x0 = (width - W) / 2, y0 = (height - H) / 2;
-    this.add.rectangle(x0, y0, W, H, PALETTE.inchiostro, 0.84).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
-    this.add.rectangle(x0, y0, W, 3, PALETTE.ocra).setOrigin(0);
+    this.add.rectangle(x0, y0, W, H, PALETTE.inchiostro, 0.92).setOrigin(0).setStrokeStyle(1.5, PALETTE.carta, 0.9);
+    notch(this, x0, y0, 'Rapporto dal fronte');
     const cx = width / 2;
     const ink = PALETTE.carta; // testo chiaro sul pannello scuro
 
-    this.add.text(x0 + 16, y0 + 12, `RAPPORTO N° ${profile.runs} · ${sum.civ.toUpperCase()} · FRONTE ${['I', 'II', 'III', 'IV', 'V', 'VI'][sum.front]} · ${sum.campaign.toUpperCase()}`, textStyle(11, PALETTE.ocra));
+    this.add.text(x0 + 16, y0 + 16, `RAPPORTO N° ${profile.runs} · ${sum.civ.toUpperCase()} · FRONTE ${['I', 'II', 'III', 'IV', 'V', 'VI'][sum.front]} · ${sum.campaign.toUpperCase()}`, textStyle(11, PALETTE.ocra));
     if (unlocked > 0) {
       const u = this.add.text(width / 2, y0 + H + 8, `NUOVO FRONTE SBLOCCATO: ${['I', 'II', 'III', 'IV', 'V', 'VI'][unlocked]} · ${BALANCE.fronts[unlocked].name.toUpperCase()} — nemici più forti: potenzia l'HQ`,
         textStyle(12, PALETTE.ocra)).setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(W);
@@ -62,7 +63,7 @@ export class ResultScene extends Phaser.Scene {
     }
     // codice della mappa: in verticale sopra il pannello (accanto al rapporto non ci sta)
     if (P) this.add.text(x0 + W, y0 - 6, `mappa #${sum.seed}`, textStyle(11, PALETTE.tenue, false)).setOrigin(1, 1);
-    else this.add.text(x0 + W - 16, y0 + 12, `mappa #${sum.seed}`, textStyle(11, PALETTE.tenue, false)).setOrigin(1, 0);
+    else this.add.text(x0 + W - 16, y0 + 16, `mappa #${sum.seed}`, textStyle(11, PALETTE.tenue, false)).setOrigin(1, 0);
     const color = sum.outcome === 'victory' ? PALETTE.ocra : sum.outcome === 'retreat' ? ink : PALETTE.ruggine;
     const title = this.add.text(cx, y0 + 50, TITLES[sum.outcome], textStyle(P ? 26 : 34, color)).setOrigin(0.5)
       .setAlign('center').setWordWrapWidth(W - 24);
@@ -89,8 +90,9 @@ export class ResultScene extends Phaser.Scene {
     if (sum.stakeLossPct) notes.push(`puntata −${sum.stakeLossPct}%`);
     const delta = had && kept !== had ? notes.join(' · ') : '';
     y += P ? 46 : 26;
-    this.add.text(cx, y, `BOTTINO PORTATO A CASA${delta ? `  (${delta})` : ''}`, textStyle(11, PALETTE.ocra)).setOrigin(0.5);
     const g = this.add.graphics();
+    dots(g, x0 + 16, y - 12, x0 + W - 16, y - 12);
+    this.add.text(cx, y, `bottino portato a casa${delta ? `  (${delta})` : ''}`, italic(12)).setOrigin(0.5);
     RESOURCES.forEach((r, k) => {
       // verticale: una risorsa per riga; orizzontale: tre colonne
       const x = P ? cx - 70 : cx + (k - 1) * Math.min(150, (W - 40) / 3);
@@ -118,7 +120,7 @@ export class ResultScene extends Phaser.Scene {
     const again = new Button(this, 'RIVINCITA STESSA MAPPA', bw1, 46, () => {
       analytics.design(['run', 'rivincita', sum.outcome]); // % rivincita dopo una sconfitta
       this.scene.start('Load', { next: 'Run', data: { seed: sum.seed } });
-    });
+    }).setPrimary();
     const fresh = new Button(this, 'ACCAMPAMENTO', bw2, 46, () => this.scene.start('Camp'));
     if (P) {
       again.setPosition(x0 + 16, y0 + H - 46 - 16 - 46 - 10);
@@ -131,7 +133,7 @@ export class ResultScene extends Phaser.Scene {
     if (sum.tutorial) {
       // dopo la run guidata si va a scoprire l'accampamento (la rivincita genererebbe un'altra mappa)
       again.destroy();
-      fresh.setPosition(cx - bw2 / 2, y0 + H - 46 - 16);
+      fresh.setPosition(cx - bw2 / 2, y0 + H - 46 - 16).setPrimary();
       this.tweens.add({ targets: fresh, scale: 1.06, duration: 600, yoyo: true, repeat: -1 });
     }
   }

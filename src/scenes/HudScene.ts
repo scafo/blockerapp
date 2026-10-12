@@ -5,7 +5,7 @@ import { NEUTRAL, PLAYER, WORKS, type DiploWhat, type Outcome, type VictoryReaso
 import { techInfo } from '../game/tech';
 import { WORK_NAME, drawWorkIcon, workDesc } from '../ui/workIcons';
 import { buzz } from '../ui/haptics';
-import { FACTION_INFO, majorCount } from '../game/factions';
+import { FACTION_INFO, majorCount, majorIds } from '../game/factions';
 import civText from '../data/civs.json';
 import { RESOURCES, RESOURCE_INFO, bagTotal, type Bag } from '../game/resources';
 import type { GameEvent } from '../game/events';
@@ -18,9 +18,10 @@ import { Button } from '../ui/Button';
 import { AbilityCard, CARD_H, CARD_W, UnitCard } from '../ui/UnitCard';
 import { MapLabels } from '../render/MapLabels';
 import { drawResourceIcon } from '../ui/resourceIcons';
-import { textStyle } from '../ui/style';
-import { uiCamera, view } from '../ui/screen';
+import { safeInsets, uiCamera, view } from '../ui/screen';
 import { drawSymbol } from '../ui/symbols';
+import { dots } from '../ui/schematic';
+import { TCOL, termLabel, termNotch, termNote, termStyle } from '../ui/terminal';
 import { drawUnitIcon } from '../ui/unitIcons';
 import { unitInfo } from '../game/units';
 import type { RunScene } from './RunScene';
@@ -30,9 +31,11 @@ const LEFT_W = 300;
 const LEFT_H = 148;
 const RIGHT_W = 180;
 const BAR_H = 74; // orizzontale: barra in alto (truppe, obiettivi, tempo, bottino)
-const ROW_H = 18;
-const TOP_H = 122; // verticale: altezza del pannello in alto
+const ROW_H = 22; // righe delle potenze: abbastanza alte da toccare
+const TOP_H = 140; // verticale: altezza dei riquadri in alto (esercito e fronte + bottino)
 const STRIP_H = 46; // verticale: fazioni su due righe
+const STATUS_H = 20; // barra di stato della carta da terminale, in fondo allo schermo
+const DOCK_PAD = 8; // margine interno del riquadro dei reparti
 
 const mmss = (ms: number) => {
   const sec = Math.max(0, Math.ceil(ms / 1000));
@@ -70,6 +73,7 @@ export class HudScene extends Phaser.Scene {
   private rightPanel!: Phaser.GameObjects.Rectangle;
   private symbols!: Phaser.GameObjects.Graphics;
   private rows: Phaser.GameObjects.Text[] = [];
+  private rowIds: number[] = []; // fazione di ogni riga dell'elenco
   private aliveKey = '';
   private speedBtn!: Button;
   private retreatBtn!: Button;
@@ -91,6 +95,19 @@ export class HudScene extends Phaser.Scene {
   private eventCard: EventCard | null = null;
   private guide: TutorialGuide | null = null;
   private fps: Phaser.GameObjects.Text | null = null;
+  /** Orizzontale: riquadri della pianta (fondo ardesia, filo avorio) con l'etichetta in corsivo sul bordo. */
+  private frames!: Phaser.GameObjects.Graphics;
+  private notches: Phaser.GameObjects.Text[] = [];
+  private notes: Phaser.GameObjects.Container[] = [];
+  private dockG!: Phaser.GameObjects.Graphics;
+  private logiBtn!: Button;
+  private helpBtn!: Button;
+  private help: Phaser.GameObjects.Container | null = null;
+  private hintBox!: Phaser.GameObjects.Rectangle;
+  private wallBtn!: Button;
+  private food!: Phaser.GameObjects.Text;
+  private forecast: Phaser.GameObjects.Container | null = null;
+  private forecastKey = '';
 
   constructor() {
     super('Hud');
@@ -113,19 +130,24 @@ export class HudScene extends Phaser.Scene {
 
     // pannello sinistro: truppe, territorio/obiettivi, zaino, tempo di campagna
     // (le posizioni le decide layout(): verticale e orizzontale hanno disposizioni diverse)
-    this.leftPanel = this.add.rectangle(PAD, PAD, LEFT_W, LEFT_H, PALETTE.inchiostro, 0.95).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
-    this.troopsLbl = this.add.text(0, 0, 'TRUPPE', textStyle(11, PALETTE.ocra));
-    this.troops = this.add.text(0, 0, '0', textStyle(28, PALETTE.carta));
-    this.rate = this.add.text(0, 0, '', textStyle(12, PALETTE.radioattivo));
-    this.stats = this.add.text(0, 0, '', textStyle(12, PALETTE.carta));
+    this.frames = this.add.graphics();
+    this.dockG = this.add.graphics();
+    this.leftPanel = this.add.rectangle(PAD, PAD, LEFT_W, LEFT_H, TCOL.bg, 0.95).setOrigin(0).setStrokeStyle(1, PALETTE.linea);
+    this.notches = ['Esercito', 'Fronte', 'Potenze', 'Reparti'].map((t) => termNotch(this, 0, 0, t));
+    this.troopsLbl = this.add.text(0, 0, 'TRUPPE', termStyle(11, PALETTE.ocra));
+    this.troops = this.add.text(0, 0, '0', termStyle(28, PALETTE.carta));
+    this.rate = this.add.text(0, 0, '', termStyle(12, PALETTE.radioattivo));
+    this.food = this.add.text(0, 0, '', termStyle(10, PALETTE.radioattivo)).setVisible(!this.run.state.opts.tutorial); // rancio: cibo dello zaino
+    this.stats = this.add.text(0, 0, '', termStyle(12, PALETTE.carta));
     this.resIcons = this.add.graphics();
     // bottino: icone e numeri grandi, ognuno nel colore della sua risorsa
-    this.resTexts = RESOURCES.map((r) => this.add.text(0, 0, '0', textStyle(20, RESOURCE_INFO[r].color)).setOrigin(0, 0.5));
+    this.resTexts = RESOURCES.map((r) => this.add.text(0, 0, '0', termStyle(20, RESOURCE_INFO[r].color)).setOrigin(0, 0.5));
     const stake = bagTotal(this.run.state.opts.stake);
-    this.resLabel = this.add.text(0, 0, stake ? `BOTTINO · puntata ${stake}` : 'BOTTINO', textStyle(10, PALETTE.ocra));
+    this.resLabel = this.add.text(0, 0, stake ? ` bottino · puntata ${stake} ` : ' bottino ', termLabel(11))
+      .setBackgroundColor(hex(TCOL.bg));
     // ARRUOLA: risorse dello zaino in truppe subito (la puntata si può spendere per partire forte)
-    this.recruitBtn = this.add.text(0, 0, `＋ ARRUOLA ${BALANCE.stake.recruitTroops}`, textStyle(10, PALETTE.radioattivo))
-      .setPadding(4, 1, 4, 1).setBackgroundColor('#13202e').setInteractive({ useHandCursor: true });
+    this.recruitBtn = this.add.text(0, 0, `＋ ARRUOLA ${BALANCE.stake.recruitTroops} TRUPPE`, termStyle(10, PALETTE.radioattivo))
+      .setPadding(6, 3, 6, 3).setOrigin(1, 0).setInteractive({ useHandCursor: true });
     this.recruitBtn.on('pointerup', () => {
       const n = this.run.state.recruit();
       if (!n) return this.toast(`SERVONO ${BALANCE.stake.recruitCost} RISORSE NELLO ZAINO`, PALETTE.ko);
@@ -134,26 +156,29 @@ export class HudScene extends Phaser.Scene {
     });
     this.recruitBtn.setVisible(!this.run.state.opts.tutorial);
     // entrate al minuto sotto ogni risorsa: si vede cosa rende l'impero
-    this.incTexts = RESOURCES.map(() => this.add.text(0, 0, '', textStyle(9, PALETTE.tenue, false)).setOrigin(0, 0));
-    this.stormText = this.add.text(0, 0, '', textStyle(12, PALETTE.ocra));
+    this.incTexts = RESOURCES.map(() => this.add.text(0, 0, '', termStyle(9, PALETTE.tenue, false)).setOrigin(0, 0));
+    this.stormText = this.add.text(0, 0, '', termStyle(12, PALETTE.ocra));
 
     // pannello destro: fazioni
-    this.rightPanel = this.add.rectangle(0, PAD, RIGHT_W, majorCount() * ROW_H + 10, PALETTE.inchiostro, 0.95)
+    this.rightPanel = this.add.rectangle(0, PAD, RIGHT_W, majorCount() * ROW_H + 10, TCOL.bg, 0.95)
       .setOrigin(0).setStrokeStyle(1, PALETTE.linea);
     this.symbols = this.add.graphics();
-    this.rows = FACTION_INFO.slice(0, majorCount()).map((_, k) => {
-      const t = this.add.text(0, 0, '', textStyle(12, PALETTE.carta)).setOrigin(0, 0.5);
-      if (k > 0) t.setInteractive({ useHandCursor: true }).on('pointerup', () => this.showProfile(k)); // scheda dell'impero
+    this.rowIds = majorIds();
+    this.rows = this.rowIds.map((id) => {
+      const t = this.add.text(0, 0, '', termStyle(12, PALETTE.carta)).setOrigin(0, 0.5);
+      if (id > 0) t.setInteractive({ useHandCursor: true }).on('pointerup', () => this.showProfile(id)); // scheda dell'impero
       return t;
     });
 
-    this.seed = this.add.text(0, 0, '', textStyle(11, PALETTE.ocra, false)).setOrigin(1, 1);
-    this.hint = this.add.text(0, 0, 'Tocca una provincia evidenziata per conquistarla', textStyle(14, PALETTE.carta))
-      .setOrigin(0.5, 0).setAlign('center').setBackgroundColor(hex(PALETTE.inchiostro)).setPadding(10, 6, 10, 6);
+    this.seed = this.add.text(0, 0, '', termStyle(11, PALETTE.ocra, false)).setOrigin(1, 1);
+    // suggerimento: riquadro della pianta (fondo ardesia, filo avorio) che segue il testo
+    this.hintBox = this.add.rectangle(0, 0, 10, 10, TCOL.bg, 0.94).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75);
+    this.hint = this.add.text(0, 0, 'Tocca una provincia evidenziata per conquistarla', termLabel(13))
+      .setOrigin(0.5, 0).setAlign('center').setPadding(12, 7, 12, 7);
 
     // comandi: carte in basso a sinistra; ritirata e velocità in basso a destra
     // solo le unità sbloccate dalla Arsenale
-    this.cards = this.run.state.opts.units.map((t) => new UnitCard(this, t, () => this.onCard(t), this.run.state.unitCost(PLAYER, t)));
+    this.cards = this.run.state.opts.units.map((t) => new UnitCard(this, t, () => this.onCard(t), this.run.state.unitCost(PLAYER, t), this.run.state.unitFuel(t)));
     this.abilityCards = this.run.state.opts.abilities.map((a) => new AbilityCard(this, a, () => {
       const block = this.run.toggleAbility(a);
       if (block === 'cooldown') this.toast('abilità in ricarica', PALETTE.ko);
@@ -164,6 +189,18 @@ export class HudScene extends Phaser.Scene {
     });
     this.retreatBtn = new Button(this, 'RITIRATA', 112, 44, () => this.onRetreat());
     this.pauseBtn = new Button(this, '❚❚', 56, 44, () => this.togglePause());
+    // vista logistica e comandi, sotto le potenze
+    this.logiBtn = new Button(this, 'LOGISTICA', 88, 32, () => this.toggleLogistics(), 12);
+    this.helpBtn = new Button(this, 'COMANDI', 88, 32, () => this.toggleHelp(), 12);
+    // muro: trascinando sulle tue province si mettono bunker in fila
+    this.wallBtn = new Button(this, 'MURO', 88, 32, () => this.setWallOn(this.run.toggleWall()), 12);
+    this.wallBtn.setVisible(!this.run.state.opts.tutorial);
+    this.help = null;
+    this.forecast = null;
+    for (const b of [this.speedBtn, this.retreatBtn, this.pauseBtn, this.logiBtn, this.helpBtn, this.wallBtn]) b.terminal();
+    this.input.keyboard?.on('keydown-L', () => this.toggleLogistics());
+    this.input.keyboard?.on('keydown-H', () => this.toggleHelp());
+    this.input.keyboard?.on('keydown-ESC', () => { if (this.help) this.toggleHelp(); });
     this.pauseUi = null;
     this.pauseFrame = this.add.graphics().setDepth(39).setVisible(false);
     // PC: barra spaziatrice (o P) = pausa strategica, come in HOI4
@@ -174,6 +211,8 @@ export class HudScene extends Phaser.Scene {
     if (!this.run.state.opts.tutorial) {
       this.attackBtn = new Button(this, '', 112, 36, () => this.cycleAttack(), 13);
       this.workBtn = new Button(this, '', 112, 36, () => this.cycleWorkers(), 13);
+      this.attackBtn.terminal();
+      this.workBtn.terminal();
       this.refreshLevers();
     }
     this.setSpeed(this.run.state.speed);
@@ -196,7 +235,7 @@ export class HudScene extends Phaser.Scene {
 
     // ?fps=1 → contatore per il test sui telefoni economici
     this.fps = fpsEnabled()
-      ? this.add.text(PAD, 0, '', textStyle(12, PALETTE.radioattivo)).setBackgroundColor(hex(PALETTE.inchiostro)).setDepth(60) : null;
+      ? this.add.text(PAD, 0, '', termStyle(12, PALETTE.radioattivo)).setBackgroundColor(hex(TCOL.bg)).setDepth(60) : null;
 
     this.layout();
     this.scale.on('resize', this.layout, this);
@@ -228,6 +267,67 @@ export class HudScene extends Phaser.Scene {
     this.toast(next ? `${Math.round(next * 100)}% lavoratori: più bottino, meno soldati` : 'Tutti sotto le armi: niente bottino dai lavoratori', PALETTE.carta);
   }
 
+  /** Vista logistica: le tue province colorate dal rifornimento (verde pieno, giallo in calo, rosso tagliate fuori). */
+  private toggleLogistics() {
+    const on = this.run.toggleLogistics();
+    this.logiBtn.setOn(on);
+    this.setHint(on ? 'LOGISTICA · verde: rifornite · giallo: in calo · rosso: tagliate fuori dalla capitale' : null);
+  }
+
+  /** Elenco dei comandi (tasto COMANDI o H). */
+  private toggleHelp() {
+    if (this.help) {
+      this.help.destroy();
+      this.help = null;
+      this.helpBtn.setOn(false);
+      return;
+    }
+    const { width, height } = view(this);
+    const rows: [string, string][] = [
+      ['tocco su provincia evidenziata', 'la compri con le truppe (assalto se è di qualcuno)'],
+      ['tocco su una tua provincia', 'scheda e costruzioni'],
+      ['tieni premuto', 'scheda di chi possiede la provincia'],
+      ['trascina col destro · WASD o frecce', 'sposta la carta (telefono: trascina col dito)'],
+      ['rotella o pizzico', 'zoom'],
+      ['carta reparto, poi tuo territorio', 'schiera la pedina'],
+      ['clic sulla pedina', 'la selezioni'],
+      ['Maiusc + clic', 'aggiungi o togli la pedina dal gruppo'],
+      ['trascina col sinistro', 'riquadro: seleziona più pedine (Maiusc: aggiungi)'],
+      ['clic destro o tocco sulla meta', 'manda le pedine selezionate'],
+      ['carta abilità, poi la mappa', 'ricognizione aerea o bombardamento'],
+      ['Spazio o P', 'pausa strategica: i tocchi preparano il piano'],
+      ['L', 'vista logistica (rifornimento)'],
+      ['H', 'questi comandi · Esc chiude'],
+      ['ATTACCO · LAVORO', 'truppe per ogni avanzata · lavoratori e soldati'],
+      ['MURO o B, poi trascina', 'bunker su tutte le tue province toccate'],
+      ['Ctrl o Maiusc + numero · numero', 'salva il gruppo · lo richiami (due volte: la carta ci va)'],
+      ['T · F', 'pedine: difende o attacca da sola · assegna a un fronte'],
+      ['U · I · R', 'unisci · dividi · ritirata delle pedine selezionate'],
+      ['mouse su una provincia di confine', 'previsione dell\'assalto (con pedine scelte: il percorso)'],
+    ];
+    const W = Math.min(660, width - 2 * PAD), kx = 16, vx = Math.min(300, W * 0.46);
+    // righe che vanno a capo se serve: l'altezza del riquadro si calcola dopo
+    const texts: Phaser.GameObjects.Text[] = [];
+    let y = 30;
+    for (const [k, v] of rows) {
+      const kt = this.add.text(kx, y, k, termStyle(12, TCOL.accent)).setWordWrapWidth(vx - kx - 10);
+      const vt = this.add.text(vx, y, v, termStyle(12, TCOL.text)).setWordWrapWidth(W - vx - 14);
+      texts.push(kt, vt);
+      y += Math.max(kt.height, vt.height) + 6;
+    }
+    const H = y + 10;
+    const items: Phaser.GameObjects.GameObject[] = [
+      this.add.rectangle(0, 0, W, H, TCOL.bg, 0.96).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75).setInteractive(),
+      termNotch(this, 0, 0, 'comandi'),
+      ...texts,
+    ];
+    const close = this.add.text(W - 4, 2, '✕', termStyle(14)).setOrigin(1, 0).setPadding(12, 8, 10, 12).setInteractive({ useHandCursor: true });
+    close.on('pointerup', () => this.toggleHelp());
+    items.push(close);
+    this.help = this.add.container((width - W) / 2, Math.max(PAD, (height - H) / 2), items).setDepth(47);
+    this.helpBtn.setOn(true);
+  }
+
   private setSpeed(s: number) {
     this.run.setSpeed(s);
     this.speedBtn.setLabel(`x${s}`).setOn(s > 1);
@@ -253,7 +353,7 @@ export class HudScene extends Phaser.Scene {
   private onCard(t: UnitType) {
     const block = this.run.toggleCard(t);
     if (!block) return;
-    const msg = ({ locked: 'serve l\'Arsenale', cooldown: 'carta in ricarica', troops: 'truppe insufficienti', cap: 'massimo pedine in campo', tile: '' } as const)[block];
+    const msg = ({ locked: 'serve l\'Arsenale', cooldown: 'carta in ricarica', troops: 'truppe insufficienti', cap: 'massimo pedine in campo', tile: '', fuel: `servono ${this.run.state.unitFuel(t)} benzina nello zaino` } as const)[block];
     const card = this.cards.find((c) => c.type === t)!;
     this.tweens.add({ targets: card, x: card.x + 4, duration: 50, yoyo: true, repeat: 2 });
     if (msg) this.toast(msg, PALETTE.ko);
@@ -270,15 +370,16 @@ export class HudScene extends Phaser.Scene {
     const { width, height, portrait } = view(this);
     this.portrait = portrait;
     const P = this.leftPanel;
+    const topPad = PAD + safeInsets().top; // notch/Dynamic Island: la barra in alto non ci deve finire sotto
     if (portrait) {
       // verticale: pannello in alto a tutta larghezza, fazioni in una striscia sotto
-      P.setPosition(PAD, PAD).setSize(width - 2 * PAD, TOP_H);
-      this.troopsLbl.setPosition(PAD + 10, PAD + 6);
-      this.troops.setPosition(PAD + 10, PAD + 18);
-      this.stats.setPosition(width - PAD - 10, PAD + 8).setOrigin(1, 0).setAlign('right');
-      this.stormText.setPosition(width - PAD - 10, PAD + 56).setOrigin(1, 0);
-      this.layoutResources(PAD + 16, PAD + 92, (width - 2 * PAD - 40) / 3);
-      const sy = PAD + TOP_H + 6, slot = (width - 2 * PAD) / majorCount();
+      P.setPosition(PAD, topPad).setSize(width - 2 * PAD, TOP_H);
+      this.troopsLbl.setPosition(PAD + 10, topPad + 6);
+      this.troops.setPosition(PAD + 10, topPad + 18);
+      this.stats.setPosition(width - PAD - 10, topPad + 8).setOrigin(1, 0).setAlign('right');
+      this.stormText.setPosition(width - PAD - 10, topPad + 56).setOrigin(1, 0);
+      this.layoutResources(PAD + 16, topPad + 92, (width - 2 * PAD - 40) / 3);
+      const sy = topPad + TOP_H + 6, slot = (width - 2 * PAD) / majorCount();
       this.rightPanel.setPosition(PAD, sy).setSize(width - 2 * PAD, STRIP_H);
       const half = (width - 2 * PAD) / 2;
       this.rows.forEach((r, k) => r.setPosition(PAD + (k % 2) * half + 26, sy + 12 + Math.floor(k / 2) * 22));
@@ -286,68 +387,139 @@ export class HudScene extends Phaser.Scene {
       this.unitPos = this.rows.map(() => null);
       this.topBottom = sy + STRIP_H;
       void slot;
-      this.speedBtn.setPosition(width - PAD - 56, height - PAD - 44);
+      const pb = height - PAD - STATUS_H; // fondo utile: sopra la barra di stato della carta
+      this.speedBtn.setPosition(width - PAD - 56, pb - 44);
       this.pauseBtn.setPosition(width - PAD - 56, this.topBottom + 8); // in alto a destra: in basso ci sono le carte
-      this.retreatBtn.setPosition(width - PAD - 112, height - PAD - CARD_H - 8 - 44); // sulla riga delle leve, sopra le carte
-      this.seed.setPosition(width - PAD, height - PAD - 2 * 44 - 8 - 6);
+      this.logiBtn.setPosition(width - PAD - 88, this.topBottom + 8 + 44 + 6);
+      this.helpBtn.setPosition(width - PAD - 88, this.topBottom + 8 + 44 + 6 + 32 + 6);
+      this.wallBtn.setPosition(width - PAD - 88, this.topBottom + 8 + 44 + 6 + 2 * (32 + 6));
+      this.retreatBtn.setPosition(width - PAD - 112, pb - this.portraitCardH() - 8 - 44); // sulla riga delle leve, sopra le carte
+      this.seed.setPosition(width - PAD, pb - 2 * 44 - 8 - 6);
       this.hint.setPosition(width / 2 - 34, this.topBottom + 8).setWordWrapWidth(width - 2 * PAD - 90);
     } else {
-      // orizzontale: una barra compatta in alto (truppe | obiettivi e tempo | bottino), fazioni nell'angolo; mappa libera
-      const barW = width - 2 * PAD - RIGHT_W - 8;
-      P.setPosition(PAD, PAD).setSize(barW, BAR_H);
-      this.troopsLbl.setPosition(PAD + 10, PAD + 6);
-      this.troops.setPosition(PAD + 10, PAD + 18);
-      const bx = PAD + 168;
-      this.stats.setPosition(bx, PAD + 6).setOrigin(0, 0).setAlign('left');
-      this.stormText.setPosition(bx, PAD + 42).setOrigin(0, 0);
-      const step = Math.min(96, Math.max(74, (barW - 400) / 3));
-      this.layoutResources(PAD + barW - 3 * step - 4, PAD + 42, step);
-      const rx = width - PAD - RIGHT_W;
-      this.rightPanel.setPosition(rx, PAD).setSize(RIGHT_W, majorCount() * ROW_H + 10);
-      this.rows.forEach((r, k) => r.setPosition(rx + 26, PAD + 5 + ROW_H * (k + 0.5)));
-      this.symPos = this.rows.map((r) => ({ x: rx + 14, y: r.y }));
-      this.unitPos = this.rows.map((r) => ({ x: rx + RIGHT_W - 14, y: r.y }));
-      this.topBottom = PAD + Math.max(BAR_H, majorCount() * ROW_H + 10);
-      this.speedBtn.setPosition(width - PAD - 56, height - PAD - 44);
-      this.pauseBtn.setPosition(width - PAD - 56 - 8 - 56, height - PAD - 44);
-      this.retreatBtn.setPosition(width - PAD - 56 - 8 - 56 - 8 - 112, height - PAD - 44);
-      this.seed.setPosition(width - PAD, height - PAD - 50);
-      this.hint.setPosition(PAD + barW / 2, PAD + BAR_H + 8).setWordWrapWidth(Math.max(220, barW - 40));
+      // orizzontale: tre riquadri della pianta in alto (esercito | fronte | bottino), potenze nell'angolo; mappa libera
+      const barW = width - 2 * PAD - RIGHT_W - 10;
+      P.setPosition(PAD, topPad).setSize(barW, BAR_H); // area dei tocchi (il disegno lo fanno i riquadri)
+      const aW = 190, bW = 220, gap = 10, bx = PAD + aW + gap, cx = bx + bW + gap, cW = PAD + barW - cx;
+      this.troopsLbl.setVisible(false);
+      this.troops.setPosition(PAD + 12, topPad + 16);
+      this.stats.setPosition(bx + 12, topPad + 12).setOrigin(0, 0).setAlign('left');
+      this.stormText.setPosition(bx + 12, topPad + 50).setOrigin(0, 0);
+      const step = Math.min(110, (cW - 24) / 3);
+      this.layoutResources(cx + 14, topPad + 40, step);
+      this.resLabel.setPosition(cx + 8, topPad).setOrigin(0, 0.5);
+      this.recruitBtn.setPosition(cx + cW - 6, topPad + 6);
+      const rx = width - PAD - RIGHT_W, rh = majorCount() * ROW_H + 14;
+      this.rightPanel.setPosition(rx, topPad).setSize(RIGHT_W, rh);
+      this.rows.forEach((r, k) => r.setPosition(rx + 28, topPad + 9 + ROW_H * (k + 0.5)));
+      this.symPos = this.rows.map((r) => ({ x: rx + 16, y: r.y }));
+      this.unitPos = this.rows.map((r) => ({ x: rx + RIGHT_W - 16, y: r.y }));
+      this.topBottom = topPad + Math.max(BAR_H, rh);
+      const by = height - PAD - STATUS_H - 44; // comandi sopra la barra di stato della carta
+      this.speedBtn.setPosition(width - PAD - 56, by);
+      this.pauseBtn.setPosition(width - PAD - 56 - 8 - 56, by);
+      this.retreatBtn.setPosition(width - PAD - 56 - 8 - 56 - 8 - 112, by);
+      this.seed.setPosition(width - PAD, by - 6);
+      this.hint.setPosition(PAD + barW / 2, topPad + BAR_H + 10).setWordWrapWidth(Math.max(220, barW - 40));
+      this.logiBtn.setPosition(rx, this.topBottom + 8);
+      this.helpBtn.setPosition(rx + RIGHT_W - 88, this.topBottom + 8);
+      this.wallBtn.setPosition(rx, this.topBottom + 8 + 32 + 6);
+      // riquadri
+      const n = this.cards.length + this.abilityCards.length, ds = this.dockScale();
+      const dockW = n * (CARD_W * ds + 6) - 6 + (this.abilityCards.length ? 10 : 0) + 2 * DOCK_PAD, dockH = CARD_H * ds + 2 * DOCK_PAD + 4;
+      const dockY = height - PAD - STATUS_H - dockH;
+      const boxes: [number, number, number, number, Phaser.GameObjects.Text][] = [
+        [PAD, topPad, aW, BAR_H, this.notches[0]], [bx, topPad, bW, BAR_H, this.notches[1]], [cx, topPad, cW, BAR_H, this.resLabel],
+        [rx, topPad, RIGHT_W, rh, this.notches[2]],
+      ];
+      const f = this.frames.clear().setVisible(true);
+      for (const [x, y, w, h, label] of boxes) {
+        f.fillStyle(TCOL.bg, 0.94).fillRect(x, y, w, h).lineStyle(1, TCOL.edge, 0.75).strokeRect(x, y, w, h);
+        label.setPosition(x + 8, y).setOrigin(0, 0.5).setVisible(true);
+      }
+      // riquadro dei reparti a parte: si nasconde con le carte quando si apre la scheda in basso
+      this.dockG.clear().fillStyle(TCOL.bg, 0.94).fillRect(PAD, dockY, dockW, dockH).lineStyle(1, TCOL.edge, 0.75).strokeRect(PAD, dockY, dockW, dockH);
+      this.notches[3].setPosition(PAD + 8, dockY).setOrigin(0, 0.5).setVisible(true);
+      P.setFillStyle(TCOL.bg, 0);
+      this.rightPanel.setFillStyle(TCOL.bg, 0);
     }
+    if (portrait) {
+      // verticale: stessi riquadri della pianta, impilati (esercito e fronte | bottino | potenze)
+      const w = width - 2 * PAD, sy = topPad + TOP_H + 6;
+      const boxes: [number, number, number, number, Phaser.GameObjects.Text][] = [
+        [PAD, topPad, w, 72, this.notches[0].setText(' esercito · fronte ')], [PAD, topPad + 80, w, TOP_H - 80, this.resLabel],
+        [PAD, sy, w, STRIP_H, this.notches[2]],
+      ];
+      const f = this.frames.clear().setVisible(true);
+      this.dockG.clear(); // in verticale niente riquadro dei reparti
+      this.notches.forEach((t) => t.setVisible(false));
+      for (const [x, y, bw, bh, label] of boxes) {
+        f.fillStyle(TCOL.bg, 0.94).fillRect(x, y, bw, bh).lineStyle(1, TCOL.edge, 0.75).strokeRect(x, y, bw, bh);
+        label.setPosition(x + 8, y).setOrigin(0, 0.5).setVisible(true);
+      }
+      this.troopsLbl.setVisible(false);
+      this.troops.setPosition(PAD + 12, topPad + 16);
+      this.stats.setPosition(width - PAD - 12, topPad + 10);
+      this.stormText.setPosition(width - PAD - 12, topPad + 50);
+      this.layoutResources(PAD + 16, topPad + 80 + (TOP_H - 80) / 2 + 2, (w - 40) / 3);
+      this.recruitBtn.setPosition(width - PAD - 6, topPad + 80).setOrigin(1, 0.5).setBackgroundColor(hex(TCOL.bg)); // sul bordo, come un'etichetta
+      this.rows.forEach((r, k) => r.setPosition(PAD + (k % 2) * (w / 2) + 26, sy + 14 + Math.floor(k / 2) * 20));
+      this.symPos = this.rows.map((r) => ({ x: r.x - 12, y: r.y }));
+      P.setFillStyle(TCOL.bg, 0);
+      this.rightPanel.setFillStyle(TCOL.bg, 0);
+    } else this.notches[0].setText(' esercito ');
     // la cornice disegnata del rettangolo segue la nuova misura
-    P.setStrokeStyle(1, PALETTE.linea);
-    this.rightPanel.setStrokeStyle(1, PALETTE.linea);
+    P.setStrokeStyle(); // il disegno lo fanno i riquadri della pianta
+    this.rightPanel.setStrokeStyle();
     this.rate.setPosition(this.troops.x + this.troops.width + 10, this.troops.y + 10);
+    this.food.setPosition(this.troops.x, this.troops.y + 36);
     this.fps?.setPosition(PAD, this.topBottom + 6);
     if (this.pauseFrame?.visible) {
       this.drawPauseFrame();
       this.pauseUi?.setPosition(width / 2, this.topBottom + 10);
     }
     this.aliveKey = ''; // forza il ridisegno dei simboli
+    // verticale: le carte si stringono per lasciare posto al tasto della velocità a destra
+    const sc = portrait ? this.portraitCardScale() : this.dockScale(), step = CARD_W * sc + 6;
+    const cy = portrait ? height - PAD - STATUS_H - CARD_H * sc : height - PAD - STATUS_H - DOCK_PAD - 2 - CARD_H * sc, cx0 = portrait ? PAD : PAD + DOCK_PAD;
     this.cards.forEach((c, k) => {
-      c.baseY = height - PAD - CARD_H;
-      c.setPosition(PAD + k * (CARD_W + 6), c.baseY);
+      c.baseY = cy;
+      c.setScale(sc).setPosition(cx0 + k * step, c.baseY);
     });
     // abilità: dopo le carte in orizzontale; in verticale a destra, sopra il tasto RITIRATA
     this.abilityCards.forEach((c, k) => {
-      c.baseY = portrait ? this.portraitAbilityY() : height - PAD - CARD_H;
-      c.setPosition(portrait ? width - PAD - (k + 1) * (CARD_W + 6) + 6 : PAD + (this.cards.length + k) * (CARD_W + 6) + 10, c.baseY);
+      c.baseY = portrait ? this.portraitAbilityY() : cy;
+      c.setScale(sc).setPosition(portrait ? width - PAD - (k + 1) * step + 6 : cx0 + (this.cards.length + k) * step + 10, c.baseY);
     });
     // leve sopra le carte, nell'angolo in basso a sinistra
-    const ly = height - PAD - CARD_H - 8 - 36;
+    const ly = portrait ? height - PAD - STATUS_H - this.portraitCardH() - 8 - 36 : height - PAD - STATUS_H - CARD_H * sc - 2 * DOCK_PAD - 4 - 12 - 36;
     this.attackBtn?.setPosition(PAD, ly);
     this.workBtn?.setPosition(PAD + 112 + 6, ly);
   }
 
+  /** Orizzontale: niente mazzo, tutte le truppe in campagna; se non stanno, le carte si rimpiccioliscono (a destra restano i tasti). */
+  private dockScale(): number {
+    const avail = view(this).width - 2 * PAD - (112 + 56 + 56 + 2 * 8) - 24 - 2 * DOCK_PAD - (this.abilityCards.length ? 10 : 0);
+    const n = this.cards.length + this.abilityCards.length;
+    return Phaser.Math.Clamp((avail - (n - 1) * 6) / (n * CARD_W), 0.6, 1);
+  }
+
   /** Verticale: riga delle abilità, sopra RITIRATA (che sta sulla riga delle leve, sopra le carte). */
+  private portraitCardScale(): number {
+    const avail = view(this).width - 2 * PAD - 56 - 8; // a destra resta il tasto della velocità
+    return Math.min(1, (avail / Math.max(1, this.cards.length) - 6) / CARD_W);
+  }
+
+  private portraitCardH(): number {
+    return CARD_H * this.portraitCardScale();
+  }
+
   private portraitAbilityY(): number {
-    return view(this).height - PAD - CARD_H - 8 - 44 - 8 - CARD_H;
+    return view(this).height - PAD - STATUS_H - this.portraitCardH() - 8 - 44 - 8 - this.portraitCardH();
   }
 
   private layoutResources(x: number, y: number, step: number) {
     this.resIcons.clear();
-    this.resLabel.setPosition(x - 6, y - 24);
-    this.recruitBtn.setPosition(x + this.resLabel.width + 4, y - 26);
     RESOURCES.forEach((r, k) => {
       drawResourceIcon(this.resIcons, r, x + 4 + k * step, y, 9);
       this.resTexts[k].setPosition(x + 18 + k * step, y);
@@ -385,6 +557,8 @@ export class HudScene extends Phaser.Scene {
       this.renderProvince(); // cantiere che avanza, truppe e zaino che cambiano
     }
     this.mapLabels.update(this.run);
+    const h = this.hint;
+    this.hintBox.setVisible(h.visible).setAlpha(h.alpha).setPosition(h.x - h.width / 2, h.y).setSize(h.width, h.height);
     if (!this.ended) this.guide?.update();
     this.fps?.setText(`${Math.round(this.game.loop.actualFps)} fps`);
     const t = Math.floor(st.troops);
@@ -394,6 +568,13 @@ export class HudScene extends Phaser.Scene {
       this.rate.setX(this.troops.x + this.troops.width + 10);
     }
     this.rate.setText(`+${st.troopsPerSecond.toFixed(1)}/s`);
+    if (!st.opts.tutorial) {
+      const fed = st.backpack.cibo > 0, F = BALANCE.food;
+      const up = `+${Math.round((F.fedGrowth - 1) * 100)}%`, down = `−${Math.round((1 - F.hungryGrowth) * 100)}%`;
+      // in verticale accanto c'è il tempo della campagna: testo corto
+      this.food.setText(this.portrait ? (fed ? `rancio ok ${up}` : `senza cibo ${down}`) : fed ? `rancio ok · crescita ${up}` : `senza cibo · crescita ${down}`)
+        .setColor(hex(fed ? PALETTE.radioattivo : PALETTE.ko));
+    }
     // classifica per province: a fine campagna vince chi ne ha di più
     const { pos, gap } = st.rank();
     const lead = st.opts.tutorial ? `obiettivo ${BALANCE.tutorial.goalProvinces}` : pos === 1 ? `1° · +${gap} sul 2°` : `${pos}° · ${gap} dal 1°`;
@@ -418,19 +599,17 @@ export class HudScene extends Phaser.Scene {
     if (key !== this.aliveKey) {
       this.aliveKey = key;
       const g = this.symbols.clear();
-      st.factions.forEach((f, k) => {
-        if (k >= this.rows.length) return; // le milizie non sono nell'elenco
-        const info = FACTION_INFO[k];
+      this.rowIds.forEach((id, k) => { // le milizie non sono nell'elenco
+        const f = st.factions[id], info = FACTION_INFO[id];
         const sp = this.symPos[k], up = this.unitPos[k];
         drawSymbol(g, info.symbol, sp.x, sp.y, 6, f.alive ? info.fill : 0x555555, PALETTE.carta);
-        const dom = BALANCE.aiUnits.dominant[k] as UnitType | '';
+        const dom = BALANCE.aiUnits.dominant[id] as UnitType | '';
         if (dom && f.alive && up) drawUnitIcon(g, dom, up.x, up.y, 6, PALETTE.ocra);
       });
     }
-    st.factions.forEach((f, k) => {
-      const r = this.rows[k];
-      if (!r) return;
-      r.setText(f.alive ? `${FACTION_INFO[k].short} ${f.provinces}` : `${FACTION_INFO[k].short} ✝`).setAlpha(f.alive ? 1 : 0.4);
+    this.rowIds.forEach((id, k) => {
+      const f = st.factions[id];
+      this.rows[k].setText(f.alive ? `${FACTION_INFO[id].short} ${f.provinces}` : `${FACTION_INFO[id].short} ✝`).setAlpha(f.alive ? 1 : 0.4);
     });
     const sel = this.run.selectedCard;
     for (const c of this.cards) {
@@ -515,36 +694,36 @@ export class HudScene extends Phaser.Scene {
     const { width, height } = view(this);
     const W = Math.min(380, width - 2 * PAD), H = 300;
     const items: Phaser.GameObjects.GameObject[] = [
-      this.add.rectangle(0, 0, W, H, PALETTE.inchiostro, 0.97).setOrigin(0).setStrokeStyle(1, PALETTE.linea),
-      this.add.rectangle(0, 0, W, 3, info.fill).setOrigin(0),
+      this.add.rectangle(0, 0, W, H, TCOL.bg, 0.97).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75),
+      termNotch(this, 0, 0, info.kind === 'bot' ? 'Milizia' : 'Impero'),
     ];
     const g = this.add.graphics();
     drawSymbol(g, info.symbol, 22, 26, 9, info.fill, PALETTE.carta);
-    items.push(g, this.add.text(40, 14, info.name.toUpperCase(), textStyle(16, PALETTE.carta)).setWordWrapWidth(W - 80));
-    const close = this.add.text(W - 10, 8, '✕', textStyle(18, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+    items.push(g, this.add.text(40, 14, info.name.toUpperCase(), termStyle(16, PALETTE.carta)).setWordWrapWidth(W - 80));
+    const close = this.add.text(W - 10, 8, '✕', termStyle(18, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
     close.on('pointerup', () => this.hideProfile());
     items.push(close);
     const civ = info.civ ? (civText as Record<string, { name: string; regime: string; classe: string }>)[info.civ] : null;
     const kind = info.kind === 'bot' ? 'MILIZIA PROVINCIALE · forza locale, difende la sua zona'
       : `IMPERO · potenza ${civ?.name ?? ''} · ${civ?.regime.toLowerCase() ?? ''}`;
-    items.push(this.add.text(14, 46, kind, textStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
-    if (civ) items.push(this.add.text(14, 64, `classe dirigente: ${civ.classe}`, textStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
+    items.push(this.add.text(14, 46, kind, termStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
+    if (civ) items.push(this.add.text(14, 64, `classe dirigente: ${civ.classe}`, termStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
     // peso militare
     const ratio = fac.troops / Math.max(1, st.troops);
     const force = !fac.alive ? 'eliminati' : ratio > 1.25 ? 'più forti di te' : ratio < 0.8 ? 'più deboli di te' : 'forza pari alla tua';
     const troops = fac.alive ? `≈${Math.max(10, Math.round(fac.troops / 10) * 10)}` : '0';
-    items.push(this.add.text(14, 90, `${fac.provinces} ${fac.provinces === 1 ? 'provincia' : 'province'} · truppe ${troops} · ${force}`, textStyle(13, PALETTE.carta)));
+    items.push(this.add.text(14, 90, `${fac.provinces} ${fac.provinces === 1 ? 'provincia' : 'province'} · truppe ${troops} · ${force}`, termStyle(13, PALETTE.carta)));
     // rapporto e opinione
     const rel = st.relation[f], op = Math.round(st.opinion[f]);
     const relTxt = rel === 'guerra' ? 'IN GUERRA' : rel === 'alleanza' ? 'ALLEATI' : 'IN PACE';
     const relCol = rel === 'guerra' ? PALETTE.ko : rel === 'alleanza' ? PALETTE.radioattivo : PALETTE.ocra;
-    items.push(this.add.text(14, 118, relTxt, textStyle(15, relCol)));
+    items.push(this.add.text(14, 118, relTxt, termStyle(15, relCol)));
     const bx = 120, bw = W - bx - 16, by = 126;
     const bar = this.add.graphics();
-    bar.fillStyle(PALETTE.pannello, 1).fillRect(bx, by, bw, 8).lineStyle(1, PALETTE.linea, 1).lineBetween(bx + bw / 2, by - 2, bx + bw / 2, by + 10);
+    bar.fillStyle(TCOL.bg, 1).fillRect(bx, by, bw, 8).lineStyle(1, PALETTE.carta, 0.6).strokeRect(bx, by, bw, 8).lineBetween(bx + bw / 2, by - 3, bx + bw / 2, by + 11);
     const half = (bw / 2) * Math.min(1, Math.abs(op) / 100);
     bar.fillStyle(op >= 0 ? PALETTE.radioattivo : PALETTE.ko, 1).fillRect(op >= 0 ? bx + bw / 2 : bx + bw / 2 - half, by, half, 8);
-    items.push(bar, this.add.text(bx, by + 12, `opinione ${op > 0 ? '+' : ''}${op}`, textStyle(10, PALETTE.tenue, false)));
+    items.push(bar, this.add.text(bx, by + 12, `opinione ${op > 0 ? '+' : ''}${op}`, termStyle(10, PALETTE.tenue, false)));
     // azioni
     const acts: { label: string; color: number; run: () => void }[] = [];
     const D = BALANCE.diplomacy;
@@ -580,11 +759,12 @@ export class HudScene extends Phaser.Scene {
     const cw = (W - 28 - 8) / 2, ch = 40;
     acts.slice(0, 4).forEach((a, k) => {
       const x = 14 + (k % 2) * (cw + 8), y = 160 + Math.floor(k / 2) * (ch + 8);
-      const r = this.add.rectangle(x, y, cw, ch, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, a.color).setInteractive({ useHandCursor: true });
+      const r = this.add.rectangle(x, y, cw, ch, TCOL.bg).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75).setInteractive({ useHandCursor: true });
+      r.on('pointerover', () => r.setFillStyle(TCOL.hover)).on('pointerout', () => r.setFillStyle(TCOL.bg));
       r.on('pointerup', () => { a.run(); buzz(10); this.renderProfile(); });
-      items.push(r, this.add.text(x + cw / 2, y + ch / 2, a.label, textStyle(12, a.color)).setOrigin(0.5));
+      items.push(r, this.add.text(x + cw / 2, y + ch / 2, a.label, termStyle(12, a.color)).setOrigin(0.5));
     });
-    items.push(this.add.text(14, H - 34, 'In pace non vi attaccate. Tieni premuto su una provincia per aprire la sua scheda.', textStyle(9, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
+    items.push(this.add.text(14, H - 34, 'In pace non vi attaccate. Tieni premuto su una provincia per aprire la sua scheda.', termStyle(9, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
     this.profile = this.add.container((width - W) / 2, Math.max(PAD, (height - H) / 2), items).setDepth(46);
   }
 
@@ -604,12 +784,77 @@ export class HudScene extends Phaser.Scene {
     this.toast('ULTIMO MINUTO\nallo scadere vince chi ha più province', PALETTE.allerta);
   }
 
+  /** Bigliettino dalla mappa (gruppi, muro, comandi delle pedine). */
+  notify(msg: string, color: number) {
+    this.toast(msg.toUpperCase(), color);
+  }
+
+  /** Coalizione degli imperi contro di te: si forma o si scioglie. */
+  onCoalition(phase: 'form' | 'end', members: number[]) {
+    if (phase === 'form') {
+      this.banner('COALIZIONE CONTRO DI TE', PALETTE.ko, `${members.map((m) => FACTION_INFO[m]?.short ?? '?').join(' · ')} smettono di combattersi`);
+      buzz([40, 30, 40]);
+    } else this.toast('COALIZIONE SCIOLTA\nil tuo vantaggio è calato, gli imperi tornano rivali', PALETTE.ocra);
+  }
+
+  /** Un impero bombarda una tua provincia di confine. */
+  onEnemyStrike(by: number) {
+    this.toast(`BOMBARDAMENTO ${FACTION_INFO[by]?.short ?? 'NEMICO'} IN ARRIVO\nsposta le pedine · la contraerea lo ferma`, PALETTE.ko);
+  }
+
+  /** Tasto MURO acceso o spento. */
+  setWallOn(on: boolean) {
+    this.wallBtn.setOn(on);
+  }
+
+  /** Previsione dell'assalto accanto alla provincia sotto il mouse (punti CSS). */
+  showForecast(p: number, x: number, y: number) {
+    const st = this.run.state, f = st.forecast(p), o = st.provOwner[p];
+    const key = `${p}|${f.cost}|${f.odds}|${Math.round(x)}|${Math.round(y)}`;
+    if (key === this.forecastKey) return;
+    this.forecastKey = key;
+    this.forecast?.destroy();
+    const col = { sicura: PALETTE.radioattivo, probabile: PALETTE.radioattivo, incerta: PALETTE.allerta, difficile: PALETTE.ko }[f.odds];
+    const head = o === NEUTRAL ? `PRENDI · ${f.cost} truppe · subito` : `ASSALTO · ${f.cost} truppe · ${Math.ceil(f.ms / 1000)} s`;
+    const odds = !f.can ? `servono ${f.cost + 1} truppe (ne hai ${Math.floor(st.troops)})` : `esito: ${f.odds}`;
+    const t1 = this.add.text(8, 6, head, termStyle(11, TCOL.text)), t2 = this.add.text(8, 22, odds, termStyle(11, col));
+    const w = Math.max(t1.width, t2.width) + 16, h = 42;
+    const bg = this.add.rectangle(0, 0, w, h, TCOL.bg, 0.94).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75);
+    const { width } = view(this);
+    this.forecast = this.add.container(Math.min(x + 18, width - w - PAD), y - h - 10, [bg, t1, t2]).setDepth(44);
+  }
+
+  hideForecast() {
+    if (!this.forecast) return;
+    this.forecast.destroy();
+    this.forecast = null;
+    this.forecastKey = '';
+  }
+
+  /** Bigliettini impilati nell'angolo in alto a destra, sotto le potenze (il più nuovo in cima); in verticale al centro. */
   private toast(msg: string, color: number) {
     const { width } = view(this);
-    const t = this.add.text(width / 2, this.topBottom + 70, msg, textStyle(this.portrait ? 14 : 16, color)).setOrigin(0.5).setAlign('center')
-      .setWordWrapWidth(width - 2 * PAD - 24).setBackgroundColor(hex(PALETTE.inchiostro)).setPadding(12, 8, 12, 8).setScale(0.6).setAlpha(0);
-    this.tweens.add({ targets: t, scale: 1, alpha: 1, duration: 220, ease: 'Back.easeOut' });
-    this.tweens.add({ targets: t, alpha: 0, delay: 2600, duration: 400, onComplete: () => t.destroy() });
+    const w = this.portrait ? width - 2 * PAD : Math.min(300, width / 3);
+    const n = termNote(this, this.portrait ? width / 2 : width - PAD, this.topBottom + (this.portrait ? 64 : 90), w, msg, color, this.portrait ? 0.5 : 1).setDepth(45).setAlpha(0);
+    this.notes.unshift(n);
+    this.layoutNotes();
+    n.x += 16;
+    this.tweens.add({ targets: n, alpha: 1, x: n.x - 16, duration: 200, ease: 'Quad.easeOut' });
+    this.time.delayedCall(3000, () => this.tweens.add({ targets: n, alpha: 0, duration: 400, onComplete: () => {
+      this.notes = this.notes.filter((o) => o !== n);
+      n.destroy();
+      this.layoutNotes();
+    } }));
+  }
+
+  private layoutNotes() {
+    let y = this.topBottom + (this.portrait ? 64 : 90);
+    this.notes = this.notes.slice(0, 4); // al massimo quattro alla volta: i più vecchi spariscono
+    for (const n of this.notes) {
+      if (!n.active) continue;
+      this.tweens.add({ targets: n, y, duration: 160 });
+      y += n.height + 12;
+    }
   }
 
   /** Carta evento: la run resta in pausa finché non scegli. */
@@ -654,8 +899,8 @@ export class HudScene extends Phaser.Scene {
   private showBanner(title: string, color: number, sub: string) {
     if (this.ended) return;
     const { width, height } = view(this);
-    const t = this.add.text(width / 2, height * 0.36, title, textStyle(34, color)).setOrigin(0.5).setDepth(40);
-    const s2 = this.add.text(width / 2, height * 0.36 + 32, sub.toUpperCase(), textStyle(14, PALETTE.carta)).setOrigin(0.5)
+    const t = this.add.text(width / 2, height * 0.36, title, termStyle(34, color)).setOrigin(0.5).setDepth(40);
+    const s2 = this.add.text(width / 2, height * 0.36 + 32, sub.toUpperCase(), termStyle(14, PALETTE.carta)).setOrigin(0.5)
       .setDepth(40);
     s2.setWordWrapWidth(width - 40).setAlign('center');
     for (const o of [t, s2]) {
@@ -688,7 +933,7 @@ export class HudScene extends Phaser.Scene {
       timeout: 'FINE DELLE OPERAZIONI',
     }[outcome];
     const color = outcome === 'victory' ? PALETTE.radioattivo : outcome === 'retreat' ? PALETTE.ocra : PALETTE.ko;
-    const t = this.add.text(width / 2, height / 2, title, textStyle(40, color)).setOrigin(0.5)
+    const t = this.add.text(width / 2, height / 2, title, termStyle(40, color)).setOrigin(0.5)
       .setScale(1.8).setAlpha(0);
     this.tweens.add({ targets: t, scale: 1, alpha: 1, duration: 320, ease: 'Back.easeOut' });
   }
@@ -719,11 +964,11 @@ export class HudScene extends Phaser.Scene {
     }
     this.hint.setVisible(false);
     const { width } = view(this);
-    const title = this.add.text(0, 0, '❚❚  PAUSA STRATEGICA', textStyle(17, PALETTE.ocra)).setOrigin(0.5, 0);
-    const sub = this.add.text(0, 26, 'il tempo è fermo · tocca le province per il piano · muovi le pedine', textStyle(11, PALETTE.carta, false))
+    const title = this.add.text(0, 0, '❚❚  PAUSA STRATEGICA', termStyle(17, PALETTE.ocra)).setOrigin(0.5, 0);
+    const sub = this.add.text(0, 26, 'il tempo è fermo · tocca le province per il piano · muovi le pedine', termStyle(11, PALETTE.carta, false))
       .setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(Math.min(460, width - 40));
     const w = Math.max(title.width, sub.width) + 28;
-    const bg = this.add.rectangle(0, -8, w, sub.y + sub.height + 16, PALETTE.inchiostro, 0.88).setOrigin(0.5, 0).setStrokeStyle(1, PALETTE.ocra);
+    const bg = this.add.rectangle(0, -8, w, sub.y + sub.height + 16, TCOL.bg, 0.94).setOrigin(0.5, 0).setStrokeStyle(1, TCOL.edge, 0.75);
     this.pauseUi = this.add.container(width / 2, this.topBottom + 10, [bg, title, sub]).setDepth(40);
     this.tweens.add({ targets: title, alpha: 0.55, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     this.drawPauseFrame();
@@ -757,6 +1002,11 @@ export class HudScene extends Phaser.Scene {
     this.renderProvince();
   }
 
+  /** Chiude la scheda in basso se mostra una pedina (dopo un ordine o una deselezione). */
+  hideUnit() {
+    if (this.selUnit >= 0) this.hideProvince();
+  }
+
   hideProvince() {
     this.provCard?.destroy();
     this.provCard = null;
@@ -768,6 +1018,7 @@ export class HudScene extends Phaser.Scene {
   /** Con la tabella aperta in fondo (alla Call of War) le carte e le leve si fanno da parte; in verticale anche i tasti. */
   private setBottomVisible(on: boolean) {
     const list: (Phaser.GameObjects.Components.Visible | null | undefined)[] = [...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn];
+    if (!this.portrait) list.push(this.dockG, this.notches[3]);
     if (this.portrait) list.push(this.retreatBtn, this.speedBtn, this.seed);
     for (const o of list) o?.setVisible(on);
   }
@@ -792,57 +1043,81 @@ export class HudScene extends Phaser.Scene {
     const own = !unit && st.provOwner[p] === PLAYER;
     const ready = own ? st.workOf(p) : null, prog = own ? st.workInProgress(p) : null;
     const grid = own && this.provOpen && !ready && !prog;
+    // previsione dell'assalto (province attaccabili che vedi)
+    const fc = !unit && p >= 0 && st.provOwner[p] !== PLAYER && (st.seesProv(p) || st.provOwner[p] === NEUTRAL) && st.isFrontierProv(p) ? st.forecast(p) : null;
+    const mineUnit = !!unit && unit.owner === PLAYER;
     // celle dei dati: su una riga se c'è posto, altrimenti su due (telefono in verticale)
-    const nCells = unit ? 6 : 5 + (st.provOwner[p] > PLAYER && st.seesProv(p) ? 1 : 0);
-    const perRow = W - 24 >= 500 ? nCells : Math.min(nCells, 3), rows = Math.ceil(nCells / perRow);
+    const nCells = unit ? 7 : 5 + (st.provOwner[p] > PLAYER && st.seesProv(p) ? 1 : 0) + (fc ? 1 : 0);
+    // una riga se ogni cella ha almeno 86 punti (le etichette lunghe come "rifornimento" ci stanno), altrimenti righe da tre o quattro
+    const perRow = (W - 24) / nCells >= 86 ? nCells : W - 24 >= 344 ? Math.min(nCells, 4) : Math.min(nCells, 3), rows = Math.ceil(nCells / perRow);
     const cellsY = 34, cellH = 42, actY = cellsY + rows * cellH + 8;
-    const H = grid ? actY + 2 * 62 + 6 + 10 : actY + 40;
+    const gCols = W - 24 >= 480 ? 4 : 3, gRows = Math.ceil(WORKS.length / gCols);
+    // comandi della pedina: una riga di cinque tasti, o due righe se lo schermo è stretto
+    const uPer = (W - 24 - 4 * 6) / 5 >= 64 ? 5 : 3, uRows = Math.ceil(5 / uPer);
+    const H = grid ? actY + gRows * 62 + (gRows - 1) * 6 + 10 : mineUnit ? actY + uRows * 38 + 26 : actY + 40;
     // in fondo allo schermo come in Call of War: in orizzontale a sinistra (a destra restano RITIRATA, pausa e velocità)
-    const bottom = height - PAD;
+    const bottom = height - PAD - STATUS_H; // sopra la barra di stato della carta
     const left = this.portrait ? (width - W) / 2 : PAD;
     this.setBottomVisible(false);
     const items: Phaser.GameObjects.GameObject[] = [
-      this.add.rectangle(0, 0, W, H, PALETTE.inchiostro, 0.95).setOrigin(0).setStrokeStyle(1, PALETTE.linea),
+      this.add.rectangle(0, 0, W, H, TCOL.bg, 0.96).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75),
     ];
     const g = this.add.graphics();
-    const close = this.add.text(W - 10, 6, '✕', textStyle(16, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+    items.push(termNotch(this, 0, 0, unit ? 'Reparto' : own ? 'Tua provincia' : 'Provincia'));
+    const close = this.add.text(W - 10, 6, '✕', termStyle(16, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
     close.on('pointerup', () => this.hideProvince());
     const cells = (list: { k: string; v: string; c?: number }[]) => {
       const cw = (W - 24) / perRow;
       list.forEach((c, i) => {
         const col = i % perRow, x = 12 + col * cw, y = cellsY + Math.floor(i / perRow) * cellH;
-        if (col) g.lineStyle(1, PALETTE.linea, 1).lineBetween(x - 2, y + 4, x - 2, y + cellH - 4);
-        items.push(this.add.text(x + 4, y + 4, c.k, textStyle(8, PALETTE.tenue)),
-          this.add.text(x + 4, y + 20, c.v, textStyle(12, c.c ?? PALETTE.carta)).setWordWrapWidth(cw - 8).setMaxLines(1));
+        if (col) dots(g, x - 2, y + 6, x - 2, y + cellH - 6);
+        items.push(this.add.text(x + 4, y + 4, c.k.toLowerCase(), termLabel(10)),
+          this.add.text(x + 4, y + 20, c.v, termStyle(12, c.c ?? PALETTE.carta)).setWordWrapWidth(cw - 8).setMaxLines(1));
       });
-      for (let r = 1; r < rows; r++) g.lineStyle(1, PALETTE.linea, 1).lineBetween(16, cellsY + r * cellH, W - 16, cellsY + r * cellH);
-      g.lineStyle(1, PALETTE.linea, 1).strokeRect(12, cellsY, W - 24, rows * cellH);
+      for (let r = 1; r < rows; r++) dots(g, 16, cellsY + r * cellH, W - 16, cellsY + r * cellH);
+      g.lineStyle(1, PALETTE.carta, 0.6).strokeRect(12, cellsY, W - 24, rows * cellH);
     };
-    const action = (label: string, color: number, x: number, w: number, run: () => void) => {
-      const r = this.add.rectangle(x, actY, w, 32, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, color).setInteractive({ useHandCursor: true });
+    const action = (label: string, color: number, x: number, w: number, run: () => void, y = actY) => {
+      const r = this.add.rectangle(x, y, w, 32, TCOL.bg).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75).setInteractive({ useHandCursor: true });
+      r.on('pointerover', () => r.setFillStyle(TCOL.hover)).on('pointerout', () => r.setFillStyle(TCOL.bg));
       r.on('pointerup', () => { run(); buzz(10); });
-      items.push(r, this.add.text(x + w / 2, actY + 16, label, textStyle(11, color)).setOrigin(0.5));
+      items.push(r, this.add.text(x + w / 2, y + 16, label, termStyle(11, color)).setOrigin(0.5));
     };
 
     if (unit) {
       // pedina: chi è, quanto è messa, cosa batte
       const U = BALANCE.units[unit.type], info = unitInfo(unit.type), mine = unit.owner === PLAYER, F = FACTION_INFO[unit.owner];
-      g.fillStyle(F?.fill ?? PALETTE.carta, 1).fillRect(0, 0, W, 3);
+      const group = mine ? this.run.selectedUnits() : [];
       drawUnitIcon(g, unit.type, 22, 18, 8, F?.fill ?? PALETTE.carta);
-      items.push(this.add.text(38, 9, `${info.name.toUpperCase()} · ${mine ? 'TUA' : (F?.short ?? 'NEMICA')}`, textStyle(13, PALETTE.carta)));
-      const pct = unit.hp / unit.maxHp;
+      const size = unit.size > 1 ? ` ×${unit.size}` : '', many = group.length > 1 ? ` · ${group.length} selezionate` : '';
+      items.push(this.add.text(38, 9, `${info.name.toUpperCase()}${size} · ${mine ? 'TUA' : (F?.short ?? 'NEMICA')}${many}`, termStyle(13, PALETTE.carta)));
+      const pct = unit.hp / unit.maxHp, sup = unit.supply;
       const beats = info.beats.map((b) => unitInfo(b).short.toLowerCase()).join(', ') || '—';
+      const front = mine && unit.front >= 0 ? `fronte ${FACTION_INFO[unit.front]?.short.toLowerCase() ?? ''}` : '';
       cells([
         { k: 'VITA', v: `${Math.ceil(unit.hp)}/${Math.round(unit.maxHp)}`, c: pct > 0.5 ? PALETTE.radioattivo : pct > 0.25 ? PALETTE.allerta : PALETTE.ko },
-        { k: 'ATTACCO', v: String(U.attack) },
+        { k: 'ATTACCO', v: String(U.attack * unit.size) },
         { k: 'GITTATA', v: String(U.range) },
         { k: 'PASSO', v: `${(U.moveMs / 1000).toFixed(1).replace('.', ',')} s` },
+        { k: 'RIFORNIMENTO', v: sup < BALANCE.unitOps.attritionBelow ? `${Math.round(sup * 100)}% · si logora` : `${Math.round(sup * 100)}%`,
+          c: sup >= BALANCE.unitOps.healMinSupply ? PALETTE.radioattivo : sup >= BALANCE.unitOps.attritionBelow ? PALETTE.allerta : PALETTE.ko },
         { k: 'BATTE', v: beats },
-        { k: 'STATO', v: unit.inCombat ? 'in combattimento' : st.battles.some((b) => b.unit === unit.id) ? 'assedio' : unit.path.length ? 'in marcia' : 'ferma',
+        { k: 'STATO', v: unit.inCombat ? 'combatte' : st.battles.some((b) => b.unit === unit.id) ? 'assedio' : unit.path.length ? 'in marcia' : front || 'ferma',
           c: unit.inCombat ? PALETTE.ko : PALETTE.carta },
       ]);
-      items.push(this.add.text(12, actY + 8, mine ? 'Tocca una casella: la pedina ci va conquistando la strada.' : 'Pedina nemica: schiera chi la batte.',
-        textStyle(10, PALETTE.tenue, false)));
+      if (!mine) items.push(this.add.text(12, actY + 8, 'Pedina nemica: schiera chi la batte.', termStyle(10, PALETTE.tenue, false)));
+      else {
+        // comandi: comportamento, fronte, unisci, dividi, ritirata (valgono per tutte le pedine selezionate)
+        const att = group.length ? group.every((u) => u.stance === 'attacca') : unit.stance === 'attacca';
+        const bw = (W - 24 - (uPer - 1) * 6) / uPer;
+        const acts: [string, number, 'stance' | 'front' | 'merge' | 'split' | 'retreat'][] = [
+          [att ? 'ATTACCA' : 'DIFENDE', att ? PALETTE.allerta : PALETTE.carta, 'stance'], ['FRONTE', PALETTE.ocra, 'front'],
+          ['UNISCI', PALETTE.carta, 'merge'], ['DIVIDI', unit.size > 1 ? PALETTE.carta : PALETTE.tenue, 'split'], ['RITIRATA', PALETTE.ocra, 'retreat'],
+        ];
+        acts.forEach(([label, col, kind], k) => action(label, col, 12 + (k % uPer) * (bw + 6), bw, () => this.run.unitAction(kind), actY + Math.floor(k / uPer) * 38));
+        items.push(this.add.text(12, actY + uRows * 38, 'T comportamento · F fronte · U unisci · I dividi · R ritirata',
+          termStyle(9, PALETTE.tenue, false)).setWordWrapWidth(W - 24).setMaxLines(1));
+      }
     } else {
       const prov = st.map.provinces[p], o = st.provOwner[p], T = BALANCE.terrain[prov.terrain];
       const seen = o === PLAYER || st.seesProv(p);
@@ -851,9 +1126,8 @@ export class HudScene extends Phaser.Scene {
       const resName = RESOURCE_INFO[T.res].name.toLowerCase();
       const F = o >= 0 ? FACTION_INFO[o] : null;
       const ownerName = !seen && o !== PLAYER ? 'sconosciuto' : o === PLAYER ? 'TU' : F ? F.name : 'terra libera';
-      g.fillStyle(seen && F ? F.fill : PALETTE.linea, 1).fillRect(0, 0, W, 3);
       if (seen && F) drawSymbol(g, F.symbol, 20, 18, 7, F.fill, PALETTE.carta);
-      items.push(this.add.text(seen && F ? 34 : 12, 9, `${nation.toUpperCase()} · ${terrainName.toUpperCase()}`, textStyle(13, PALETTE.carta)));
+      items.push(this.add.text(seen && F ? 34 : 12, 9, `${nation.toUpperCase()} · ${terrainName.toUpperCase()}`, termStyle(13, PALETTE.carta)));
       const rel = o > PLAYER && seen ? st.relation[o] : null;
       const work = ready ? WORK_NAME[ready] : prog ? `cantiere ${mmss(prog.leftMs)}` : (() => { const w = st.workOf(p); return w ? WORK_NAME[w] : '—'; })();
       const cost = o === PLAYER ? 0 : st.provCost(PLAYER, p);
@@ -866,39 +1140,45 @@ export class HudScene extends Phaser.Scene {
         o === PLAYER ? { k: 'RIFORNIMENTO', v: `${Math.round(st.supply[p] * 100)}%${st.capitalProv[PLAYER] === p ? ' · capitale' : ''}`,
           c: st.supply[p] >= 0.95 ? PALETTE.radioattivo : st.supply[p] >= 0.6 ? PALETTE.allerta : PALETTE.ko }
           : { k: 'PER PRENDERLA', v: seen || o === NEUTRAL ? `${cost} truppe` : '?', c: st.troops > cost ? PALETTE.radioattivo : PALETTE.ko },
+        ...(fc ? [{ k: 'ESITO', v: fc.can ? fc.odds : 'mancano truppe', c: fc.odds === 'incerta' ? PALETTE.allerta : fc.odds === 'difficile' ? PALETTE.ko : PALETTE.radioattivo }] : []),
       ]);
       if (own && !grid) {
-        if (ready || prog) items.push(this.add.text(12, actY + 8, ready ? workDesc(ready, resName) : 'Cantiere aperto: la costruzione resta alla provincia.', textStyle(11, PALETTE.carta, false)));
+        if (ready || prog) items.push(this.add.text(12, actY + 8, ready ? workDesc(ready, resName) : 'Cantiere aperto: la costruzione resta alla provincia.', termStyle(11, PALETTE.carta, false)));
         else action('COSTRUISCI ▸', PALETTE.ocra, 12, 160, () => { this.provOpen = true; this.renderProvince(); });
       } else if (!own && st.battleAt(p)) {
         const b = st.battleAt(p)!, left = Math.max(0, Math.ceil((b.endMs - st.gameTimeMs) / 1000));
-        items.push(this.add.text(12, actY + 8, `ASSALTO IN CORSO · ${left} s · ${b.by === PLAYER ? `${b.troops} truppe impegnate` : 'nemico all\'attacco'}`, textStyle(11, PALETTE.allerta)));
+        items.push(this.add.text(12, actY + 8, `ASSALTO IN CORSO · ${left} s · ${b.by === PLAYER ? `${b.troops} truppe impegnate` : 'nemico all\'attacco'}`, termStyle(11, PALETTE.allerta)));
       } else if (!own) {
         const atWar = st.atWar(PLAYER, o);
         if (atWar && st.isFrontierProv(p)) action(`${o === NEUTRAL ? 'PRENDI' : 'ASSALTA'} · ${cost} TRUPPE`, st.troops > cost ? PALETTE.radioattivo : PALETTE.ko, 12, 200, () => this.run.tapProvince(p));
-        else if (atWar) action('AVANZATA ▸', PALETTE.carta, 12, 160, () => this.run.tapProvince(p));
         if (o > PLAYER && seen) action('SCHEDA ›', PALETTE.ocra, W - 12 - 120, 120, () => this.showProfile(o));
       }
       if (grid) {
-        // sette costruzioni su due righe: icona, nome, effetto, prezzo in truppe
-        const cols = 4, bw = (W - 24 - (cols - 1) * 6) / cols, bh = 62;
+        // costruzioni su più righe: icona, nome, effetto, prezzo in truppe e metallo
+        const cols = gCols, bw = (W - 24 - (cols - 1) * 6) / cols, bh = 62;
         WORKS.forEach((w, k) => {
           const D = BALANCE.works[w], block = st.workBlock(p, w), x = 12 + (k % cols) * (bw + 6), y = actY + Math.floor(k / cols) * (bh + 6);
           const price = st.workPrice(w);
-          const bg = this.add.rectangle(x, y, bw, bh, PALETTE.pannello).setOrigin(0).setStrokeStyle(1, block ? PALETTE.linea : PALETTE.ocra)
+          const bg = this.add.rectangle(x, y, bw, bh, TCOL.bg).setOrigin(0).setStrokeStyle(1.2, PALETTE.carta, block ? 0.25 : 0.8)
             .setInteractive({ useHandCursor: true });
           const ig = this.add.graphics();
           drawWorkIcon(ig, w, x + 12, y + 13, 7, block ? PALETTE.tenue : PALETTE.ocra);
-          const name = this.add.text(x + 24, y + 6, WORK_NAME[w].toUpperCase(), textStyle(10, block ? PALETTE.tenue : PALETTE.carta));
+          const name = this.add.text(x + 24, y + 6, WORK_NAME[w].toUpperCase(), termStyle(10, block ? PALETTE.tenue : PALETTE.carta));
           const lock = block === 'tech' ? `🔒 ${techInfo(D.tech).name}` : block === 'coast' ? 'solo sul mare' : workDesc(w, resName);
-          const sub = this.add.text(x + 6, y + 23, lock, textStyle(9, PALETTE.carta, false)).setWordWrapWidth(bw - 10);
-          const priceTxt = this.add.text(x + 6, y + bh - 4, `${price} truppe`, textStyle(9, block === 'troops' ? PALETTE.ko : PALETTE.tenue, false))
+          const sub = this.add.text(x + 6, y + 23, lock, termStyle(9, PALETTE.carta, false)).setWordWrapWidth(bw - 10);
+          const priceTxt = this.add.text(x + 6, y + bh - 4, `${price} truppe`, termStyle(9, block === 'troops' ? PALETTE.ko : PALETTE.tenue, false))
             .setOrigin(0, 1);
-          if (block === 'tech' || block === 'coast') priceTxt.setVisible(false);
+          // metallo dallo zaino: lingotto + quantità, in basso a destra
+          const metal = st.workMetal(w), hidden = block === 'tech' || block === 'coast';
+          const metalTxt = this.add.text(x + bw - 6, y + bh - 4, String(metal), termStyle(9, block === 'metal' ? PALETTE.ko : PALETTE.tenue, false)).setOrigin(1, 1);
+          if (hidden) priceTxt.setVisible(false);
+          if (hidden || !metal) metalTxt.setVisible(false);
+          else drawResourceIcon(ig, 'metallo', x + bw - 12 - metalTxt.width, y + bh - 10, 4);
           bg.on('pointerup', () => {
             const now = st.workBlock(p, w); // lo stato può essere cambiato dopo il disegno della scheda
             if (now) {
               const why = now === 'tech' ? `serve la ricerca ${techInfo(D.tech).name}` : now === 'troops' ? `servono ${st.workPrice(w)} truppe`
+                : now === 'metal' ? `servono ${st.workMetal(w)} metallo nello zaino`
                 : now === 'busy' ? 'c\'è già una costruzione' : now === 'coast' ? 'il porto va sul mare' : 'provincia non tua';
               return this.toast(why.toUpperCase(), PALETTE.ko);
             }
@@ -909,7 +1189,7 @@ export class HudScene extends Phaser.Scene {
             }
             this.renderProvince();
           });
-          items.push(bg, ig, name, sub, priceTxt);
+          items.push(bg, ig, name, sub, priceTxt, metalTxt);
         });
       }
     }
@@ -929,7 +1209,8 @@ export class HudScene extends Phaser.Scene {
     if (this.pauseUi && inRect(this.pauseUi.list[0] as Phaser.GameObjects.Rectangle, this.pauseUi.x, this.pauseUi.y)) return true;
     if (this.provCard && inRect(this.provCard.list[0] as Phaser.GameObjects.Rectangle, this.provCard.x, this.provCard.y)) return true;
     if (this.profile && inRect(this.profile.list[0] as Phaser.GameObjects.Rectangle, this.profile.x, this.profile.y)) return true;
-    const btns = [this.speedBtn, this.pauseBtn, this.retreatBtn, ...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn].filter((b) => b !== null);
+    if (this.help && inRect(this.help.list[0] as Phaser.GameObjects.Rectangle, this.help.x, this.help.y)) return true;
+    const btns = [this.speedBtn, this.pauseBtn, this.retreatBtn, this.logiBtn, this.helpBtn, this.wallBtn, ...this.cards, ...this.abilityCards, this.attackBtn, this.workBtn].filter((b) => b !== null);
     return btns.some((b) => b.visible && b.contains(x, y));
   }
 }

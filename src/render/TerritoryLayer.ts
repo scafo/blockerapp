@@ -38,8 +38,11 @@ export class TerritoryLayer {
   private readonly holed: Uint8Array; // provincia con buchi (enclavi, laghi)
 
   /** res: pixel di texture per pixel dello schermo (sotto 1 sugli schermi molto densi, per la memoria). */
-  constructor(private scene: Phaser.Scene, private shapes: RegionShape[], private depth: number, private res = 1) {
+  /** layer: se c'è, la texture vive lì dentro (la carta a celle passa tutto il layer nello stesso filtro). */
+  constructor(private scene: Phaser.Scene, private shapes: RegionShape[], private depth: number, private res = 1,
+    private layer?: Phaser.GameObjects.Layer) {
     this.rt = scene.add.renderTexture(0, 0, 8, 8).setOrigin(0).setDepth(depth);
+    layer?.add(this.rt);
     this.g = scene.make.graphics({}, false);
     this.holes = scene.make.graphics({}, false);
     this.holed = Uint8Array.from(shapes, (sh) => (sh.parts.some((pt) => pt.holes.length) ? 1 : 0));
@@ -80,6 +83,7 @@ export class TerritoryLayer {
       // nuova texture invece di resize(): in Phaser una RenderTexture ridimensionata smette di ricevere disegni
       this.rt.destroy();
       this.rt = this.scene.add.renderTexture(0, 0, W, H).setOrigin(0).setDepth(this.depth).setVisible(!this.hidden);
+      this.layer?.add(this.rt);
     }
     this.rt.setPosition(c.x, c.y).setScale(1 / z).clear();
     const g = this.g.clear().setPosition(-c.x * z, -c.y * z).setScale(z);

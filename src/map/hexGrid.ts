@@ -1,7 +1,8 @@
 // Esagoni "pointy-top", coordinate offset odd-r (righe dispari spostate a destra).
 import { BALANCE } from '../config/balance';
+import { vToLat } from './projection';
 
-const { cols, rows, hexSize: S, latMax, latMin } = BALANCE.map;
+const { cols, rows, hexSize: S } = BALANCE.map;
 const SQRT3 = Math.sqrt(3);
 
 export const HEX_W = SQRT3 * S;
@@ -20,7 +21,7 @@ export function center(i: number): { x: number; y: number } {
 export function lonLat(i: number): [number, number] {
   const c = colOf(i), r = rowOf(i);
   const lon = -180 + ((c + 0.5 + 0.5 * (r & 1)) / (cols + 0.5)) * 360;
-  const lat = latMax - ((r + 0.5) / rows) * (latMax - latMin);
+  const lat = vToLat((r + 0.5) / rows);
   return [lon, lat];
 }
 
