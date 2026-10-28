@@ -11,8 +11,12 @@ import { saveProfile, type BuildingId, type Profile } from '../save/storage';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
-import { dashedBox, dots, italic, notch } from '../ui/schematic';
+import { dashedBox, dots, italic } from '../ui/schematic';
 import { safeInsets, uiCamera, view } from '../ui/screen';
+import { label as monoLabel, panel, value } from '../ui/ops';
+
+// pianta tecnica (riferimento di Nico: mappa di un impianto): fondo blu ardesia con puntini, stanze bianche collegate
+const BLUE = 0x1b2b33, CYAN = 0x6fc4c9;
 import { drawAbilityIcon, drawUnitIcon } from '../ui/unitIcons';
 
 const NW = 150, NH = 56, GX = 34, GY = 18;
@@ -53,10 +57,14 @@ export class TreeScene extends Phaser.Scene {
     const p = this.host.profile;
     const { width, height, portrait: P } = view(this);
     LABEL_W = P ? 80 : 104;
-    this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 1).setOrigin(0).setInteractive();
-    // intestazione
-    this.add.text(16, 12, 'ALBERO DELLA RICERCA', textStyle(20, PALETTE.carta)).setLetterSpacing(2);
-    this.header = this.add.text(16, 42, '', textStyle(11, PALETTE.tenue, false));
+    this.add.rectangle(0, 0, width, height, BLUE, 1).setOrigin(0).setInteractive();
+    // polvere di puntini come sulla carta della pianta
+    const dust = this.add.graphics();
+    for (let i = 0; i < Math.round(width * height / 2600); i++) dust.fillStyle(0xffffff, 0.15 + Math.random() * 0.35).fillRect(Math.random() * width, Math.random() * height, 1.2, 1.2);
+    // intestazione: nome della pianta e stato della ricerca
+    monoLabel(this, 16, 10, 'laboratorio · arsenale', CYAN, 9);
+    value(this, 16, 22, 'ALBERO DELLA RICERCA', 22);
+    this.header = this.add.text(width / 2, 30, '', italic(12, CYAN)).setOrigin(0.5, 0);
     const close = this.add.text(width - 16, 10 + safeInsets().top, '✕', textStyle(22, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
     close.on('pointerup', () => this.close());
     if (!P) {
@@ -65,7 +73,7 @@ export class TreeScene extends Phaser.Scene {
       b(`ARSENALE liv. ${p.buildings.arsenale} ›`, 'arsenale', width - 60);
       b(`LABORATORIO liv. ${p.buildings.laboratorio} ›`, 'laboratorio', width - 210);
     }
-    dots(this.add.graphics(), 16, 64, width - 16, 64);
+    dots(this.add.graphics(), 16, 64, width - 16, 64, 0xffffff, 0.6);
 
     // area dell'albero (si trascina) e scheda di dettaglio in basso
     const detailH = P ? 190 : 128;
@@ -78,8 +86,8 @@ export class TreeScene extends Phaser.Scene {
     const maskG = this.make.graphics({}, false).fillRect(this.area.x, this.area.y, this.area.w, this.area.h);
     this.content.setMask(maskG.createGeometryMask());
     this.labels.setMask(maskG.createGeometryMask());
-    this.add.rectangle(8, height - detailH + 6, width - 16, detailH - 14, PALETTE.inchiostro, 1).setOrigin(0).setStrokeStyle(1.5, PALETTE.carta, 0.9);
-    notch(this, 8, height - detailH + 6, 'Scheda della ricerca');
+    panel(this.add.graphics(), 8, height - detailH + 6, width - 16, detailH - 14, 0.94);
+    if (!P) this.drawKey(width - 16, height - detailH - 8);
     this.detail = this.add.container(0, height - detailH);
 
     // selezione iniziale: la ricerca in corso, o la prima disponibile del ramo richiesto
@@ -140,7 +148,7 @@ export class TreeScene extends Phaser.Scene {
     this.labels.removeAll(true);
     const g = this.add.graphics();
     this.content.add(g);
-    this.labels.add(this.add.rectangle(0, 0, LABEL_W - 8, this.size.h, PALETTE.inchiostro, 0.94).setOrigin(0));
+    this.labels.add(this.add.rectangle(0, 0, LABEL_W - 8, this.size.h, BLUE, 0.94).setOrigin(0));
     // fasce dei rami con il nome a sinistra
     const rowsOf = new Map<string, number[]>();
     for (const id of TECH_IDS) {
@@ -151,10 +159,13 @@ export class TreeScene extends Phaser.Scene {
     for (const [branch, rows] of rowsOf) {
       const r0 = Math.min(...rows), r1 = Math.max(...rows);
       const y0 = 12 + r0 * (NH + GY) - GY / 2, y1 = 12 + r1 * (NH + GY) + NH + GY / 2;
-      if (band++ % 2 === 0) g.fillStyle(0xffffff, 0.025).fillRect(0, y0, this.size.w, y1 - y0);
-      this.labels.add(this.add.text(12, (y0 + y1) / 2, BRANCHES[branch], italic(12, branch === 'armamenti' ? PALETTE.ocra : PALETTE.tenue))
-        .setOrigin(0, 0.5).setWordWrapWidth(LABEL_W - 20));
-      this.labels.add(this.add.rectangle(LABEL_W - 9, y0 + 6, 1.5, y1 - y0 - 12, branch === 'armamenti' ? PALETTE.ocra : PALETTE.carta, branch === 'armamenti' ? 1 : 0.5).setOrigin(0));
+      band++;
+      // come i piani della pianta: "RAMO 1" in maiuscolo e il nome in corsivo sotto
+      const my = (y0 + y1) / 2;
+      this.labels.add(monoLabel(this, 12, my - 14, `ramo ${band}`, 0xffffff, 9));
+      this.labels.add(this.add.text(12, my + 2, BRANCHES[branch], italic(12, CYAN)).setWordWrapWidth(LABEL_W - 20));
+      // confine del piano: filo a puntini
+      if (band > 1) dots(g, LABEL_W - 8, y0, this.size.w, y0, 0xffffff, 0.35);
     }
     // collegamenti: dalla ricerca richiesta a quella che sblocca
     for (const id of TECH_IDS) {
@@ -164,8 +175,10 @@ export class TreeScene extends Phaser.Scene {
         const done = p.techs.includes(r);
         const x0 = a.x + NW, y0 = a.y + NH / 2, x1 = b.x, y1 = b.y + NH / 2, mx = x1 - GX / 2;
         // corridoio pieno se la ricerca richiesta è fatta, condotta a puntini se no
-        if (done) g.lineStyle(1.5, PALETTE.carta, 0.9).strokePoints([{ x: x0, y: y0 }, { x: mx, y: y0 }, { x: mx, y: y1 }, { x: x1, y: y1 }], false);
-        else dots(dots(dots(g, x0, y0, mx, y0, PALETTE.carta, 0.6), mx, y0, mx, y1, PALETTE.carta, 0.6), mx, y1, x1, y1, PALETTE.carta, 0.6);
+        if (done) g.lineStyle(1.5, 0xffffff, 0.9).strokePoints([{ x: x0, y: y0 }, { x: mx, y: y0 }, { x: mx, y: y1 }, { x: x1, y: y1 }], false);
+        else dots(dots(dots(g, x0, y0, mx, y0, 0xffffff, 0.6), mx, y0, mx, y1, 0xffffff, 0.6), mx, y1, x1, y1, 0xffffff, 0.6);
+        // aggancio: pallino pieno sulla porta della stanza
+        g.fillStyle(0xffffff, 1).fillCircle(x1 - 1, y1, 2.6).fillCircle(x0 + 1, y0, 2.6);
       }
     }
     for (const id of TECH_IDS) this.drawNode(id, g);
@@ -180,22 +193,23 @@ export class TreeScene extends Phaser.Scene {
     const done = block === 'done';
     const locked = block === 'prev' || block === 'arsenale' || block === 'lab' || block === 'nolab';
     // come le stanze della pianta: fatta = piena avorio, disponibile = filo avorio, bloccata = tratteggiata, in corso = ambra
-    g.fillStyle(done ? PALETTE.carta : PALETTE.inchiostro, 1).fillRect(x, y, NW, NH);
-    if (locked && id !== this.sel) dashedBox(g, x, y, NW, NH, PALETTE.carta, 0.5);
-    else g.lineStyle(id === this.sel ? 2.5 : 1.5, id === this.sel ? PALETTE.ocra : running ? PALETTE.allerta : PALETTE.carta, 1).strokeRect(x, y, NW, NH);
+    g.fillStyle(done ? 0xf2f0e6 : BLUE, 1).fillRect(x, y, NW, NH);
+    if (locked && id !== this.sel) dashedBox(g, x, y, NW, NH, 0xffffff, 0.55);
+    else g.lineStyle(id === this.sel ? 2.5 : 1.5, id === this.sel ? CYAN : running ? PALETTE.allerta : 0xffffff, 1).strokeRect(x, y, NW, NH);
+    if (id === this.sel) g.lineStyle(1, CYAN, 0.6).strokeRect(x - 4, y - 4, NW + 8, NH + 8);
     // icona: unità, abilità o segno del ramo
     const ic = this.add.graphics();
-    const col = done ? PALETTE.inchiostro : locked ? PALETTE.tenue : PALETTE.carta;
+    const col = done ? BLUE : locked ? PALETTE.tenue : 0xffffff;
     if (t.unit) drawUnitIcon(ic, t.unit, x + 20, y + NH / 2, 9, col);
     else if (t.ability) drawAbilityIcon(ic, t.ability, x + 20, y + NH / 2, 9, col);
     else if (t.unique) ic.fillStyle(col, 1).fillTriangle(x + 12, y + NH / 2 + 7, x + 28, y + NH / 2 + 7, x + 20, y + NH / 2 - 9);
     else ic.lineStyle(2, col, 1).strokeCircle(x + 20, y + NH / 2, 7);
-    const name = this.add.text(x + 38, y + 8, t.name.toUpperCase(), textStyle(11, done ? PALETTE.inchiostro : locked ? PALETTE.tenue : PALETTE.carta))
+    const name = this.add.text(x + 38, y + 8, t.name.toUpperCase(), textStyle(11, done ? BLUE : locked ? PALETTE.tenue : 0xffffff))
       .setWordWrapWidth(NW - 44).setLineSpacing(-2);
     const sub = running ? `IN CORSO · ${fmtTime(p.research!.until - Date.now())}` : done ? '✓ fatta'
       : block === 'arsenale' ? `🔒 Arsenale liv. ${t.arsenale}` : block === 'lab' || block === 'nolab' ? `🔒 Laboratorio liv. ${Math.min(t.tier ?? 1, 3)}`
         : block === 'prev' ? '🔒 prima le precedenti' : fmtTime(t.timeSec * 1000);
-    const subT = this.add.text(x + 38, y + NH - 8, sub, italic(10, done ? PALETTE.inchiostro : running ? PALETTE.allerta : block === 'cost' ? PALETTE.ko : PALETTE.ocra)).setOrigin(0, 1);
+    const subT = this.add.text(x + 38, y + NH - 8, sub, italic(10, done ? BLUE : running ? PALETTE.allerta : block === 'cost' ? PALETTE.ko : CYAN)).setOrigin(0, 1);
     const hit = this.add.rectangle(x, y, NW, NH, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true });
     hit.on('pointerup', () => {
       if (this.moved) return;
@@ -251,6 +265,25 @@ export class TreeScene extends Phaser.Scene {
         textStyle(13, running ? PALETTE.allerta : block === 'done' ? PALETTE.ocra : PALETTE.tenue)).setOrigin(0.5));
     }
     this.detail.add(items);
+  }
+
+  /** Legenda della pianta (in basso a destra sopra la scheda), come "KEY" nel riferimento. */
+  private drawKey(right: number, bottom: number) {
+    const rows: [string, (g: Phaser.GameObjects.Graphics, x: number, y: number) => void][] = [
+      ['fatta', (g, x, y) => g.fillStyle(0xf2f0e6, 1).fillRect(x, y, 22, 12)],
+      ['disponibile', (g, x, y) => g.lineStyle(1.5, 0xffffff, 1).strokeRect(x, y, 22, 12)],
+      ['bloccata', (g, x, y) => dashedBox(g, x, y, 22, 12, 0xffffff, 0.6)],
+      ['in corso', (g, x, y) => g.lineStyle(1.5, PALETTE.allerta, 1).strokeRect(x, y, 22, 12)],
+    ];
+    const w = 168, h = 30 + rows.length * 20, x = right - w, y = bottom - h;
+    const g = this.add.graphics().setDepth(5);
+    g.fillStyle(BLUE, 0.95).fillRect(x, y, w, h);
+    dots(dots(g, x, y, x + w, y, 0xffffff, 0.7), x, y, x, y + h, 0xffffff, 0.7);
+    monoLabel(this, x + w / 2, y + 8, 'legenda', 0xffffff, 9).setOrigin(0.5, 0).setDepth(5);
+    rows.forEach(([t, draw], i) => {
+      draw(g, x + 12, y + 28 + i * 20);
+      monoLabel(this, x + 44, y + 34 + i * 20, t, 0xffffff, 9).setOrigin(0, 0.5).setDepth(5);
+    });
   }
 
   private close() {

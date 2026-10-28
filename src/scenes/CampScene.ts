@@ -1047,18 +1047,19 @@ export class CampScene extends Phaser.Scene {
       hit.on('pointerup', () => this.openPanel('gioca', 'civ'));
       items.push(hit, this.add.text(x0 + W - 16, y0 + 10, 'cambia potenza ›', textStyle(10, PALETTE.ocra)).setOrigin(1, 0));
     }
-    const row = (y: number, h: number, label: string, onClick: (() => void) | null, warn = false) => {
-      const r = this.add.rectangle(x0 + 16, y, W - 32, h, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1.2, warn ? PALETTE.ko : INK, warn ? 1 : onClick ? 0.75 : 0.3);
-      if (onClick) r.setInteractive({ useHandCursor: true }).on('pointerup', onClick).on('pointerover', () => r.setFillStyle(PALETTE.pannelloAlto)).on('pointerout', () => r.setFillStyle(PALETTE.inchiostro));
-      items.push(r, this.add.text(x0 + 24, y + 5, label, italic(11, warn ? PALETTE.ko : TEAL)));
-      if (onClick) items.push(this.add.text(x0 + W - 24, y + h / 2, '›', textStyle(18, PALETTE.ocra)).setOrigin(1, 0.5));
+    const row = (y: number, h: number, text: string, onClick: (() => void) | null, warn = false) => {
+      // riga traslucida come nella home; etichetta in mono, rossa se avverte di un pericolo
+      const r = this.add.rectangle(x0 + 16, y, W - 32, h, 0x2b333b, 0.55).setOrigin(0);
+      if (onClick) r.setInteractive({ useHandCursor: true }).on('pointerup', onClick).on('pointerover', () => r.setFillStyle(0x2b333b, 0.85)).on('pointerout', () => r.setFillStyle(0x2b333b, 0.55));
+      items.push(r, label(this, x0 + 26, y + 7, text, warn ? OPS.loss : OPS.label, 9));
+      if (warn) items.push(this.add.rectangle(x0 + 16, y, 2, h, OPS.loss).setOrigin(0));
+      if (onClick) items.push(label(this, x0 + W - 26, y + h / 2, '›', OPS.text, 14).setOrigin(1, 0.5));
     };
     let y = y0 + bh + 8;
     // fronte: difficoltà e potenza consigliata (alla Clash)
     const fi = activeFront(p), F = BALANCE.fronts[fi], power = playerPower(p), weak = power < F.power;
     row(y, 52, `FRONTE ${ROMAN[fi]} · ${'★'.repeat(fi + 1)}${'☆'.repeat(BALANCE.fronts.length - fi - 1)}${weak ? ' · NEMICI PIÙ FORTI DI TE' : ''}`, () => this.openPanel('gioca', 'fronti'), weak);
-    items.push(this.add.text(x0 + 24, y + 24, `${F.name} · potenza consigliata ${F.power} (tua ${power}) · bottino ×${F.lootMult}`,
-      textStyle(10, weak ? PALETTE.ko : PALETTE.carta, false)).setWordWrapWidth(W - 70));
+    items.push(body(this, x0 + 26, y + 24, `${F.name} · potenza consigliata ${F.power} (tua ${power}) · bottino ×${F.lootMult}`, 11, weak ? OPS.loss : OPS.text, W - 70));
     y += 58;
     const deck = deckOf(p, civ);
     row(y, 52, `REPARTI · ${deck.length} ${deck.length === 1 ? 'sbloccato' : 'sbloccati'}, tutti in campagna`, null);
@@ -1071,24 +1072,25 @@ export class CampScene extends Phaser.Scene {
     // nemici del fronte: le loro armi (se ne hanno che tu non hai, servono potenziamenti)
     const eg = this.add.graphics();
     const mine = unlockedUnits(p, civ);
-    items.push(this.add.text(x0 + 16, y + 2, 'ARMI NEMICHE', textStyle(9, PALETTE.tenue)));
-    F.aiUnits.forEach((t, k) => drawUnitIcon(eg, t, x0 + 112 + k * 28, y + 10, 7, mine.includes(t) ? PALETTE.tenue : PALETTE.ko));
+    items.push(label(this, x0 + 16, y + 4, 'armi nemiche', OPS.label, 9));
+    F.aiUnits.forEach((t, k) => drawUnitIcon(eg, t, x0 + 140 + k * 28, y + 10, 7, mine.includes(t) ? PALETTE.tenue : PALETTE.ko));
     items.push(eg);
     // puntata (alla poker): risorse del Deposito in gioco; più punti, più rende il guadagno; uscire prima costa
     y += 22;
     const K = stakeIndex(p), SK = BALANCE.stake, fee = Math.round(runOptions(p).exitFee * 100);
     // rischi della puntata (in verticale senza la ritirata, che la chiede comunque il tasto ESCI)
     const risks = [`non vinci −${Math.round(SK.lossShare * 100)}%`, ...(this.portrait ? [] : [`ritirata −${fee}%`]), `eliminato −${Math.round(runOptions(p).eliminatedLoss * 100)}%`];
-    row(y, 52, `PUNTATA ×${String(SK.mult[K]).replace('.', ',')} · ${risks.join(' · ')}`, null);
+    row(y, 66, `puntata ×${String(SK.mult[K]).replace('.', ',')}`, null);
+    items.push(label(this, x0 + 26, y + 22, risks.join(' · '), OPS.label, 8));
     const cw = Math.min(70, (W - 64) / SK.options.length - 6);
     SK.options.forEach((v, k) => {
-      const ok = canStake(p, k), cx = x0 + 24 + k * (cw + 6), cy = y + 22;
-      const chip = this.add.rectangle(cx, cy, cw, 24, k === K ? PALETTE.ocra : PALETTE.pannello).setOrigin(0)
-        .setStrokeStyle(1, ok ? PALETTE.ocra : PALETTE.linea);
+      const ok = canStake(p, k), cx = x0 + 24 + k * (cw + 6), cy = y + 36;
+      const chip = this.add.rectangle(cx, cy, cw, 24, k === K ? OPS.text : 0x000000, k === K ? 1 : 0.3).setOrigin(0)
+        .setStrokeStyle(1, ok ? OPS.text : OPS.edge, ok ? 0.7 : 0.4);
       if (ok) chip.setInteractive({ useHandCursor: true }).on('pointerup', () => { p.stake = k; saveProfile(p); this.openPanel('gioca', ''); });
-      items.push(chip, this.add.text(cx + cw / 2, cy + 12, v ? String(v) : 'NIENTE', textStyle(11, k === K ? PALETTE.inchiostro : ok ? PALETTE.carta : PALETTE.tenue)).setOrigin(0.5));
+      items.push(chip, label(this, cx + cw / 2, cy + 12, v ? String(v) : 'niente', k === K ? 0x0a0d10 : ok ? OPS.text : OPS.label, 10).setOrigin(0.5));
     });
-    y += 36;
+    y += 50;
     // (briefing tolto dalla pagina: troppo testo; fronte, reparti, armi nemiche e puntata bastano per partire)
     // durata + avvia
     const stack = this.portrait;
@@ -1112,14 +1114,15 @@ export class CampScene extends Phaser.Scene {
   private fillFronts(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, H: number) {
     const p = this.profile;
     const power = playerPower(p), max = p.frontMax ?? 0, sel = activeFront(p);
-    items.push(this.add.text(x0 + 16, y0 + 10, 'FRONTI', textStyle(16, INK)),
-      this.add.text(x0 + 110, y0 + 16, `la tua potenza: ${power}`, textStyle(11, PALETTE.ocra)),
+    items.push(label(this, x0 + 16, y0 + 14, 'fronti', OPS.text, 11),
+      label(this, x0 + 90, y0 + 14, `la tua potenza ${power}`, OPS.label, 10),
       this.link('‹ indietro', x0 + W - 40, y0 + 12, () => this.openPanel('gioca', '')));
     const rh = Math.min(46, (H - 52) / BALANCE.fronts.length - 4);
     BALANCE.fronts.forEach((F, k) => {
       const y = y0 + 44 + k * (rh + 4), open = k <= max, weak = power < F.power;
-      const r = this.add.rectangle(x0 + 16, y, W - 32, rh, k === sel ? PALETTE.pannelloAlto : PALETTE.inchiostro).setOrigin(0)
-        .setStrokeStyle(k === sel ? 2 : 1, k === sel ? PALETTE.ocra : PALETTE.linea).setAlpha(open ? 1 : 0.5).setInteractive({ useHandCursor: open });
+      const r = this.add.rectangle(x0 + 16, y, W - 32, rh, 0x2b333b, k === sel ? 0.9 : 0.5).setOrigin(0)
+        .setAlpha(open ? 1 : 0.5).setInteractive({ useHandCursor: open });
+      if (k === sel) items.push(this.add.rectangle(x0 + 16, y, 2, rh, OPS.text).setOrigin(0));
       r.on('pointerup', () => {
         if (!open) return this.toast(`Vinci il fronte ${ROMAN[k - 1]} per sbloccarlo`, PALETTE.carta);
         p.front = k;
@@ -1127,10 +1130,10 @@ export class CampScene extends Phaser.Scene {
         this.openPanel('gioca', '');
       });
       items.push(r,
-        this.add.text(x0 + 30, y + rh / 2, ROMAN[k], textStyle(18, open ? PALETTE.ocra : PALETTE.tenue)).setOrigin(0.5),
-        this.add.text(x0 + 52, y + 5, `${F.name.toUpperCase()}  ${'★'.repeat(k + 1)}`, textStyle(11, open ? PALETTE.carta : PALETTE.tenue)),
-        this.add.text(x0 + 52, y + rh - 5, open ? `potenza ${F.power}${weak ? ' · troppo forti per te' : ''} · bottino ×${F.lootMult}` : '🔒 vinci il fronte precedente',
-          textStyle(9, open && weak ? PALETTE.ko : PALETTE.tenue, false)).setOrigin(0, 1));
+        value(this, x0 + 34, y + rh / 2, ROMAN[k], 20, open ? OPS.text : OPS.label).setOrigin(0.5),
+        label(this, x0 + 58, y + 6, `${F.name}  ${'★'.repeat(k + 1)}`, open ? OPS.text : OPS.label, 10),
+        label(this, x0 + 58, y + rh - 6, open ? `potenza ${F.power}${weak ? ' · troppo forti per te' : ''} · bottino ×${F.lootMult}` : 'vinci il fronte precedente',
+          open && weak ? OPS.loss : OPS.label, 8).setOrigin(0, 1));
     });
   }
 
