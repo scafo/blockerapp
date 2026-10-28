@@ -31,6 +31,8 @@ import { drawPatch } from '../ui/symbols';
 import { drawUnitIcon } from '../ui/unitIcons';
 import { civImage, coverImage, fade } from '../ui/images';
 import { box, dashedBox, note, notch } from '../ui/schematic';
+import { OPS, body, dot, frameMarks, label, panel, value } from '../ui/ops';
+import { audioSettings, onAudioChange } from '../audio/engine';
 import { drawRoom, type RoomId, type RoomState } from '../ui/roomArt';
 
 const PAD = 12;
@@ -50,9 +52,16 @@ const SHORT: Record<MapSpot, string> = {
   comando: 'COMANDO', laboratorio: 'LABORATORIO', radar: 'RADAR', arsenale: 'ARSENALE', deposito: 'DEPOSITO',
   spedizione: 'ESTRAZIONE', alloggi: 'ALLOGGI', archivio: 'ARCHIVIO', mercato: 'MERCATO',
 };
-// posto nello schema: [colonna, fila]
-const GRID: Record<MapSpot, [number, number]> = {
-  laboratorio: [0, 0], comando: [0, 1], arsenale: [0, 2], radar: [1, 0], deposito: [1, 1], mercato: [1, 2], archivio: [2, 0], spedizione: [2, 1], alloggi: [2, 2],
+// home divisa per cosa serve (Nico): ogni voce apre la sua pagina a tutto schermo
+const GROUPS: { title: string; sub: string; ids: MapSpot[] }[] = [
+  { title: 'Base', sub: 'gestione', ids: ['comando', 'deposito', 'spedizione', 'alloggi'] },
+  { title: 'Sviluppo', sub: 'truppe e ricerca', ids: ['arsenale', 'laboratorio', 'radar'] },
+  { title: 'Scambi', sub: 'mercato e archivio', ids: ['mercato', 'archivio'] },
+];
+// riga sotto il nome: a cosa serve la pagina
+const ROLE: Record<MapSpot, string> = {
+  comando: 'livello della base', deposito: 'scorte e capienza', spedizione: 'missioni a tempo', alloggi: 'posti branda',
+  arsenale: 'truppe e armamenti', laboratorio: 'ricerche', radar: 'registro e vista', mercato: 'scambi e rifornimenti', archivio: 'frammenti della Caduta',
 };
 const CAMPAIGNS: CampaignId[] = ['breve', 'standard', 'lunga'];
 const CAMPAIGN_NAME: Record<CampaignId, string> = { breve: 'BREVE', standard: 'STANDARD', lunga: 'LUNGA' };
@@ -77,12 +86,12 @@ const PAGE: Record<Spot, { name: string; room: RoomId | null }> = {
 /** Accampamento (home): piccolo all'inizio, cresce con edifici, tende e spedizioni. */
 export class CampScene extends Phaser.Scene {
   profile!: Profile; // condiviso con l'albero della ricerca (TreeScene)
-  private plan = { x: 0, y: 0, w: 0, h: 0 }; // area della planimetria
-  private spotPos = {} as Record<MapSpot, { x: number; y: number }>;
+  private rowW = 300; // larghezza delle righe delle voci
+  private stripTexts: { cantiere?: Phaser.GameObjects.Text; ricerca?: Phaser.GameObjects.Text; audio?: Phaser.GameObjects.Text } = {};
   private clock: Phaser.GameObjects.Text | null = null;
   private portrait = false;
   private safe = { top: 0, right: 0, bottom: 0, left: 0 }; // notch e barra dei gesti (punti)
-  private spots = new Map<Spot, { x: number; y: number; g: Phaser.GameObjects.Graphics; deco: Phaser.GameObjects.GameObject[]; label: Phaser.GameObjects.Text }>();
+  private spots = new Map<Spot, { x: number; y: number; g: Phaser.GameObjects.Graphics; deco: Phaser.GameObjects.GameObject[]; label: Phaser.GameObjects.Text; w: number; h: number; left: number; top: number }>();
   private stashTexts: Phaser.GameObjects.Text[] = [];
   private stashBars: Phaser.GameObjects.Rectangle[] = [];
   private counting: boolean[] = [];
@@ -127,22 +136,13 @@ export class CampScene extends Phaser.Scene {
     // verticale: edifici su due file (dietro sull'orizzonte, davanti in basso), campo al centro
     this.portrait = height > width;
 
-    // schema ad albero: tre colonne e tre file di targhette tra il titolo e i tasti
     this.safe = safeInsets();
-    const st = this.safe.top, sb = this.safe.bottom, P = this.portrait;
-    this.plan = P ? { x: PAD + 8, y: 150 + st, w: width - 2 * PAD - 16, h: height - 150 - 150 - st - sb }
-      : { x: PAD + 30, y: 120 + st, w: width - 2 * PAD - 30 - 290, h: height - 120 - 80 - st - sb };
-    const cx = P ? [0.17, 0.5, 0.83] : [0.12, 0.5, 0.88], ry = [0.14, 0.5, 0.86];
-    this.spotPos = Object.fromEntries(Object.entries(GRID).map(([id, [c, r]]) => [id, { x: this.plan.x + this.plan.w * cx[c], y: this.plan.y + this.plan.h * ry[r] }])) as typeof this.spotPos;
     this.drawBackdrop();
-    this.drawCenter();
-    const nodes = (Object.keys(GRID) as MapSpot[]).filter((id) => id !== 'mercato' || this.profile.runs > 0);
-    for (const id of nodes) this.makeSpot(id, this.spotPos[id].x, this.spotPos[id].y);
+    this.drawHud();
     this.burst = this.add.particles(0, 0, 'dot', {
       speed: { min: 60, max: 180 }, lifespan: 600, scale: { start: 1, end: 0 }, emitting: false,
     }).setDepth(30);
 
-    this.drawHud();
     this.settleAll(true);
     this.introSpots();
     // tastiera (PC): INVIO = GIOCA, ESC = chiude la scheda aperta
@@ -162,7 +162,12 @@ export class CampScene extends Phaser.Scene {
     const d = new Date(now);
     this.clock?.setText(`HQ // ${civInfo(activeCiv(this.profile)).name.toUpperCase()} · SETTORE 07 · ${d.toTimeString().slice(0, 8)}`);
     this.updateBoard();
-    const c = this.profile.construction;
+    const c = this.profile.construction, rs = this.profile.research;
+    // barra di stato: quadratino ambra se il lavoro è in corso, grigio se fermo
+    this.stripTexts.cantiere?.setText(c ? `■ CANTIERE  ${buildingText[c.id].name.toUpperCase()} · ${fmtTime(c.until - now)}` : '□ CANTIERE  LIBERO')
+      .setColor(hex(c ? PALETTE.allerta : OPS.label));
+    this.stripTexts.ricerca?.setText(rs ? `■ RICERCA  ${techInfo(rs.id).name.toUpperCase()} · ${fmtTime(rs.until - now)}` : '□ RICERCA  FERMA')
+      .setColor(hex(rs ? PALETTE.allerta : OPS.label));
     for (const [spot, t] of this.timerTexts) {
       if (spot === 'spedizione') {
         const e = this.profile.expedition;
@@ -251,47 +256,32 @@ export class CampScene extends Phaser.Scene {
   }
 
   // ---------- disegno ----------
-  // Stile del Figma di Nico ("Headquarters"): foto fredda a tutto schermo sotto un velo blu notte, titolo centrato con un
-  // filetto, scorte in tre riquadri inclinati, le stanze come targhette avorio collegate da fili sottili in uno schema ad
-  // albero. Gerarchia: pieno avorio = si tocca (stanze, azione principale); filo = informazione o azione secondaria.
+  // Stile del Figma di Nico (riferimenti "Obsidian", "GIS", "Interzone"): foto scura a tutto schermo con crocini agli angoli,
+  // barra traslucida in alto (nome del gioco, comandante, scorte), a sinistra la prossima operazione con l'azione principale,
+  // a destra le voci divise per cosa servono (Base, Sviluppo, Scambi), in fondo la barra di stato (cantiere, ricerca, audio).
 
-  /** Fondo: foto della base sul ghiaccio, velata di blu notte e più scura in basso. */
+  /** Fondo: foto della base sul ghiaccio, scurita, con un velo più denso a sinistra dove si legge. */
   private drawBackdrop() {
     const { width, height } = view(this);
-    this.cameras.main.setBackgroundColor(0x0d1420);
-    coverImage(this, 'load-ghiaccio', 0, 0, width, height, 0.55).setTint(0xa9bcd4);
-    this.add.rectangle(0, 0, width, height, 0x0e1a2e, 0.62).setOrigin(0);
-    fade(this, 0, height * 0.5, width, height * 0.5, 0x0a121e, 0, 0.85);
+    this.cameras.main.setBackgroundColor(0x07090c);
+    coverImage(this, 'load-ghiaccio', 0, 0, width, height, 0.55).setTint(0x9fb0c4).setAlpha(0.6);
+    this.add.rectangle(0, 0, width, height, 0x05070a, 0.45).setOrigin(0);
+    fade(this, 0, 0, width * 0.55, height, 0x05070a, 0.7, 0, 'h');
+    fade(this, 0, height * 0.6, width, height * 0.4, 0x05070a, 0, 0.75);
   }
 
-  /** Fili dello schema: una colonna per gruppo di stanze, la fila centrale che le unisce. */
-  private drawCenter() {
-    const g = this.add.graphics(), S = this.spotPos;
-    const line = (a: { x: number; y: number }, b: { x: number; y: number }) => g.lineStyle(1.2, INK, 0.7).lineBetween(a.x, a.y, b.x, b.y);
-    line(S.laboratorio, S.arsenale);
-    line(S.radar, this.profile.runs > 0 ? S.mercato : S.deposito);
-    line(S.archivio, S.alloggi);
-    line(S.comando, S.spedizione);
-    this.clock = null;
-  }
-
-  /** Ingombro di una targhetta (punti). */
-  private footprint(_id: MapSpot) {
-    return { w: this.portrait ? Math.min(112, this.plan.w / 3 - 12) : 132, h: this.portrait ? 30 : 32 };
-  }
-
-  private makeSpot(id: MapSpot, x: number, y: number) {
-    const { w, h } = this.footprint(id);
+  /** Riga di una voce: barra traslucida, nome in mono maiuscolo, a cosa serve sotto, stato a destra. */
+  private makeSpot(id: MapSpot, x: number, y: number, w: number, h: number) {
     const g = this.add.graphics();
-    const label = this.add.text(x, y, '', textStyle(13, PALETTE.inchiostro)).setOrigin(0.5).setDepth(6);
-    const timer = this.add.text(x, y + h / 2 + 7, '', textStyle(10, PALETTE.allerta)).setOrigin(0.5, 0).setDepth(6);
+    const name = label(this, x + 14, y + 8, SHORT[id], OPS.text, 12).setDepth(6);
+    this.spots.set(id, { x: x + w / 2, y: y + h / 2, g, deco: [], label: name, w, h, left: x, top: y });
+    const timer = label(this, x + w - 14, y + h / 2, '', PALETTE.allerta, 10).setOrigin(1, 0.5).setDepth(6);
     this.timerTexts.set(id, timer);
-    this.spots.set(id, { x, y, g, deco: [], label });
-    const hit = this.add.rectangle(x, y, w + 16, h + 16, 0xffffff, 0.001).setInteractive({ useHandCursor: true }).setDepth(7);
+    const hit = this.add.rectangle(x, y, w, h, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true }).setDepth(7);
     let pressed = false; // apre solo se il tocco è iniziato qui
-    hit.on('pointerdown', () => { pressed = true; this.tapRing(id, PALETTE.ocra, 1); buzz(8); });
-    hit.on('pointerover', () => this.tweens.add({ targets: [g, label], scale: 1.04, duration: 90 }));
-    hit.on('pointerout', () => { pressed = false; this.tweens.add({ targets: [g, label], scale: 1, duration: 90 }); });
+    hit.on('pointerdown', () => { pressed = true; buzz(8); });
+    hit.on('pointerover', () => this.paintRow(id, true));
+    hit.on('pointerout', () => { pressed = false; this.paintRow(id, false); });
     hit.on('pointerup', () => {
       if (!pressed) return;
       pressed = false;
@@ -299,48 +289,48 @@ export class CampScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * Targhetta della stanza: avorio pieno se costruita (si tocca), solo filo se ancora da costruire, filo ambra se in cantiere.
-   * Nome breve al centro, livello piccolo a destra, rombi d'aggancio ai fili sui lati; ▲ verde acqua se migliorabile adesso.
-   */
+  private paintRow(id: MapSpot, hover: boolean) {
+    const r = this.spots.get(id);
+    if (!r) return;
+    const isB = (BUILDINGS as string[]).includes(id), built = !isB || this.profile.buildings[id as BuildingId] > 0;
+    r.g.clear().fillStyle(0x2b333b, hover ? 0.85 : built ? 0.55 : 0.3).fillRect(r.left, r.top, r.w, r.h);
+    if (hover) r.g.fillStyle(OPS.text, 1).fillRect(r.left, r.top, 2, r.h);
+  }
+
+  /** Stato della voce: livello a tacche, migliorabile, da costruire; i timer li scrive update(). */
   private redrawSpot(id: MapSpot) {
     const spot = this.spots.get(id);
     if (!spot) return;
     spot.deco.forEach((d) => d.destroy());
     spot.deco = [];
-    const { w, h } = this.footprint(id), x = spot.x, y = spot.y;
+    this.paintRow(id, false);
+    const { left: x, top: y, w, h } = spot;
     const isB = (BUILDINGS as string[]).includes(id), lvl = isB ? this.profile.buildings[id as BuildingId] : 1, max = isB ? maxLvl(id as BuildingId) : 0;
     const building = isB && this.profile.construction?.id === id, built = lvl > 0;
-    // la grafica e la scritta si disegnano attorno al centro (così si ingrandiscono dal centro al passaggio del mouse)
-    const g = spot.g.clear().setPosition(x, y), l = -w / 2, t = -h / 2;
-    g.fillStyle(built ? INK : 0x0e1a2e, built ? 1 : 0.85).fillRect(l, t, w, h);
-    g.lineStyle(building ? 2 : 1.2, building ? PALETTE.allerta : INK, built && !building ? 0 : 1).strokeRect(l, t, w, h);
-    for (const sx of [l, l + w]) g.fillStyle(built ? INK : 0x0e1a2e, 1).fillTriangle(sx, -6, sx + (sx === l ? -6 : 6), 0, sx, 6).lineStyle(1.2, building ? PALETTE.allerta : INK, 1)
-      .strokeTriangle(sx, -6, sx + (sx === l ? -6 : 6), 0, sx, 6);
-    const name = SHORT[id];
-    spot.label.setText(name).setStyle(textStyle(this.portrait ? 11 : 13, built ? PALETTE.inchiostro : INK)).setPosition(x - (max ? 8 : 0), y).setAlpha(1);
-    spot.label.setScale(Math.min(1, (w - (max ? 34 : 16)) / Math.max(1, spot.label.width)));
-    if (max) spot.deco.push(this.add.text(x + w / 2 - 8, y, `${lvl}/${max}`, textStyle(10, built ? 0x55606a : PALETTE.tenue, false)).setOrigin(1, 0.5).setDepth(6));
-    if (isB && lvl < max && !building && !buildBlock(this.profile, id as BuildingId)) {
-      const up = this.add.text(x + w / 2 + 4, y - h / 2 - 2, '▲', textStyle(11, PALETTE.radioattivo)).setOrigin(0, 1).setDepth(6);
-      this.tweens.add({ targets: up, y: up.y - 3, alpha: 0.4, duration: 600, yoyo: true, repeat: -1 });
-      spot.deco.push(up);
+    spot.label.setColor(hex(built ? OPS.text : OPS.label));
+    spot.deco.push(label(this, x + 14, y + h - 9, built ? ROLE[id] : 'da costruire', OPS.label, 9).setOrigin(0, 1).setDepth(6));
+    // tacche del livello a destra (piene = fatte); il timer del cantiere le sostituisce
+    if (max && !building) {
+      const tw = 7, gap = 3, tx = x + w - 14 - max * (tw + gap) + gap, g = this.add.graphics().setDepth(6);
+      for (let i = 0; i < max; i++) {
+        g.fillStyle(OPS.text, i < lvl ? 0.9 : 0).fillRect(tx + i * (tw + gap), y + h / 2 - 4, tw, 8);
+        g.lineStyle(1, OPS.text, i < lvl ? 0 : 0.35).strokeRect(tx + i * (tw + gap) + 0.5, y + h / 2 - 3.5, tw - 1, 7);
+      }
+      spot.deco.push(g);
+      // migliorabile adesso: puntino verde accanto al nome
+      if (lvl < max && !buildBlock(this.profile, id as BuildingId)) {
+        const d = this.add.rectangle(x + 14 + spot.label.width + 10, y + 8 + spot.label.height / 2, 6, 6, OPS.gain).setDepth(6);
+        this.tweens.add({ targets: d, alpha: 0.3, duration: 700, yoyo: true, repeat: -1 });
+        spot.deco.push(d);
+      }
     }
-    if (id === 'spedizione') this.drawConvoy(spot, x, y, w, h);
-  }
-
-  /** Squadre di estrazione: puntino che corre sul filo se sono fuori, ! che lampeggia se sono tornate. */
-  private drawConvoy(spot: { deco: Phaser.GameObjects.GameObject[] }, x: number, y: number, w: number, h: number) {
-    const e = this.profile.expedition, away = e && e.until > Date.now(), ready = e && e.until <= Date.now();
-    if (away) {
-      const dot = this.add.rectangle(x, y + h / 2 + 4, 5, 5, PALETTE.allerta).setDepth(5);
-      this.tweens.add({ targets: dot, y: this.spotPos.alloggi.y - h / 2 - 4, alpha: 0.2, duration: 2600, repeat: -1 });
-      spot.deco.push(dot);
-    }
-    if (ready) {
-      const bang = this.add.text(x + w / 2 + 10, y, '!', textStyle(20, PALETTE.allerta)).setOrigin(0, 0.5).setDepth(6);
-      this.tweens.add({ targets: bang, alpha: 0.2, duration: 400, yoyo: true, repeat: -1 });
-      spot.deco.push(bang);
+    if (id === 'spedizione') {
+      const e = this.profile.expedition;
+      if (e && e.until <= Date.now()) {
+        const d = this.add.rectangle(x + 14 + spot.label.width + 10, y + 8 + spot.label.height / 2, 6, 6, PALETTE.allerta).setDepth(6);
+        this.tweens.add({ targets: d, alpha: 0.2, duration: 400, yoyo: true, repeat: -1 });
+        spot.deco.push(d);
+      }
     }
   }
 
@@ -349,13 +339,17 @@ export class CampScene extends Phaser.Scene {
   private drawHud() {
     const { width, height } = view(this);
     const P = this.portrait;
-    const T = PAD + this.safe.top, B = PAD + this.safe.bottom;
     const p = this.profile;
-    // titolo centrato con il filetto che sfuma ai lati (nome del comandante sotto, si tocca per cambiarlo)
-    const title = this.add.text(width / 2, T + (P ? 34 : 14), 'Quartier Generale', {
-      fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif', fontStyle: '500', fontSize: `${P ? 26 : 34}px`, color: '#ffffff',
-      shadow: { offsetX: 0, offsetY: -1, color: '#000000', blur: 18, fill: true },
-    }).setOrigin(0.5, 0);
+    const M = P ? 14 : 26, T = M + this.safe.top, B = M + this.safe.bottom;
+    const fx = M, fy = T, fw = width - 2 * M, fh = height - T - B;
+    const g = this.add.graphics();
+    frameMarks(g, fx, fy, fw, fh);
+    const pad = P ? 10 : 22, L = fx + pad, R = fx + fw - pad;
+
+    // barra in alto: nome del gioco, comandante (si tocca per cambiarlo), scorte
+    const barH = P ? 76 : 52, barY = fy + pad;
+    g.fillStyle(0x2b333b, 0.55).fillRect(L, barY, R - L, barH);
+    const title = value(this, L + 16, barY + (P ? 8 : barH / 2), 'ARCHEON', P ? 24 : 28).setOrigin(0, P ? 0 : 0.5);
     // 5 tocchi sul titolo = contatore FPS nelle run (test sui telefoni)
     let taps = 0;
     title.setInteractive().on('pointerup', () => {
@@ -365,45 +359,91 @@ export class CampScene extends Phaser.Scene {
       try { localStorage.setItem(FPS_KEY, on ? '1' : '0'); } catch { /* niente storage */ }
       this.toast(on ? 'Contatore FPS attivo nelle run' : 'Contatore FPS spento', PALETTE.carta);
     });
-    const ly = title.y + title.height + 8, lw = title.width + 160, lg = this.add.graphics();
-    lg.fillGradientStyle(INK, INK, INK, INK, 0, 0.7, 0, 0.7).fillRect(width / 2 - lw / 2, ly, lw / 2, 1);
-    lg.fillGradientStyle(INK, INK, INK, INK, 0.7, 0, 0.7, 0).fillRect(width / 2, ly, lw / 2, 1);
-    this.add.text(width / 2, ly + 8, `${p.name || 'Comandante'} ✎`, textStyle(11, PALETTE.tenue, false)).setOrigin(0.5, 0)
+    const hx = title.x + title.width + 22;
+    label(this, hx, P ? barY + 12 : barY + barH / 2 - 15, 'quartier generale');
+    label(this, hx, P ? barY + 28 : barY + barH / 2 + 2, `${p.name || 'Comandante'} ✎`, OPS.text, 10)
       .setInteractive({ useHandCursor: true }).on('pointerup', () => this.editName());
-    // scorte: tre riquadri inclinati col filo (informazione, non tasti): icona e quantità; rosso se il Deposito è pieno
-    const segW = P ? (width - 2 * PAD - 16) / 3 : 112, segH = 30, skew = 9;
-    const sx0 = P ? PAD + 4 : width - PAD - 3 * segW - 2 * 6, sy = P ? T : T + 10;
-    const sg = this.add.graphics();
+    // scorte: icona e numero in mono, rosso se il Deposito è pieno
     this.stashBars = [];
-    this.stashTexts = RESOURCES.map((r, i) => {
-      const x = sx0 + i * (segW + 6);
-      sg.fillStyle(0x0e1a2e, 0.7).fillPoints([{ x: x + skew, y: sy }, { x: x + segW, y: sy }, { x: x + segW - skew, y: sy + segH }, { x, y: sy + segH }], true);
-      sg.lineStyle(1.2, INK, 0.85).strokePoints([{ x: x + skew, y: sy }, { x: x + segW, y: sy }, { x: x + segW - skew, y: sy + segH }, { x, y: sy + segH }], true);
-      drawResourceIcon(sg, r, x + skew + 14, sy + segH / 2, 7);
-      return this.add.text(x + segW - skew - 8, sy + segH / 2, '0', textStyle(15, INK)).setOrigin(1, 0.5);
-    });
+    const sy = P ? barY + barH - 16 : barY + barH / 2;
+    let sx = R - 16;
+    this.stashTexts = [...RESOURCES].reverse().map((r) => {
+      const t = label(this, sx, sy, '0', OPS.text, 13).setOrigin(1, 0.5);
+      drawResourceIcon(g, r, sx - 74, sy, 7);
+      sx -= 104;
+      return t;
+    }).reverse();
+    if (P) this.stashTexts.forEach((t, i) => t.setX(R - 16 - (2 - i) * 104));
     this.capText = null;
     this.statusText = null;
     // tasto TEST solo in sviluppo o con ?test=1 nell'indirizzo
     const testOk = import.meta.env.DEV || p.test || new URLSearchParams(location.search).has('test');
-    if (testOk) this.add.text(PAD, P ? T + 96 : T + 4, p.test ? '[ TEST ATTIVO ]' : '[ TEST ]', textStyle(11, PALETTE.allerta))
+    if (testOk) label(this, L, barY + barH + 8, p.test ? '[ test attivo ]' : '[ test ]', PALETTE.allerta, 9)
       .setInteractive({ useHandCursor: true }).on('pointerup', () => this.openPanel('test'));
-    // azione principale: AVVIA CAMPAGNA, in fondo alla fila centrale dello schema (in verticale in basso, larga)
-    const bw = P ? width - 2 * PAD : 210, bh = 50;
-    const play = new Button(this, 'AVVIA CAMPAGNA  ▶', bw, bh, () => this.onPlay(), 16).setPrimary();
-    const S = this.spotPos.spedizione, fw = this.footprint('spedizione').w;
-    const px = P ? PAD : width - PAD - bw, py = P ? height - B - bh : S.y - bh / 2;
-    play.setPosition(px, py).setDepth(20);
-    if (!P) this.add.graphics().lineStyle(1.2, INK, 0.7).lineBetween(S.x + fw / 2 + 6, S.y, px, S.y).fillStyle(PALETTE.ruggine, 1).fillCircle(px - 10, S.y, 4);
-    // sotto l'azione principale, piccolo: dove si va
-    const fi = activeFront(p), F = BALANCE.fronts[fi], weak = playerPower(p) < F.power;
-    this.add.text(px + bw / 2, P ? py - 8 : py + bh + 8, `fronte ${ROMAN[fi]} · ${F.name.toLowerCase()}${weak ? ' · nemici più forti' : ''}`, textStyle(10, weak ? PALETTE.ko : PALETTE.tenue, false))
-      .setOrigin(0.5, P ? 1 : 0).setInteractive({ useHandCursor: true }).on('pointerup', () => { if (p.runs > 0) this.openPanel('gioca', 'fronti'); });
-    // azioni secondarie (solo filo): cantiere e ricerca
-    const sw = 120, sh = 34, sx = P ? PAD : PAD, syy = P ? py - 30 - sh : height - B - sh;
-    const sec: [string, () => void][] = [['CANTIERE', () => this.openPanel('cantiere')], ['RICERCA', () => this.openPanel('ricerca')],
-      ['AUDIO', () => this.toggleAudio(sx + 2 * (sw + 8), syy)]]; // impostazioni audio (Nico)
-    sec.forEach(([lbl, run], i) => new Button(this, lbl, sw, sh, run, 12).setPosition(sx + i * (sw + 8), syy).setDepth(20));
+
+    // barra di stato in fondo: cantiere e ricerca (si toccano per aprire la pagina), audio a destra
+    const stH = 40, stY = fy + fh - pad - stH;
+    g.fillStyle(0x2b333b, 0.55).fillRect(L, stY, R - L, stH);
+    const part = (x: number, key: 'cantiere' | 'ricerca', run: () => void) => {
+      const t = label(this, x, stY + stH / 2, '', OPS.label, 11).setOrigin(0, 0.5).setInteractive({ useHandCursor: true }).on('pointerup', run);
+      this.stripTexts[key] = t;
+    };
+    part(L + 16, 'cantiere', () => this.openPanel('cantiere'));
+    part(L + 16 + (P ? (R - L) * 0.42 : 300), 'ricerca', () => this.openPanel('ricerca'));
+    const audio = label(this, R - 16, stY + stH / 2, '', OPS.text, 11).setOrigin(1, 0.5).setInteractive({ useHandCursor: true })
+      .on('pointerup', () => this.toggleAudio(R - 236, stY));
+    this.stripTexts.audio = audio;
+    const paintAudio = () => {
+      const on = !audioSettings().muted;
+      audio.setText(`audio ${on ? 'on' : 'off'}`.toUpperCase());
+    };
+    paintAudio();
+    const off = onAudioChange(paintAudio);
+    this.events.once('shutdown', off);
+
+    // colonne: prossima operazione a sinistra, voci a destra (in verticale una sotto l'altra)
+    const top = barY + barH + (P ? 22 : 34), bottom = stY - 16;
+    const rowH = P ? 40 : 44, gap = 6, gh = 30;
+    const groups = GROUPS.map((gr) => ({ ...gr, ids: gr.ids.filter((id) => id !== 'mercato' || p.runs > 0) }));
+    const listH = groups.reduce((s, gr) => s + gh + gr.ids.length * (rowH + gap) + 10, 0);
+    this.rowW = P ? R - L : Math.min(380, (R - L) * 0.42);
+    const lx = P ? L : R - this.rowW;
+    let ly = P ? bottom - listH : top;
+    // operazione: in verticale sopra le voci, in orizzontale a sinistra
+    const opY = top, opW = P ? R - L : Math.min(460, lx - L - 40);
+    const fi = activeFront(p), F = BALANCE.fronts[fi], yours = playerPower(p), weak = yours < F.power;
+    dot(g, L + 3, opY + 7, OPS.accent);
+    label(this, L + 14, opY, 'prossima operazione', OPS.accent);
+    const big = value(this, L - 2, opY + 18, `FRONTE ${ROMAN[fi]}`, P ? 36 : 60);
+    const fname = body(this, L, big.y + big.height + 2, F.name, 15, OPS.text);
+    // potenza: tua contro consigliata, con il colore che dice se basta
+    const pw = fname.y + fname.height + 14;
+    label(this, L, pw, 'potenza');
+    value(this, L, pw + 14, `${yours}`, 22, weak ? OPS.loss : OPS.text);
+    label(this, L + 90, pw, 'consigliata');
+    value(this, L + 90, pw + 14, `${F.power}`, 22);
+    g.lineStyle(1, OPS.edge, 0.5).lineBetween(L + 72, pw + 2, L + 72, pw + 40);
+    if (weak) body(this, L, pw + 46, 'Nemici più forti di te: potenzia la base prima di partire.', 12, OPS.loss, opW);
+    // azione principale
+    const bw = P ? R - L : Math.min(300, opW), bh = 54;
+    const playY = P ? Math.min(pw + 74, ly - bh - 16) : pw + (weak ? 74 : 60);
+    const play = new Button(this, 'AVVIA CAMPAGNA', bw, bh, () => this.onPlay(), 18).setPrimary();
+    play.setPosition(L, playY).setDepth(20);
+    if (p.runs > 0) label(this, L, playY + bh + 10, 'cambia fronte ›', OPS.label, 10).setInteractive({ useHandCursor: true }).on('pointerup', () => this.openPanel('gioca', 'fronti'));
+    if (P) ly = Math.max(ly, playY + bh + 34);
+
+    // voci per gruppo: titolo del gruppo (mono) e a cosa serve, poi le righe
+    for (const gr of groups) {
+      label(this, lx, ly + 8, gr.title, OPS.text, 10);
+      label(this, lx + this.rowW, ly + 8, gr.sub, OPS.label, 9).setOrigin(1, 0);
+      g.lineStyle(1, OPS.edge, 0.5).lineBetween(lx, ly + gh - 6, lx + this.rowW, ly + gh - 6);
+      ly += gh;
+      for (const id of gr.ids) {
+        this.makeSpot(id, lx, ly, this.rowW, rowH);
+        ly += rowH + gap;
+      }
+      ly += 10;
+    }
   }
 
   private audioPanel: Phaser.GameObjects.Container | null = null;
@@ -434,11 +474,11 @@ export class CampScene extends Phaser.Scene {
   private tapRing(id: MapSpot, color: number, size: number) {
     const spot = this.spots.get(id);
     if (!spot) return;
-    const { w, h } = this.footprint(id);
+    const { w, h } = spot;
     const g = this.add.graphics({ x: spot.x, y: spot.y }).setDepth(8);
-    g.lineStyle(2, color, 0.9).strokeRect(-w / 2 - 6, -h / 2 - 6, w + 12, h + 12);
-    g.setScale(0.97 * size);
-    this.tweens.add({ targets: g, scale: 1.07 * size, alpha: 0, duration: size > 1 ? 650 : 280, ease: 'Quad.easeOut', onComplete: () => g.destroy() });
+    g.lineStyle(2, color, 0.9).strokeRect(-w / 2 - 4, -h / 2 - 4, w + 8, h + 8);
+    g.setScale(0.98 * size);
+    this.tweens.add({ targets: g, scale: 1.04 * size, alpha: 0, duration: size > 1 ? 650 : 280, ease: 'Quad.easeOut', onComplete: () => g.destroy() });
   }
 
   /** Entrata: le targhette compaiono una dopo l'altra lungo i fili. */
@@ -523,45 +563,43 @@ export class CampScene extends Phaser.Scene {
       const fresh = !this.page;
       this.page?.destroy();
       this.pageKey = key;
-      // fondo: la stessa foto della base (la parabola per la Sala Radar), più velata perché sopra si legge
+      // fondo: la stessa foto della base (la parabola per la Sala Radar), scurita come la home
       const objs: Phaser.GameObjects.GameObject[] = [
-        this.add.rectangle(0, 0, width, height, 0x0d1420, 1).setOrigin(0).setInteractive(), // la base sotto non riceve i tocchi
-        coverImage(this, spot === 'radar' ? 'load-radar' : 'load-ghiaccio', 0, 0, width, height, 0.5).setTint(0xa9bcd4),
-        this.add.rectangle(0, 0, width, height, 0x0e1a2e, 0.74).setOrigin(0),
+        this.add.rectangle(0, 0, width, height, 0x07090c, 1).setOrigin(0).setInteractive(), // la base sotto non riceve i tocchi
+        coverImage(this, spot === 'radar' ? 'load-radar' : 'load-ghiaccio', 0, 0, width, height, 0.5).setTint(0x9fb0c4).setAlpha(0.45),
+        this.add.rectangle(0, 0, width, height, 0x05070a, 0.55).setOrigin(0),
       ];
-      // testata: ‹ BASE (solo filo: azione secondaria), titolo centrato col filetto, livelli disegnati sotto, scorte
-      const back = new Button(this, '‹ BASE', 92, 36, () => this.closePanel(), 13);
-      back.setPosition(PAD, T + 4);
-      const isB = (BUILDINGS as string[]).includes(spot), lvl = isB ? p.buildings[spot as BuildingId] : 0, max = isB ? maxLvl(spot as BuildingId) : 0;
-      const title = this.add.text(width / 2, T + (P ? 46 : 6), info.name, {
-        fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif', fontStyle: '500', fontSize: `${P ? 24 : 30}px`, color: '#ffffff',
-        shadow: { offsetX: 0, offsetY: -1, color: '#000000', blur: 16, fill: true },
-      }).setOrigin(0.5, 0);
+      // testata: barra traslucida con ‹ BASE, nome della pagina, livello a tacche e scorte
       const hg = this.add.graphics();
-      const ly = title.y + title.height + 6, lw = title.width + 140;
-      hg.fillGradientStyle(INK, INK, INK, INK, 0, 0.7, 0, 0.7).fillRect(width / 2 - lw / 2, ly, lw / 2, 1);
-      hg.fillGradientStyle(INK, INK, INK, INK, 0.7, 0, 0.7, 0).fillRect(width / 2, ly, lw / 2, 1);
+      const barY = T - 4, barH = P ? 84 : 52;
+      hg.fillStyle(0x2b333b, 0.55).fillRect(PAD, barY, width - 2 * PAD, barH);
+      const back = label(this, PAD + 14, barY + (P ? 16 : barH / 2), '‹ base', OPS.text, 11).setOrigin(0, 0.5).setInteractive({ useHandCursor: true })
+        .on('pointerup', () => this.closePanel());
+      const isB = (BUILDINGS as string[]).includes(spot), lvl = isB ? p.buildings[spot as BuildingId] : 0, max = isB ? maxLvl(spot as BuildingId) : 0;
+      hg.lineStyle(1, OPS.edge, 0.6).lineBetween(back.x + back.width + 14, barY + 12, back.x + back.width + 14, barY + (P ? 30 : barH - 12));
+      const title = value(this, back.x + back.width + 28, barY + (P ? 16 : barH / 2), info.name.toUpperCase(), P ? 20 : 24).setOrigin(0, 0.5);
       objs.push(back, title, hg);
-      if (isB) { // livelli: celle sotto il titolo (piena = fatto, ambra = in cantiere)
-        const cw = 22, gap = 5, cx = width / 2 - (max * cw + (max - 1) * gap) / 2;
+      if (isB) { // livello: tacche dopo il titolo (piena = fatto, ambra = in cantiere)
+        const tw = 9, gap = 3, tx = title.x + title.width + 16;
+        objs.push(label(this, tx, barY + (P ? 16 : barH / 2) - 14, `liv ${lvl}/${max}`, OPS.label, 8));
         for (let i = 0; i < max; i++) {
-          const bx = cx + i * (cw + gap), done = i < lvl, now = st.building && i === lvl;
-          hg.fillStyle(done ? INK : 0x0e1a2e, done ? 1 : 0.6).fillRect(bx, ly + 10, cw, 8).lineStyle(1.2, now ? PALETTE.allerta : INK, done || now ? 1 : 0.5).strokeRect(bx, ly + 10, cw, 8);
+          const bx = tx + i * (tw + gap), done = i < lvl, now = st.building && i === lvl;
+          hg.fillStyle(now ? PALETTE.allerta : OPS.text, done || now ? 0.9 : 0).fillRect(bx, barY + (P ? 16 : barH / 2) + 2, tw, 8);
+          hg.lineStyle(1, OPS.text, done || now ? 0 : 0.35).strokeRect(bx + 0.5, barY + (P ? 16 : barH / 2) + 2.5, tw - 1, 7);
         }
       }
-      // scorte: tre riquadri inclinati (informazione), come nella base
-      const segW = P ? (width - 2 * PAD - 116) / 3 : 104, segH = 28, skew = 8, sy = T + 6;
-      const sx0 = width - PAD - 3 * segW - 2 * 5;
-      RESOURCES.forEach((r, i) => {
-        const x = sx0 + i * (segW + 5);
-        const pts = [{ x: x + skew, y: sy }, { x: x + segW, y: sy }, { x: x + segW - skew, y: sy + segH }, { x, y: sy + segH }];
-        hg.fillStyle(0x0e1a2e, 0.7).fillPoints(pts, true).lineStyle(1.1, INK, 0.8).strokePoints(pts, true);
-        drawResourceIcon(hg, r, x + skew + 12, sy + segH / 2, 6);
-        objs.push(this.add.text(x + segW - skew - 7, sy + segH / 2, String(p.stash[r]), textStyle(13, INK)).setOrigin(1, 0.5));
+      // scorte: icona e numero in mono, a destra della barra (in verticale sotto il titolo)
+      let sx = width - PAD - 16;
+      const sy = barY + (P ? barH - 18 : barH / 2);
+      [...RESOURCES].reverse().forEach((r) => {
+        const t = label(this, sx, sy, String(p.stash[r]), OPS.text, 12).setOrigin(1, 0.5);
+        drawResourceIcon(hg, r, sx - Math.max(48, t.width) - 12, sy, 6);
+        objs.push(t);
+        sx -= Math.max(48, t.width) + 40;
       });
       if (art) {
         const ag = this.add.graphics();
-        ag.fillStyle(0x0b1524, 0.82).fillRect(art.x, art.y, art.w, art.h).lineStyle(1, INK, 0.35).strokeRect(art.x, art.y, art.w, art.h);
+        panel(ag, art.x, art.y, art.w, art.h, 0.8);
         objs.push(ag, ...drawRoom(this, info.room!, art.x, art.y, art.w, art.h, st));
       }
       this.page = this.add.container(0, 0, objs).setDepth(39);
@@ -677,7 +715,7 @@ export class CampScene extends Phaser.Scene {
     const items: Phaser.GameObjects.GameObject[] = [];
     // fascicolo: riquadro scuro velato sulla foto, filo sottile (niente etichette: il titolo è in testata)
     const fg = this.add.graphics();
-    fg.fillStyle(0x0b1524, 0.82).fillRect(x0, y0, W, H).lineStyle(1, INK, 0.35).strokeRect(x0, y0, W, H);
+    panel(fg, x0, y0, W, H, 0.86);
     items.push(fg);
     const now = Date.now();
 
