@@ -1,4 +1,5 @@
 // Carta unità: icona e ricarica che scende dall'alto.
+import { sfx } from '../audio/sfx';
 import Phaser from 'phaser';
 import type { AbilityType, UnitType } from '../config/balance';
 import { PALETTE } from '../config/palette';
@@ -24,7 +25,7 @@ export class UnitCard extends Phaser.GameObjects.Container {
     this.cool = scene.add.rectangle(0, 0, CARD_W, 0, TCOL.bg, 0.75).setOrigin(0);
     this.add([this.bg, icon, this.cool]);
     this.setSize(CARD_W, CARD_H);
-    this.bg.setInteractive({ useHandCursor: true }).on('pointerup', onClick);
+    this.bg.setInteractive({ useHandCursor: true }).on('pointerup', () => { sfx('select'); onClick(); });
     scene.add.existing(this);
   }
 
@@ -63,7 +64,7 @@ export class AbilityCard extends Phaser.GameObjects.Container {
     this.cool = scene.add.rectangle(0, 0, CARD_W, 0, TCOL.bg, 0.75).setOrigin(0);
     this.add([...parts, this.cool]);
     this.setSize(CARD_W, CARD_H);
-    this.bg.setInteractive({ useHandCursor: true }).on('pointerup', onClick);
+    this.bg.setInteractive({ useHandCursor: true }).on('pointerup', () => { sfx('select'); onClick(); });
     scene.add.existing(this);
   }
 

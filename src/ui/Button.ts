@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { PALETTE, hex } from '../config/palette';
 import { textStyle } from './style';
+import { sfx } from '../audio/sfx';
 
 export interface ButtonOpts {
   icon?: string; // chiave di una texture già caricata, disegnata a sinistra dell'etichetta
@@ -59,9 +60,16 @@ export class Button extends Phaser.GameObjects.Container {
       .on('pointerup', () => {
         if (this.disabled_) return;
         this.squash(1, 220, 'Back.easeOut', 0.94);
+        sfx('click');
         onClick();
       });
     scene.add.existing(this);
+  }
+
+  /** Cambia l'icona (stessa misura): es. altoparlante barrato quando l'audio è muto. */
+  setIcon(key: string): this {
+    this.icon?.setTexture(key);
+    return this;
   }
 
   /** Scala attorno al centro (il contenitore ha l'origine in alto a sinistra): la posizione compensa. */

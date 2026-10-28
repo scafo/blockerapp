@@ -1,3 +1,4 @@
+import { music } from '../audio/music';
 import Phaser from 'phaser';
 import { BALANCE } from '../config/balance';
 import { PALETTE } from '../config/palette';
@@ -33,6 +34,7 @@ export class ResultScene extends Phaser.Scene {
 
   create(sum: RunSummary) {
     uiCamera(this);
+    music.setMode('hq'); // dopo la campagna la musica torna quella della base
     const profile = loadProfile();
     const { lostCap, unlocked } = applyRunResult(profile, sum, Date.now());
     profileStore.save(profile);

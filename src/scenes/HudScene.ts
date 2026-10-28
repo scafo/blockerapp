@@ -1,3 +1,6 @@
+import { sfx } from '../audio/sfx';
+import { audioSettings, onAudioChange } from '../audio/engine';
+import { openAudioPanel } from '../ui/audioPanel';
 import Phaser from 'phaser';
 import { BALANCE, type Resource, type UnitType, type WorkId } from '../config/balance';
 import { PALETTE, TERRAIN_VIEW, hex } from '../config/palette';
@@ -92,6 +95,8 @@ export class HudScene extends Phaser.Scene {
   private clockIcon!: Phaser.GameObjects.Image;
   private medalBtn!: Button; // al posto del riquadro territorio (Nico): apre province, classifica e fine campagna
   private medalPanel: Phaser.GameObjects.Container | null = null;
+  private audioBtn!: Button; // impostazioni audio (Nico): accanto alla medaglia
+  private audioPanel: Phaser.GameObjects.Container | null = null;
   private medalAcc = 0;
   private symPos: { x: number; y: number }[] = [];
   private unitPos: ({ x: number; y: number } | null)[] = [];
@@ -195,12 +200,16 @@ export class HudScene extends Phaser.Scene {
     this.buildBtn.setVisible(!this.run.state.opts.tutorial);
     this.medalBtn = new Button(this, '', 44, 44, () => this.toggleMedal(), 22, { icon: 'ico-medaglia' });
     this.medalPanel = null;
+    this.audioBtn = new Button(this, '', 44, 44, () => this.toggleAudio(), 22, { icon: audioSettings().muted ? 'ico-muto' : 'ico-audio' });
+    this.audioPanel = null;
+    const offAudio = onAudioChange(() => this.audioBtn.setIcon(audioSettings().muted ? 'ico-muto' : 'ico-audio'));
+    this.events.once('shutdown', offAudio);
     this.menu = null;
     this.menuOf = null;
     this.legend = null;
     this.help = null;
     this.forecast = null;
-    for (const b of [this.speedBtn, this.retreatBtn, this.pauseBtn, this.mapBtn, this.buildBtn, this.medalBtn]) b.terminal();
+    for (const b of [this.speedBtn, this.retreatBtn, this.pauseBtn, this.mapBtn, this.buildBtn, this.medalBtn, this.audioBtn]) b.terminal();
     this.input.keyboard?.on('keydown-L', () => this.toggleLogistics());
     this.input.keyboard?.on('keydown-H', () => this.toggleHelp());
     this.input.keyboard?.on('keydown-ESC', () => { if (this.help) this.toggleHelp(); this.closeMenu(); });
@@ -275,6 +284,19 @@ export class HudScene extends Phaser.Scene {
     return this.add.container(PAD, this.topBottom + 10, items).setDepth(40);
   }
 
+  /** Altoparlante: apre/chiude le impostazioni audio (l'icona diventa barrata se è muto). */
+  private toggleAudio() {
+    if (this.audioPanel) {
+      this.audioPanel.destroy();
+      this.audioPanel = null;
+      this.audioBtn.setOn(false);
+      return;
+    }
+    const b = this.audioBtn, x = Math.min(b.x, view(this).width - PAD - 236);
+    this.audioPanel = openAudioPanel(this, x, b.y + 44 + 8, 'term');
+    this.audioBtn.setOn(true);
+  }
+
   /** Medaglia: apre/chiude il pannello con province, classifica e fine campagna. */
   private toggleMedal() {
     if (this.medalPanel) { this.medalPanel.destroy(); this.medalPanel = null; this.medalBtn.setOn(false); return; }
@@ -336,7 +358,7 @@ export class HudScene extends Phaser.Scene {
       const y = 4 + i * RH;
       const hit = this.add.rectangle(4, y, W - 8, RH - 2, r.on ? TCOL.hover : TCOL.bg).setOrigin(0).setInteractive({ useHandCursor: true });
       hit.on('pointerover', () => hit.setFillStyle(TCOL.hover)).on('pointerout', () => hit.setFillStyle(r.on ? TCOL.hover : TCOL.bg));
-      hit.on('pointerup', () => { this.closeMenu(); r.pick(); buzz(10); });
+      hit.on('pointerup', () => { this.closeMenu(); r.pick(); buzz(10); sfx('click'); });
       items.push(hit);
       const tx = r.icon ? 34 : 14, col = r.off ? TCOL.dim : TCOL.text;
       if (r.icon) drawWorkIcon(g, r.icon, 20, y + RH / 2 - 1, 7, col);
@@ -475,6 +497,7 @@ export class HudScene extends Phaser.Scene {
       this.troopIcon.setPosition(PAD + 12, topPad + 30);
       this.troops.setPosition(PAD + 38, topPad + 14);
       this.medalBtn.setPosition(width - PAD - 12 - 44, topPad + 14);
+      this.audioBtn.setPosition(width - PAD - 12 - 44 - 50, topPad + 14);
       this.layoutResources(PAD + 16, topPad + 80 + (TOP_H - 80) / 2 - 4, (w - 40) / 3);
       this.topBottom = topPad + TOP_H;
       this.symPos = this.rows.map(() => ({ x: 0, y: 0 }));
@@ -499,6 +522,7 @@ export class HudScene extends Phaser.Scene {
       box(cx, topPad, cW, BAR_H, this.resLabel);
       this.notches[1].setVisible(false);
       this.medalBtn.setPosition(bx, topPad);
+      this.audioBtn.setPosition(bx + 50, topPad);
       this.troopIcon.setPosition(PAD + 12, topPad + 30);
       this.troops.setPosition(PAD + 38, topPad + 14);
       this.layoutResources(cx + 14, topPad + 32, (cW - 24) / 3);
@@ -831,7 +855,7 @@ export class HudScene extends Phaser.Scene {
       const x = 14 + (k % 2) * (cw + 8), y = 160 + Math.floor(k / 2) * (ch + 8);
       const r = this.add.rectangle(x, y, cw, ch, TCOL.bg).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75).setInteractive({ useHandCursor: true });
       r.on('pointerover', () => r.setFillStyle(TCOL.hover)).on('pointerout', () => r.setFillStyle(TCOL.bg));
-      r.on('pointerup', () => { a.run(); buzz(10); this.renderProfile(); });
+      r.on('pointerup', () => { a.run(); buzz(10); sfx('click'); this.renderProfile(); });
       items.push(r, this.add.text(x + cw / 2, y + ch / 2, a.label, termStyle(12, a.color)).setOrigin(0.5));
     });
     items.push(this.add.text(14, H - 34, 'In pace non vi attaccate. Tieni premuto su una provincia per aprire la sua scheda.', termStyle(9, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
@@ -1178,7 +1202,7 @@ export class HudScene extends Phaser.Scene {
       const r = this.add.rectangle(x, yy, w, BH, fill).setOrigin(0).setStrokeStyle(1, kind === 'off' ? TCOL.dim : TCOL.edge, kind === 'main' ? 0 : 0.9)
         .setInteractive({ useHandCursor: true });
       r.on('pointerover', () => r.setFillStyle(kind === 'main' ? 0xffffff : TCOL.hover)).on('pointerout', () => r.setFillStyle(fill));
-      r.on('pointerup', () => { run(); buzz(10); });
+      r.on('pointerup', () => { run(); buzz(10); sfx('click'); });
       items.push(r, this.add.text(x + w / 2, yy + BH / 2, label, termStyle(13, kind === 'main' ? TCOL.bg : kind === 'off' ? TCOL.dim : TCOL.text)).setOrigin(0.5));
     };
     const note = (text: string, color: number = TCOL.label) => {
@@ -1310,7 +1334,8 @@ export class HudScene extends Phaser.Scene {
     if (this.help && inRect(this.help.list[0] as Phaser.GameObjects.Rectangle, this.help.x, this.help.y)) return true;
     if (this.menu && inRect(this.menu.list[0] as Phaser.GameObjects.Rectangle, this.menu.x, this.menu.y)) return true;
     if (this.medalPanel && inRect(this.medalPanel.list[0] as Phaser.GameObjects.Rectangle, this.medalPanel.x, this.medalPanel.y)) return true;
-    const btns = [this.speedBtn, this.pauseBtn, this.retreatBtn, this.mapBtn, this.buildBtn, this.medalBtn, ...this.cards, ...this.abilityCards].filter((b) => b !== null);
+    if (this.audioPanel && inRect(this.audioPanel.list[0] as Phaser.GameObjects.Rectangle, this.audioPanel.x, this.audioPanel.y)) return true;
+    const btns = [this.speedBtn, this.pauseBtn, this.retreatBtn, this.mapBtn, this.buildBtn, this.medalBtn, this.audioBtn, ...this.cards, ...this.abilityCards].filter((b) => b !== null);
     return btns.some((b) => b.visible && b.contains(x, y));
   }
 }

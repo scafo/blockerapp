@@ -1,3 +1,4 @@
+import { installAudioUnlock } from './audio/engine';
 import Phaser from 'phaser';
 import { analytics } from './analytics/analytics';
 import { PALETTE } from './config/palette';
@@ -16,6 +17,7 @@ import { initDevProfile } from './save/devProfiles';
 
 initDevProfile(); // ?profile=nuovo|dopo1|medio|max: sposta il salvataggio su una chiave di prova, prima di tutto
 installHotkeys();
+installAudioUnlock(); // l'audio parte al primo tocco (regola dei browser)
 import bodyUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-500-normal.woff2';
 import bodyBoldUrl from '@fontsource/barlow-semi-condensed/files/barlow-semi-condensed-latin-700-normal.woff2';
 import titleUrl from '@fontsource/oswald/files/oswald-latin-600-normal.woff2';

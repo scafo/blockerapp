@@ -9,6 +9,8 @@ import shield from 'lucide-static/icons/shield.svg?raw';
 import clock from 'lucide-static/icons/clock.svg?raw';
 import flag from 'lucide-static/icons/flag.svg?raw';
 import medal from 'lucide-static/icons/medal.svg?raw';
+import volume from 'lucide-static/icons/volume-2.svg?raw';
+import volumeX from 'lucide-static/icons/volume-x.svg?raw';
 
 // reparti (Nico: "solo le icone, icone decenti"): set Tabler (licenza MIT), stesso tratto delle altre
 import helmet from '@tabler/icons/outline/helmet.svg?raw';
@@ -28,7 +30,7 @@ const RAW: Record<string, string> = {
   'ico-u-genio': shovel, 'ico-u-cannoniera': ship, 'ico-u-guardia': shieldStar, 'ico-u-legionari': sword,
   'ico-u-prototipo': robot, 'ico-u-infiltrati': spy, 'ico-a-bombardamento': bomb,
   'ico-truppe': users, 'ico-mappa': map, 'ico-costruisci': hammer, 'ico-logistica': truck, 'ico-difesa': shield,
-  'ico-tempo': clock, 'ico-territorio': flag, 'ico-medaglia': medal,
+  'ico-tempo': clock, 'ico-territorio': flag, 'ico-medaglia': medal, 'ico-audio': volume, 'ico-muto': volumeX,
 };
 
 /** Da chiamare nel preload della prima scena. */

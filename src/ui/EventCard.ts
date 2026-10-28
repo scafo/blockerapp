@@ -1,4 +1,5 @@
 // Carta evento stile Reigns: trascinala a sinistra o a destra (o tocca le scelte). La run è in pausa.
+import { sfx } from '../audio/sfx';
 import Phaser from 'phaser';
 import { PALETTE } from '../config/palette';
 import type { EventChoice, GameEvent } from '../game/events';
@@ -76,6 +77,7 @@ export class EventCard extends Phaser.GameObjects.Container {
   }
 
   private pick(side: 'left' | 'right') {
+    sfx('select');
     if (this.done) return;
     this.done = true;
     const { width } = view(this.scene);

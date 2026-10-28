@@ -1,3 +1,5 @@
+import { sfx } from '../audio/sfx';
+import { music } from '../audio/music';
 import { DEV, applyResume, clearResume, saveResume, type ResumeData } from '../save/devResume';
 import Phaser from 'phaser';
 import { BALANCE, type AbilityType, type Resource, type UnitType, type WorkId } from '../config/balance';
@@ -162,6 +164,7 @@ export class RunScene extends Phaser.Scene {
   private pinchDist = 0;
 
   private runSeed = '';
+  private musicAt = 0;
   private resumeSaveAt = 0; // sviluppo: ultimo salvataggio per riprendere dopo un ricaricamento di Vite
 
   constructor() {
@@ -305,6 +308,8 @@ export class RunScene extends Phaser.Scene {
 
     this.scene.launch('Hud');
     this.scene.bringToTop('Hud');
+    music.setMode('run');
+    this.musicAt = 0;
   }
 
   update(time: number, delta: number) {
@@ -320,16 +325,19 @@ export class RunScene extends Phaser.Scene {
         this.ownedDirty = true;
         if (e.by === PLAYER) {
           if (e.p !== this.tapFxTile && pops++ < 8) this.popFx(e.p);
+          sfx('conquer', 0.8);
           this.hud.tutorialSignal('conquer');
         }
         if (e.from === PLAYER && e.by !== NEUTRAL && time - this.lastHitFx > 250) {
           this.lastHitFx = time;
           this.lostFx(e.p, e.by);
+          sfx('lost');
         }
       } else if (e.type === 'unitDied') {
         this.unitDeathFx(e.unit);
       } else if (e.type === 'province') {
         this.hud.onProvince(e.by, e.capital, e.nation, e.bonus);
+        if (e.by === PLAYER) sfx('reward');
       } else if (e.type === 'boat') {
         this.boatLandFx(e.boat, e.phase);
       } else if (e.type === 'flowEnd') {
@@ -339,6 +347,7 @@ export class RunScene extends Phaser.Scene {
         this.selectedCard = null;
         this.selectUnit(null);
         this.hud.showEvent(e.event);
+        sfx('event');
       } else if (e.type === 'timer') {
         this.hud.onTimer();
       } else if (e.type === 'ability') {
@@ -354,6 +363,7 @@ export class RunScene extends Phaser.Scene {
       } else if (e.type === 'offensive') {
         this.hud.onOffensive(e.faction, e.phase, e.lost);
         if (e.phase === 'start') this.cameras.main.shake(220, 0.002);
+        if (e.phase === 'warn' || e.phase === 'start') sfx('alert');
       } else if (e.type === 'work') {
         this.borderKey = ''; // icone delle costruzioni da ridisegnare
         if (e.by === PLAYER) {
@@ -363,42 +373,55 @@ export class RunScene extends Phaser.Scene {
             this.flashProvince(e.p, PALETTE.ocra, 0.55, 700);
             this.floatText(x, y - 6, `${name} pronta`, PALETTE.ocra);
             buzz(20);
-          } else this.floatText(x, y - 6, `cantiere: ${name.toLowerCase()}`, PALETTE.allerta);
+            sfx('built');
+          } else {
+            this.floatText(x, y - 6, `cantiere: ${name.toLowerCase()}`, PALETTE.allerta);
+            sfx('build');
+          }
         }
         this.hud.refreshProvince();
       } else if (e.type === 'diplomacy') {
         this.ownedDirty = true; // il fronte attaccabile cambia con la guerra e la pace
         this.hud.onDiplomacy(e.faction, e.what, e.byPlayer, e.amount ?? 0);
+        if (e.what === 'war') sfx('war');
+        else if (e.what === 'peace' || e.what === 'alliance') sfx('peace');
       } else if (e.type === 'encircled') {
         if (e.by === PLAYER || e.from === PLAYER) {
           for (const p of e.provinces.slice(0, 12)) this.flashProvince(p, e.by === PLAYER ? MAP_SEL : PALETTE.ko, 0.6, 700);
           this.hud.onEncircled(e.by, e.from, e.provinces.length);
           if (e.by === PLAYER) buzz([20, 30, 20]);
+          sfx(e.by === PLAYER ? 'reward' : 'lost', 1, false);
         }
       } else if (e.type === 'battle') {
         this.ownedDirty = true; // il fronte attaccabile cambia
         const b = e.battle, { x, y } = center(this.map.provinces[b.p].anchor);
         if (e.phase === 'start' && b.from === PLAYER) {
           this.flashProvince(b.p, PALETTE.ko, 0.5, 600);
+          sfx('battle');
           if (time - this.lastDefendToast > 8000) { this.lastDefendToast = time; this.hud.onDefending(b.by); }
         } else if (e.phase === 'lost' && b.by === PLAYER) {
           this.failFx(x, y, 'respinti!');
           this.cameras.main.shake(140, 0.002);
           buzz(30);
+          sfx('repelled');
         } else if (e.phase === 'lost' && b.from === PLAYER) {
           this.floatText(x, y - 4, 'tenuta!', MAP_SEL);
+          sfx('held');
         }
       } else if (e.type === 'hit') {
         this.hitFx(e.from, e.to, e.fromTile, e.toTile, e.dmg, e.owner);
+        if (this.cameras.main.worldView.contains(center(e.toTile).x, center(e.toTile).y)) sfx('shot', 0.7); // solo i colpi che si vedono
       } else if (e.type === 'capital') {
         if (e.faction === PLAYER) {
           this.flashProvince(e.p, PALETTE.ocra, 0.6, 900);
           this.hud.onCapital();
+          sfx('alert');
         }
       } else if (e.type === 'focus') {
         // rapporto del radar: la carta va sulla provincia segnalata
         const { x, y } = center(this.map.provinces[e.p].anchor);
         this.cameras.main.pan(x, y, 450, 'Sine.easeInOut');
+        sfx('ping');
         this.flashProvince(e.p, PALETTE.allerta, 0.6, 900);
       } else {
         this.hud.onEliminated(e.faction, e.by, e.loot);
@@ -421,6 +444,14 @@ export class RunScene extends Phaser.Scene {
       this.hud.onMilestone(ms[this.nextMilestone++]);
     }
     if (this.state.over && !this.ending) this.finish();
+    // musica: calma in pace, battito se sei in guerra con qualcuno, tesa durante un'offensiva contro di te
+    if (time - this.musicAt > 2000) {
+      this.musicAt = time;
+      const st = this.state;
+      const war = st.factions.some((f, i) => i !== PLAYER && f.alive && f.kind === 'empire' && st.atWar(PLAYER, i));
+      const hot = st.offensive?.phase === 'on' || st.battles.some((b) => b.from === PLAYER);
+      music.setIntensity(this.ending ? 0 : hot ? 2 : war ? 1 : 0);
+    }
     if (DEV && !this.state.over && time - this.resumeSaveAt > 3000) {
       this.resumeSaveAt = time;
       const c = this.cameras.main;
@@ -1027,6 +1058,7 @@ export class RunScene extends Phaser.Scene {
 
   private applySelection() {
     const ids = [...this.selection];
+    if (ids.length) sfx('select');
     this.selectedUnit = ids.length ? ids[ids.length - 1] : null; // la principale: scheda in basso e mirino pieno
     if (this.selectedUnit !== null) this.hud.showUnit(this.selectedUnit); // tabella in basso: vita, attacco, stato
     this.selRing.setVisible(this.selectedUnit !== null);
@@ -1064,6 +1096,7 @@ export class RunScene extends Phaser.Scene {
     }
     if (!sent) { this.failFx(x, y, 'irraggiungibile'); return false; }
     this.floatText(x, y - 4, sent > 1 ? `avanti! · ${sent}` : 'avanti!', MAP_SEL);
+    sfx('order');
     // segnale d'arrivo: mirino che si stringe sul punto scelto
     const s = UI() / this.cameras.main.zoom, ring = this.add.graphics({ x, y }).setDepth(D.fx);
     brackets(ring, 0, 0, 16 * s, 2 * s, MAP_SEL, 1);
@@ -1184,6 +1217,7 @@ export class RunScene extends Phaser.Scene {
     this.attackLines.push({ pts, ids });
     const m = at(L / 2);
     this.floatText(m.x, m.y - 6, sent > 1 ? `in linea · ${sent}` : 'in linea', MAP_SEL);
+    sfx('order');
     buzz(12);
     this.selectUnit(null);
     this.hud.tutorialSignal('order');
@@ -1381,6 +1415,7 @@ export class RunScene extends Phaser.Scene {
       if (!u) return this.failFx(x, y, isNaval(t) ? 'serve una tua costa sul mare' : this.state.owner[i] === PLAYER ? 'casella occupata' : 'solo nel tuo territorio');
       this.selectedCard = null;
       this.syncUnits();
+      sfx('deploy');
       this.conquestFx(x, y, this.state.unitCost(PLAYER, t), 0);
       this.selectUnit(u.id);
       this.hud.tutorialSignal('deploy');
@@ -1463,7 +1498,7 @@ export class RunScene extends Phaser.Scene {
     this.selectedCard = null;
     this.selectUnit(null);
     this.hud.showEnd(this.state.over!, this.state.victoryReason);
-    buzz(this.state.over === 'victory' ? [40, 60, 40, 60, 120] : 150);
+    sfx(this.state.over === 'victory' ? 'victory' : 'defeat'); // con la vibrazione di prima (in sfx)
     for (const [k, v] of Object.entries(this.usage)) analytics.design(['controlli', k], v);
     analytics.design(['controlli', 'lavoro_finale'], Math.round(this.state.player.workers * 100));
     analytics.design(['controlli', 'attacco_finale'], Math.round(this.state.attackRatio * 100));
@@ -1646,6 +1681,7 @@ export class RunScene extends Phaser.Scene {
       const ring = this.add.rectangle(x, y, 2 * rr, 2 * rr).setStrokeStyle(1.5, MAP_SEL).setDepth(11); // area sorvolata: riquadro
       this.tweens.add({ targets: ring, scale: { from: 0.1, to: 1 }, alpha: { from: 1, to: 0 }, duration: 1200, onComplete: () => ring.destroy() });
       buzz(20);
+      sfx('ping');
       return;
     }
     if (phase === 'launch') {
@@ -1661,6 +1697,7 @@ export class RunScene extends Phaser.Scene {
     }
     this.cameras.main.shake(200, 0.0025); // bombardamento: scossa leggera, non uno schiaffo
     buzz([40, 30, 60]);
+    sfx('boom', 1, false);
     this.ownedDirty = true;
     this.floatText(x, y - 8, hits ? `colpiti ${hits}` : 'nessun bersaglio', hits ? MAP_INK : MAP_INK);
   }
@@ -1949,9 +1986,11 @@ export class RunScene extends Phaser.Scene {
       this.floatText(x, y - 6, `${unitInfo(u.type).short} caduta`, PALETTE.ko);
       this.cameras.main.shake(160, 0.003);
       buzz(40);
+      sfx('death', 1, false);
     } else if (this.state.sees(u.tile)) {
       this.floatText(x, y - 6, `${unitInfo(u.type).short} distrutta`, MAP_SEL);
       buzz(20);
+      sfx('death', 0.7, false);
     }
   }
 
@@ -1986,6 +2025,7 @@ export class RunScene extends Phaser.Scene {
     this.tweens.add({ targets: ring, alpha: 0, duration: 500, onComplete: () => ring.destroy() });
     this.tweens.add({ targets: ring, x: { from: x - 2, to: x }, duration: 60, repeat: 3, yoyo: true });
     this.floatText(x, y - 4, msg, PALETTE.ko);
+    sfx('error');
   }
 
   private floatText(x: number, y: number, msg: string, color: number, delay = 0) {

@@ -1,6 +1,7 @@
 // Schermata di caricamento sul riferimento di Nico (Figma, "Loading screens"): fotografia a tutto schermo e sopra, sulla destra,
 // un registro da terminale bianco che si accende riga per riga (colonna di sigle a sinistra, blocchi rientrati, alone luminoso).
 // Dura apposta qualche secondo in più (Nico): è il momento in cui si racconta la lore. Copre l'avvio della scena successiva.
+import { sfx } from '../audio/sfx';
 import Phaser from 'phaser';
 import loading from '../data/loading.json';
 import { loadWorld } from '../map/worldAsset';
@@ -190,6 +191,7 @@ export class LoadScene extends Phaser.Scene {
     const shownT = this.launched && !this.ready ? Math.min(t, 0.92) : t;
     const pct = this.leaving ? 100 : Math.floor(shownT * 100);
     if (n !== this.shown || pct !== this.pct) {
+      if (n > this.shown && this.shown >= 0) sfx('type', 0.45); // telescrivente: battuta a ogni gruppo di lettere
       this.shown = n;
       this.pct = pct;
       this.draw(n, pct);

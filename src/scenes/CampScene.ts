@@ -1,3 +1,5 @@
+import { openAudioPanel } from '../ui/audioPanel';
+import { music } from '../audio/music';
 import Phaser from 'phaser';
 import { BALANCE } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
@@ -105,6 +107,8 @@ export class CampScene extends Phaser.Scene {
 
   create() {
     uiCamera(this);
+    this.audioPanel = null;
+    music.setMode('hq'); // musica della base: calma
     this.profile = loadProfile();
     // campagna lasciata a metà (app chiusa): la puntata rientra come in una ritirata
     const back = recoverStake(this.profile);
@@ -397,8 +401,19 @@ export class CampScene extends Phaser.Scene {
       .setOrigin(0.5, P ? 1 : 0).setInteractive({ useHandCursor: true }).on('pointerup', () => { if (p.runs > 0) this.openPanel('gioca', 'fronti'); });
     // azioni secondarie (solo filo): cantiere e ricerca
     const sw = 120, sh = 34, sx = P ? PAD : PAD, syy = P ? py - 30 - sh : height - B - sh;
-    const sec: [string, () => void][] = [['CANTIERE', () => this.openPanel('cantiere')], ['RICERCA', () => this.openPanel('ricerca')]];
+    const sec: [string, () => void][] = [['CANTIERE', () => this.openPanel('cantiere')], ['RICERCA', () => this.openPanel('ricerca')],
+      ['AUDIO', () => this.toggleAudio(sx + 2 * (sw + 8), syy)]]; // impostazioni audio (Nico)
     sec.forEach(([lbl, run], i) => new Button(this, lbl, sw, sh, run, 12).setPosition(sx + i * (sw + 8), syy).setDepth(20));
+  }
+
+  private audioPanel: Phaser.GameObjects.Container | null = null;
+
+  /** Impostazioni audio sopra (o sotto) il tasto AUDIO. */
+  private toggleAudio(x: number, y: number) {
+    if (this.audioPanel?.active) { this.audioPanel.destroy(); this.audioPanel = null; return; }
+    const H = 26 + 34 * 4 + 6, { width, height } = view(this);
+    const px = Math.min(x, width - 236 - 8), py = y - H - 8 >= 8 ? y - H - 8 : Math.min(y + 42, height - H - 8);
+    this.audioPanel = openAudioPanel(this, px, py, 'camp');
   }
 
   // (bacheca operativa tolta: le sue voci sono ora targhette, timer sotto le targhette e tasti secondari)
