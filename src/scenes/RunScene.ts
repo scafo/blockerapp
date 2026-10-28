@@ -1,3 +1,4 @@
+import { DEV, applyResume, clearResume, saveResume, type ResumeData } from '../save/devResume';
 import Phaser from 'phaser';
 import { BALANCE, type AbilityType, type Resource, type UnitType, type WorkId } from '../config/balance';
 import buildingText from '../data/buildings.json';
@@ -160,35 +161,48 @@ export class RunScene extends Phaser.Scene {
   private dragging = false;
   private pinchDist = 0;
 
+  private runSeed = '';
+  private resumeSaveAt = 0; // sviluppo: ultimo salvataggio per riprendere dopo un ricaricamento di Vite
+
   constructor() {
     super('Run');
   }
 
   create(data: { seed: string; opts?: RunOptions }) {
+    // sviluppo: Vite ha ricaricato la pagina → si riprende la partita salvata (stessa carta, stesso stato), senza toccare il profilo
+    const resume = this.registry.get('resume') as ResumeData | undefined;
+    if (resume) {
+      this.registry.remove('resume');
+      data = { seed: resume.seed, opts: resume.opts };
+    }
+    this.runSeed = data.seed;
     // l'accampamento decide cosa è sbloccato in questa run
     const profile = loadProfile();
-    if (settle(profile, Date.now())) saveProfile(profile);
+    if (!resume && settle(profile, Date.now())) saveProfile(profile);
     const opts = data.opts ?? runOptions(profile);
     // la puntata esce dal Deposito adesso: è in gioco (e resta segnata finché la campagna non si chiude)
-    recoverStake(profile);
-    if (!opts.tutorial && RESOURCES.some((r) => opts.stake[r] > 0)) {
+    if (!resume) recoverStake(profile);
+    if (!resume && !opts.tutorial && RESOURCES.some((r) => opts.stake[r] > 0)) {
       for (const r of RESOURCES) profile.stash[r] = Math.max(0, profile.stash[r] - opts.stake[r]);
       profile.activeStake = { bag: { ...opts.stake }, fee: opts.exitFee };
     }
-    if (!opts.tutorial && profile.supplies?.length) profile.supplies = []; // i rifornimenti del Mercato partono con questa campagna
+    if (!resume && !opts.tutorial && profile.supplies?.length) profile.supplies = []; // i rifornimenti del Mercato partono con questa campagna
     // impero persistente: sullo stesso fronte si torna nello stesso mondo (stessa mappa, nucleo, rivali che ricordano)
     const world = !data.opts && !opts.tutorial ? enterWorld(profile, opts, data.seed) : null;
     const seed = world?.seed ?? data.seed;
     this.map = generateMap(seed, loadWorld(), opts.tutorial ? BALANCE.tutorial.aiCount : BALANCE.ai.count, opts.tutorial ? 0 : BALANCE.bots.count,
       opts.front.aiDistance);
     if (world) fallenToBots(this.map, world);
+    if (resume) resume.kinds.forEach((k, i) => { this.map.kinds[i] = k; });
     setupFactions(this.map.kinds, opts.civ, opts.playerName, seed); // tu, imperi con nomi casuali, milizie provinciali
     if (world) keepRivalNames(world, opts.civ);
-    saveProfile(profile);
+    if (!resume) saveProfile(profile);
+    this.runSeed = seed;
     this.state = new RunState(this.map, opts);
     this.state.initFog();
     // città vere della carta: le loro province valgono di più (Nico)
     this.state.setCities(places.cities.map(([, lon, lat]) => this.state.provOf(pixelToIndex(this.lonX(lon as number), this.latY(lat as number)))));
+    if (resume) applyResume(this.state, resume);
     analytics.runStart(opts.tutorial, seed);
     this.usage = { tocchi: 0, avanzate: 0, pittura: 0, pedine: 0, navi: 0 };
     this.nextMilestone = 0;
@@ -285,6 +299,8 @@ export class RunScene extends Phaser.Scene {
     this.redrawOwned();
     this.redrawFrontier(true);
     setupCamera(this);
+    if (resume) { this.cameras.main.setZoom(resume.cam.zoom); this.cameras.main.setScroll(resume.cam.x, resume.cam.y); this.syncUnits(); }
+    this.resumeSaveAt = 0;
     this.setupInput();
 
     this.scene.launch('Hud');
@@ -405,6 +421,11 @@ export class RunScene extends Phaser.Scene {
       this.hud.onMilestone(ms[this.nextMilestone++]);
     }
     if (this.state.over && !this.ending) this.finish();
+    if (DEV && !this.state.over && time - this.resumeSaveAt > 3000) {
+      this.resumeSaveAt = time;
+      const c = this.cameras.main;
+      void saveResume(this.state, this.runSeed, this.map.kinds, { x: c.scrollX, y: c.scrollY, zoom: c.zoom });
+    }
     if (this.ownedDirty) {
       this.ownedDirty = false;
       this.redrawOwned();
@@ -1437,6 +1458,7 @@ export class RunScene extends Phaser.Scene {
 
   /** Fine run: un attimo per vedere cos'è successo, poi la schermata finale. */
   private finish() {
+    void clearResume(); // partita chiusa: al prossimo ricaricamento niente da riprendere
     this.ending = true;
     this.selectedCard = null;
     this.selectUnit(null);

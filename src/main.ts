@@ -77,6 +77,8 @@ function boot() {
   });
   // debug/test: accesso al gioco dalla console
   (window as unknown as { __game: Phaser.Game }).__game = game;
+  // sviluppo: pannello debug (tasto \\)
+  if (import.meta.env.DEV) { const g = game; void import('./ui/devPanel').then((m) => m.installDevPanel(g)); }
   game.events.once('ready', () => {
     document.getElementById('msg')?.remove(); // via la scritta di caricamento
     snapCanvas();

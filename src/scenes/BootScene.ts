@@ -5,6 +5,7 @@ import { restoreIfEmpty, requestPersistence } from '../save/backup';
 import { preloadImages } from '../ui/images';
 import { preloadIcons } from '../ui/icons';
 import type { LoadData } from './LoadScene';
+import { takeResume } from '../save/devResume';
 
 /** Carica le immagini e passa alla schermata di caricamento, che calcola terre e nazioni e apre la prima scena. */
 export class BootScene extends Phaser.Scene {
@@ -26,6 +27,13 @@ export class BootScene extends Phaser.Scene {
     // ?seed=... salta l'accampamento e apre subito quella mappa (test e rivincite condivise)
     const seed = new URLSearchParams(location.search).get('seed');
     const first = loadProfile().runs === 0; // prima volta: subito in azione (run guidata)
+    // sviluppo: Vite ha ricaricato la pagina per una modifica al codice → si riprende la partita di prima, senza schermate
+    const resume = await takeResume();
+    if (resume) {
+      this.registry.set('resume', resume);
+      this.scene.start('Load', { boot: true, quick: true, next: 'Run', data: { seed: resume.seed } } as LoadData);
+      return;
+    }
     const d: LoadData = seed || first ? { boot: true, next: 'Run', data: { seed: seed ?? randomSeed() } } : { boot: true, next: 'Camp' };
     this.scene.start('Title', d);
   }

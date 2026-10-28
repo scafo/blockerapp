@@ -12,6 +12,8 @@ export interface LoadData {
   data?: object;
   /** primo avvio: qui si calcolano anche terre e nazioni */
   boot?: boolean;
+  /** sviluppo, ripresa dopo un ricaricamento di Vite: caricamento il più breve possibile */
+  quick?: boolean;
 }
 
 const CHAR_MS = 22; // velocità della telescrivente
@@ -142,6 +144,7 @@ export class LoadScene extends Phaser.Scene {
     let t = 0;
     this.burst = marks.map((n, i) => { t += (pauses[i] / sum) * span; return [t, n] as [number, number]; });
     this.minMs = Phaser.Math.Clamp(this.total * this.charMs + 1800, MIN_MS, MAX_MS);
+    if (d.quick) this.minMs = 400;
     this.time.addEvent({ delay: 420, loop: true, callback: () => { this.cursor = !this.cursor; this.shown = -1; } });
 
     // tocco: salta solo quando il documento è scritto e la scena dopo è pronta

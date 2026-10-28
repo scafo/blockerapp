@@ -32,6 +32,7 @@
   "devDependencies": {
     "@capacitor/android": "^8.5.2",
     "@capacitor/cli": "^8.5.2",
+    "@tweakpane/core": "^2.0.5",
     "@types/d3-delaunay": "^6.0.4",
     "@types/d3-geo": "^3.1.1",
     "@types/geojson": "^7946.0.16",
@@ -42,6 +43,7 @@
     "dejavu-fonts-ttf": "^2.37.3",
     "polygon-clipping": "^0.15.7",
     "topojson-simplify": "^3.0.3",
+    "tweakpane": "^4.0.5",
     "typescript": "^5.9.3",
     "vite": "^6.4.3",
     "vite-node": "^3.2.4"
