@@ -79,6 +79,13 @@ export async function installDevPanel(game: Phaser.Game) {
     for (let k = 0; k < 60; k++) s.update(1000);
     s.speed = sp;
   }));
+  // Spector.js: cattura un fotogramma e mostra ogni disegno della scheda grafica (per il lag della carta)
+  fAct.addButton({ title: 'Cattura fotogramma (Spector)' }).on('click', async () => {
+    const { Spector } = await import('spectorjs');
+    const sp = new Spector();
+    sp.displayUI();
+    sp.captureCanvas(game.canvas);
+  });
   fAct.addButton({ title: 'Ricomincia da capo' }).on('click', async () => { await clearResume(); location.reload(); });
 
   // ---------- bilanciamento (solo questa sessione) ----------

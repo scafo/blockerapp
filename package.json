@@ -42,6 +42,7 @@
     "d3-geo": "^3.1.1",
     "dejavu-fonts-ttf": "^2.37.3",
     "polygon-clipping": "^0.15.7",
+    "spectorjs": "^0.9.33",
     "topojson-simplify": "^3.0.3",
     "tweakpane": "^4.0.5",
     "typescript": "^5.9.3",
