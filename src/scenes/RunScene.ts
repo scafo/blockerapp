@@ -1,3 +1,4 @@
+import { WorldMap } from '../render/WorldMap';
 import { sfx } from '../audio/sfx';
 import { music } from '../audio/music';
 import { DEV, applyResume, clearResume, saveResume, type ResumeData } from '../save/devResume';
@@ -9,7 +10,7 @@ import { recoverStake, runOptions, settle, type RunOptions } from '../game/camp'
 import { loadProfile, saveProfile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
 import { PALETTE, TERRAIN_VIEW, hex } from '../config/palette';
-import { TerminalMap, TERM, type TermBorder, type TermFrame } from '../render/TerminalMap';
+import { TERM, type TermFrame } from '../render/TerminalMap';
 import { generateMap, type RunMap } from '../map/generate';
 import { neighbors, HEX_W, WORLD_H, WORLD_W, center, pixelToIndex } from '../map/hexGrid';
 import { buildShapes, provinceAtPoint, type MapShapes } from '../map/provinceShapes';
@@ -62,15 +63,9 @@ export class RunScene extends Phaser.Scene {
   shapes!: MapShapes;
   private territory!: TerritoryLayer;
   private mapLayer!: Phaser.GameObjects.Layer;
-  private term!: TerminalMap;
+  private term!: WorldMap;
+  private termZoomKey = NaN;
   private termDirty = true;
-  private termRect: Phaser.Geom.Rectangle | null = null; // zona già disegnata (con margine mentre si sposta la carta)
-  private termZoom = 0;
-  private termAt = 0;
-  private termMovedAt = 0;
-  private termLastView = '';
-  private camZoomPrev = 0; // zoom del fotogramma prima: per capire quando lo zoom si ferma
-  private zoomAt = 0;
   /** Vista logistica (tasto LOGISTICA o L): rifornimento delle tue province sulla carta. */
   logistics = false;
   private logiTimer = 0;
@@ -247,7 +242,7 @@ export class RunScene extends Phaser.Scene {
     this.frontOk = new Map();
     // carta da terminale (MapSCII): disegnata a caratteri braille; la carta a campiture resta sotto, nascosta
     this.term?.destroy();
-    this.term = new TerminalMap(this, this.shapes, DPR, D.owned + 0.5);
+    this.term = new WorldMap(this, this.shapes, D.owned + 0.5);
     this.term.setTerrain(Uint8Array.from(this.map.provinces, (p) => TERRAIN_IDX[p.terrain] ?? 0)); // per la base fissa (terra e rilievo)
     // allineata ai pixel a fine fotogramma, dopo ogni spostamento della camera (anche WASD, che arriva dopo il ridisegno):
     // a metà pixel spariva una colonna di puntini, una linea verticale su tutta la carta (Nico)
@@ -261,8 +256,6 @@ export class RunScene extends Phaser.Scene {
     };
     this.events.on('postupdate', align);
     this.events.once('shutdown', () => this.events.off('postupdate', align));
-    this.termRect = null;
-    this.termZoom = 0;
     this.mapLayer.setVisible(false);
     this.borderGfx = this.add.graphics().setDepth(D.borders);
     this.borderKey = '';
@@ -483,7 +476,7 @@ export class RunScene extends Phaser.Scene {
     const cardP = this.hud.cardProvince;
     if (cardP !== this.workCardP) { this.workCardP = cardP; this.termDirty = true; this.borderKey = ''; } // costruzioni della provincia toccata
     this.redrawBorders(time);
-    this.term.work(4); // base della carta in preparazione (zona accanto alla vista): qualche millisecondo per fotogramma
+    this.term.work(6); // livelli della carta in preparazione e territori cambiati: qualche millisecondo per fotogramma
     this.redrawTerminal();
     const zc = this.cameras.main.zoom / UI();
     const landMode = zc >= 2.2; // da qui in su la carta cotta si vedrebbe sgranata
@@ -808,52 +801,21 @@ export class RunScene extends Phaser.Scene {
 
   /** Carta da terminale: si ridisegna quando si sposta la vista o cambia il territorio. */
   private redrawTerminal() {
-    const cam = this.cameras.main, now = this.time.now;
-    // vista di questo fotogramma (worldView si aggiorna solo al disegno: un fotogramma in ritardo mentre si trascina)
-    const vw = cam.width / cam.zoom, vh = cam.height / cam.zoom;
-    const v0 = new Phaser.Geom.Rectangle(cam.scrollX + (cam.width - vw) / 2, cam.scrollY + (cam.height - vh) / 2, vw, vh);
-    // barra di stato (coordinate e zoom): tolta (Nico: informazioni inutili)
-    const viewKey = `${v0.x.toFixed(1)}:${v0.y.toFixed(1)}`;
-    if (viewKey !== this.termLastView) { this.termLastView = viewKey; this.termMovedAt = now; }
-    // prestazioni: la carta si ridisegna solo se cambia il territorio, lo zoom, o se la vista esce dalla zona già disegnata
-    // (mentre si sposta la carta si disegna con un margine attorno, così trascinare non ridisegna a ogni fotogramma)
-    const zoomed = cam.zoom !== this.termZoom, R0 = this.termRect;
-    if (cam.zoom !== this.camZoomPrev) { this.camZoomPrev = cam.zoom; this.zoomAt = now; }
-    const zooming = now - this.zoomAt < 180;
-    const inside = !!R0 && v0.x >= R0.x && v0.y >= R0.y && v0.right <= R0.right && v0.bottom <= R0.bottom;
-    // scorrendo si ridisegna un po' prima di arrivare al bordo della zona disegnata (a un terzo del margine): la carta nuova
-    // è pronta prima che si veda il vuoto
-    const ix = R0 ? Math.max(0, (R0.width - v0.width) / 6) : 0, iy = R0 ? Math.max(0, (R0.height - v0.height) / 6) : 0;
-    const deep = !!R0 && v0.x >= R0.x + ix && v0.y >= R0.y + iy && v0.right <= R0.right - ix && v0.bottom <= R0.bottom - iy;
-    if (!this.termDirty && !zoomed && deep) return;
-    // zoom veloce (Nico: "un bordello"): mentre lo zoom va, la carta già disegnata si ingrandisce o rimpicciolisce da sola
-    // (è nel mondo); si ridisegna solo quando lo zoom si ferma, o se la vista esce dalla zona disegnata o cambia troppo
-    // (Nico: lag nello zoom: si ridisegnava quasi a ogni scatto della rotella, 50–120 ms ciascuno). Anche i cambi di territorio
-    // aspettano la fine dello zoom
-    if (zoomed && zooming && inside) return;
-    // al massimo ~16 volte al secondo, ma solo se la carta disegnata copre ancora lo schermo: allontanandosi in fretta restava
-    // un riquadro di carta in mezzo al vuoto finché non scattava il ridisegno
-    if (zoomed && this.termZoom && inside && now - this.termAt < 60) return;
-    this.termAt = now;
-    this.termZoom = cam.zoom;
+    const cam = this.cameras.main, zv = cam.zoom / UI();
+    // la carta è disegnata una volta (immagini fisse, come OpenFront): spostarsi e zoomare non ridisegna niente. Qui si passano
+    // solo i territori quando cambiano (e i nomi delle nazioni, che dipendono da quanto è grande il paese sullo schermo)
+    const zKey = Math.round(Math.log2(zv) * 6);
+    if (!this.termDirty && zKey === this.termZoomKey) return;
     this.termDirty = false;
-    // trascinando: margine attorno, il prossimo passo è già disegnato. Zoomando no: con il margine l'area da calcolare
-    // triplicava (fino a 120 ms a ridisegno, il lag nello zoom); allontanandosi si ridisegna solo la vista, ~20 ms
-    const moving = !zooming && now - this.zoomAt > 300 && now - this.termMovedAt < 300;
-    const maxW = 4096 / cam.zoom, maxH = 4096 / cam.zoom;
-    const mx = moving ? Math.max(0, Math.min(v0.width * 0.35, (maxW - v0.width) / 2)) : 0;
-    const my = moving ? Math.max(0, Math.min(v0.height * 0.35, (maxH - v0.height) / 2)) : 0;
-    const v = new Phaser.Geom.Rectangle(v0.x - mx, v0.y - my, v0.width + 2 * mx, v0.height + 2 * my);
-    this.termRect = v;
-    const own = this.state.provOwner, provs = this.map.provinces, shapes = this.shapes.provinces, m = 8;
+    this.termZoomKey = zKey;
+    const own = this.state.provOwner, provs = this.map.provinces, shapes = this.shapes.provinces;
     const terrain = this.mapMode === 'terreno'; // vista del terreno: niente potenze né nomi, ogni provincia nel colore del suo terreno
     const seen = (p: number) => (p < 0 || terrain ? NEUTRAL : own[p] !== PLAYER && !this.state.seesProv(p) ? NEUTRAL : own[p]);
-    const frame: TermFrame = { view: v, provinces: [], borders: [], labels: [], status: '' };
+    const frame: TermFrame = { view: new Phaser.Geom.Rectangle(0, 0, WORLD_W, WORLD_H), provinces: [], borders: [], labels: [], status: '' };
     for (let p = 0; p < shapes.length; p++) {
-      const s = shapes[p];
-      if (!s.parts.length || s.x1 < v.x - m || s.x0 > v.right + m || s.y1 < v.y - m || s.y0 > v.bottom + m) continue;
+      if (!shapes[p].parts.length) continue;
       const o = seen(p);
-      // vista logistica: le tue province colorate dal rifornimento (pieno, in calo, tagliate fuori)
+      // vista logistica: le tue province colorate dal rifornimento
       // sfumata: metà la sua, metà la media delle tue province accanto (passaggi morbidi, Nico); le altre potenze sbiadite
       let sup = -1;
       if (this.logistics && o === PLAYER) {
@@ -864,31 +826,12 @@ export class RunScene extends Phaser.Scene {
       const color = terrain ? TERRAIN_VIEW[provs[p].terrain]?.col ?? null
         : sup >= 0 ? LOGI_COLS[Math.round(Phaser.Math.Clamp((sup - 0.3) / 0.65, 0, 1) * LOGI_STEPS)]
         : o === NEUTRAL ? null : this.logistics ? this.fadedFill(o) : hex(FACTION_INFO[o].fill);
-      // muro: le province con un bunker finito hanno il confine fortificato, disegnato sulla carta (non più l'icona)
+      // muro: le province con un bunker finito hanno il confine fortificato
       const fort = o !== NEUTRAL && this.state.provWork[p] === BUNKER && this.state.provWorkAt[p] === 0 && this.showWork(p);
       frame.provinces.push({ id: p, color, terrain: TERRAIN_IDX[provs[p].terrain] ?? 0, fort, stripe: terrain ? TERRAIN_VIEW[provs[p].terrain]?.stripe ?? 0 : 0 });
     }
-    const box = this.chainBox, zv = cam.zoom / UI();
-    // da lontano i confini tra nazioni diventano grigio scuro: in bianco si confondevano col mare
-    // da vicino anche i confini tra province (grigio tenue), per distinguere i territori piccoli; disegnati per primi
-    const dim: TermBorder[] = [];
-    this.shapes.chains.forEach((c, k) => {
-      if (box[k * 4 + 2] < v.x - m || box[k * 4] > v.right + m || box[k * 4 + 3] < v.y - m || box[k * 4 + 1] > v.bottom + m) return;
-      const oa = seen(c.a), ob = seen(c.b);
-      if (c.a >= 0 && c.b >= 0 && oa !== ob) {
-        const o = oa === PLAYER || ob === PLAYER ? PLAYER : oa !== NEUTRAL ? oa : ob;
-        const other = oa === PLAYER ? ob : oa;
-        // linea del fronte: tuo confine con un nemico in guerra, tratteggiata in rosso
-        void o; void other; // i confini dei territori (e la linea del fronte) li disegna la carta sul bordo esatto del riempimento
-      // confini delle nazioni moderne tolti (Nico: inutili, i confini li fanno gli imperi che crescono durante la partita):
-      // tra due province libere solo la linea tenue della provincia, anche dove prima passava una frontiera
-      } else if (zv >= 3 && c.a >= 0 && c.b >= 0 && oa === NEUTRAL && ob === NEUTRAL) dim.push({ pts: c.pts, color: '#555c63' }); // solo terra libera: dentro un territorio niente divisioni
-      else if ((this.buildWork || this.buildPeek) && !terrain && c.a >= 0 && c.b >= 0 && oa === PLAYER && ob === PLAYER) dim.push({ pts: c.pts, color: '#1d5a66' }); // COSTRUISCI: le tue province una per una (Nico)
-    });
-    frame.borders.unshift(...dim);
+    frame.ownLines = !!(this.buildWork || this.buildPeek) && !terrain; // COSTRUISCI: le tue province una per una (Nico)
     // ferrovie: binari tratteggiati dal centro della provincia a quelli delle province accanto dello stesso padrone
-    // (l'effetto vale "qui e accanto"), sopra la carta come una linea del terreno invece dell'icona
-    const rails: TermBorder[] = [];
     for (const pr of frame.provinces) {
       const p = pr.id, o = own[p];
       if (this.state.provWork[p] !== RAIL || this.state.provWorkAt[p] !== 0 || (o !== PLAYER && !this.state.seesProv(p)) || !this.showWork(p)) continue;
@@ -897,10 +840,9 @@ export class RunScene extends Phaser.Scene {
         if (own[q] !== o) continue;
         if (this.state.provWork[q] === RAIL && this.state.provWorkAt[q] === 0 && q < p) continue; // tra due ferrovie un binario solo
         const b = center(provs[q].anchor);
-        rails.push({ pts: [a.x, a.y, b.x, b.y], color: RAIL_COL, dash: true });
+        frame.borders.push({ pts: [a.x, a.y, b.x, b.y], color: RAIL_COL, dash: true });
       }
     }
-    frame.borders.push(...rails);
     // confine di ogni territorio: l'ultimo puntino del riempimento, nel colore di confine della potenza (il tuo: blu)
     frame.edges = {};
     // potenze IA: il colore del confine schiarito verso il bianco, se no sul riempimento dello stesso colore non si vedeva (Nico)
@@ -914,18 +856,10 @@ export class RunScene extends Phaser.Scene {
     const warF = FACTION_INFO.map((_, f) => f).filter((f) => f !== PLAYER && this.state.atWar(PLAYER, f));
     const war = warF.map((f) => (this.logistics ? this.fadedFill(f) : hex(FACTION_INFO[f].fill)));
     frame.front = { own: [hex(FACTION_INFO[PLAYER].fill), ...(this.logistics ? LOGI_COLS : [])], war, color: '#e0473a' };
-    // passo dei puntini: una via di mezzo tra fisso sullo schermo e fisso sulla carta (3 punti a zoom 8, 2 da lontano, fino a 5 da vicino)
-    frame.pitch = Phaser.Math.Clamp(Math.round(3 * Math.pow(zv / 8, 0.35)), 2, 5);
-    frame.landDots = zv >= 2.5 ? '#2a2f36' : '#22262b'; // terra libera: un puntino per carattere, si vede la griglia
     const zpx = cam.zoom / DPR; // punti CSS per pixel-mondo
     if (!terrain) for (const n of this.termNations) if (n.width * zpx >= n.name.length * 9 * 1.1) frame.labels.push({ x: n.x, y: n.y, text: n.name, color: TERM.country, priority: 0 });
-    // niente scritta CAPITALE: il nome della potenza sta dentro il suo territorio, alla HOI4
     if (!terrain) for (const l of this.termPlaces) frame.labels.push({ x: l.x, y: l.y, text: l.name, color: l.kind === 'city' ? TERM.city : TERM.sea, priority: l.kind === 'city' ? 1 : 2, small: l.kind === 'city' });
-    if (!this.term.render(frame)) {
-      // base della carta ancora in preparazione (a pezzi): resta la carta di prima, si riprova al prossimo fotogramma
-      this.termRect = null;
-      this.termDirty = true;
-    }
+    this.term.render(frame);
   }
 
   /** Simbolo + nome di ogni fazione nel punto più interno del suo territorio, più grande se l'impero cresce. */

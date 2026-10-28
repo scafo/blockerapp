@@ -53,6 +53,8 @@ export interface TermFrame {
   edges?: Record<string, string>;
   /** linea del fronte: il bordo di `front.own` che tocca uno dei colori `front.war` diventa tratteggiato in `front.color` */
   front?: { own: string[]; war: string[]; color: string };
+  /** COSTRUISCI: linee tra le tue province */
+  ownLines?: boolean;
   /** colori che per il confine contano come un territorio solo (logistica: le sfumature del tuo, senza linee in mezzo) */
   same?: string[];
 }
