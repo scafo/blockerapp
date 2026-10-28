@@ -30,7 +30,7 @@ import { safeInsets, uiCamera, view } from '../ui/screen';
 import { drawPatch } from '../ui/symbols';
 import { drawUnitIcon } from '../ui/unitIcons';
 import { civImage, coverImage, fade } from '../ui/images';
-import { box, dashedBox, note, notch } from '../ui/schematic';
+import { dashedBox, note } from '../ui/schematic';
 import { OPS, body, dot, frameMarks, label, panel, rule, value } from '../ui/ops';
 import { audioSettings, onAudioChange } from '../audio/engine';
 import { type RoomId, type RoomState } from '../ui/roomArt';
@@ -38,8 +38,6 @@ import { drawBlueprint, type Module } from '../ui/blueprint';
 
 const PAD = 12;
 // pianta della base (riferimento di Nico: planimetria tecnica su ardesia)
-const TEAL = PALETTE.ocra; // etichette in corsivo verde acqua
-const italic = (size: number, color: number = TEAL): Phaser.Types.GameObjects.Text.TextStyle => ({ ...textStyle(size, color, false), fontStyle: 'italic', padding: { right: 3 } });
 // risorse mostrate l'ultima volta che la base era aperta: al rientro da una campagna i numeri scorrono fino ai nuovi
 let shownStash: number[] | null = null;
 const maxLvl = (id: BuildingId) => BALANCE.camp.buildings[id].length;
@@ -636,7 +634,7 @@ export class CampScene extends Phaser.Scene {
       const isB = (BUILDINGS as string[]).includes(spot), lvl = isB ? p.buildings[spot as BuildingId] : 0, max = isB ? maxLvl(spot as BuildingId) : 0;
       hg.lineStyle(1, OPS.edge, 0.6).lineBetween(back.x + back.width + 14, barY + 12, back.x + back.width + 14, barY + (P ? 30 : barH - 12));
       const title = value(this, back.x + back.width + 28, barY + (P ? 16 : barH / 2), info.name.toUpperCase(), P ? 20 : 24).setOrigin(0, 0.5);
-      objs.push(back, title, hg);
+      objs.push(hg, back, title); // la barra sotto le scritte
       if (isB) { // livello: tacche dopo il titolo (piena = fatto, ambra = in cantiere)
         const tw = 9, gap = 3, tx = title.x + title.width + 16;
         objs.push(label(this, tx, barY + (P ? 16 : barH / 2) - 14, `liv ${lvl}/${max}`, OPS.label, 8));
@@ -669,50 +667,75 @@ export class CampScene extends Phaser.Scene {
 
   /** Alloggi: i posti branda (crescono con le campagne). */
   private fillAlloggi(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, _H: number) {
-    const p = this.profile, n = tents(p), max = BALANCE.camp.tentsMax;
-    items.push(this.add.text(x0 + 16, y0 + 44, 'Le squadre che tornano dal fronte dormono qui. Un posto branda in più ogni due campagne combattute.', textStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 32));
+    const p = this.profile, n = tents(p), max = BALANCE.camp.tentsMax, L = x0 + 18, w = W - 36;
+    let y = this.head(items, L, y0 + 44, w, 'a cosa serve');
+    const d = body(this, L, y, 'Le squadre che tornano dal fronte dormono qui. Un posto branda in più ogni due campagne combattute.', 13, OPS.text, w);
+    items.push(d);
+    y = this.head(items, L, d.y + d.height + 18, w, 'brande', `${n}/${max}`);
     const g = this.add.graphics();
     items.push(g);
-    const rowH = 26, ty = y0 + 92;
     for (let i = 0; i < max; i++) {
-      const ry = ty + i * rowH, on = i < n;
-      for (let dx = x0 + 16; dx < x0 + W - 16; dx += 5) g.fillStyle(INK, 0.2).fillRect(dx, ry + rowH - 2, 1.5, 1.5);
-      if (on) g.fillStyle(INK, 1).fillRect(x0 + 18, ry + 7, 12, 10); else dashedBox(g, x0 + 18, ry + 7, 12, 10, INK, 0.5);
-      const wait = (i - n) * 2 + 2 - (p.runs % 2);
-      items.push(this.add.text(x0 + 40, ry + 12, `Branda ${i + 1}`, textStyle(12, on ? INK : PALETTE.tenue)).setOrigin(0, 0.5),
-        this.add.text(x0 + W - 16, ry + 12, on ? 'occupata' : `libera · tra ${wait} ${wait === 1 ? 'campagna' : 'campagne'}`, italic(10, on ? TEAL : PALETTE.tenue)).setOrigin(1, 0.5));
+      const ry = y + i * 34, on = i < n, wait = (i - n) * 2 + 2 - (p.runs % 2);
+      if (on) g.fillStyle(OPS.text, 1).fillRect(L + 2, ry + 7, 14, 14); else dashedBox(g, L + 2, ry + 7, 14, 14, OPS.text, 0.45);
+      items.push(value(this, L + 28, ry + 14, `BRANDA ${i + 1}`, 15, on ? OPS.text : OPS.label).setOrigin(0, 0.5),
+        label(this, L + w, ry + 14, on ? 'occupata' : `libera · tra ${wait} ${wait === 1 ? 'campagna' : 'campagne'}`, on ? OPS.gain : OPS.label, 9).setOrigin(1, 0.5));
     }
-    const ly = ty + max * rowH + 14;
-    void ly;
+  }
+
+  /** Titoletto di sezione: etichetta mono (e un valore a destra), riga sotto. Restituisce dove inizia il contenuto. */
+  private head(items: Phaser.GameObjects.GameObject[], x: number, y: number, w: number, text: string, right = '', rightColor: number = OPS.label): number {
+    items.push(label(this, x, y, text, OPS.label, 9));
+    if (right) items.push(label(this, x + w, y, right, rightColor, 9).setOrigin(1, 0));
+    const g = this.add.graphics();
+    rule(g, x, x + w, y + 18);
+    items.push(g);
+    return y + 28;
+  }
+
+  /** Riga traslucida come nella home; si schiarisce sotto il mouse se si tocca; barretta a sinistra se evidenziata. */
+  private rowBox(items: Phaser.GameObjects.GameObject[], x: number, y: number, w: number, h: number, onClick?: () => void, accent?: number, dim = false) {
+    const r = this.add.rectangle(x, y, w, h, 0x2b333b, 0.55).setOrigin(0).setAlpha(dim ? 0.5 : 1);
+    if (onClick) r.setInteractive({ useHandCursor: true }).on('pointerup', onClick)
+      .on('pointerover', () => r.setFillStyle(0x2b333b, 0.85)).on('pointerout', () => r.setFillStyle(0x2b333b, 0.55));
+    items.push(r);
+    if (accent !== undefined) items.push(this.add.rectangle(x, y, 2, h, accent).setOrigin(0));
+    return r;
+  }
+
+  /** Barra d'avanzamento piatta. */
+  private bar(items: Phaser.GameObjects.GameObject[], x: number, y: number, w: number, pct: number, color: number) {
+    const g = this.add.graphics();
+    g.fillStyle(OPS.edge, 0.4).fillRect(x, y, w, 4).fillStyle(color, 1).fillRect(x, y, w * Phaser.Math.Clamp(pct, 0, 1), 4);
+    items.push(g);
   }
 
   /** Cantiere: tutte le stanze con livello e stato; si tocca una riga per aprirne la pagina. */
   private fillWorks(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, H: number) {
-    const p = this.profile, now = Date.now(), c = p.construction;
-    items.push(this.add.text(x0 + 16, y0 + 44, c ? `Cantiere aperto: ${buildingText[c.id].name} verso il livello ${p.buildings[c.id] + 1}. Una stanza alla volta.` : 'Cantiere libero. Tocca una stanza per vederne il prossimo livello.', textStyle(11, c ? PALETTE.allerta : PALETTE.tenue, false)).setWordWrapWidth(W - 32));
-    const rowH = 54, ty = y0 + 84;
-    const why = { busy: 'cantiere occupato', cost: 'risorse insufficienti', comando: 'serve il Centro di Comando', max: 'livello massimo' } as const;
+    const p = this.profile, now = Date.now(), c = p.construction, L = x0 + 18, w = W - 36;
+    let y = this.head(items, L, y0 + 44, w, 'cantiere', c ? 'aperto' : 'libero', c ? PALETTE.allerta : OPS.gain);
+    const d = body(this, L, y, c ? `${buildingText[c.id].name} verso il livello ${p.buildings[c.id] + 1}. Una postazione alla volta.` : 'Tocca una postazione per vederne il prossimo livello.', 13, c ? PALETTE.allerta : OPS.text, w);
+    items.push(d);
+    y = this.head(items, L, d.y + d.height + 18, w, 'postazioni');
+    const why = { busy: 'cantiere occupato', cost: 'risorse insufficienti', comando: 'serve il centro di comando', max: 'livello massimo' } as const;
+    const rowH = 50;
     BUILDINGS.forEach((id, i) => {
-      const ry = ty + i * (rowH + 6), lvl = p.buildings[id], max = maxLvl(id), here = c?.id === id, block = buildBlock(p, id);
-      const r = this.add.rectangle(x0 + 16, ry, W - 32, rowH, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1.2, here ? PALETTE.allerta : INK, here ? 1 : 0.6)
-        .setInteractive({ useHandCursor: true });
-      r.on('pointerover', () => r.setFillStyle(PALETTE.pannelloAlto)).on('pointerout', () => r.setFillStyle(PALETTE.inchiostro)).on('pointerup', () => this.openPanel(id));
+      const ry = y + i * (rowH + 6), lvl = p.buildings[id], max = maxLvl(id), here = c?.id === id, block = buildBlock(p, id);
+      this.rowBox(items, L, ry, w, rowH, () => this.openPanel(id), here ? PALETTE.allerta : undefined);
       const g = this.add.graphics();
       for (let k = 0; k < max; k++) {
-        const bx = x0 + 28 + k * 22, done = k < lvl, cur = here && k === lvl;
-        g.fillStyle(done ? INK : PALETTE.inchiostro, 1).fillRect(bx, ry + 32, 18, 9).lineStyle(1.1, cur ? PALETTE.allerta : INK, done || cur ? 1 : 0.45).strokeRect(bx, ry + 32, 18, 9);
+        const bx = L + 14 + k * 12, done = k < lvl, cur = here && k === lvl;
+        g.fillStyle(cur ? PALETTE.allerta : OPS.text, done || cur ? 0.9 : 0).fillRect(bx, ry + 32, 8, 7);
+        g.lineStyle(1, OPS.text, done || cur ? 0 : 0.35).strokeRect(bx + 0.5, ry + 32.5, 7, 6);
       }
       const state = here ? `in cantiere · ${fmtTime(c!.until - now)}` : lvl >= max ? 'livello massimo' : block ? why[block] : `migliorabile · ${fmtTime((nextLevel(p, id)?.timeSec ?? 0) * 1000)}`;
-      items.push(r, g, this.add.text(x0 + 28, ry + 8, buildingText[id].name.toUpperCase(), textStyle(13, INK)),
-        this.add.text(x0 + W - 40, ry + rowH / 2, state, italic(10, here ? PALETTE.allerta : !block && lvl < max ? PALETTE.radioattivo : PALETTE.tenue)).setOrigin(1, 0.5),
-        this.add.text(x0 + W - 24, ry + rowH / 2, '›', textStyle(18, TEAL)).setOrigin(1, 0.5));
+      items.push(g, value(this, L + 14, ry + 7, buildingText[id].name.toUpperCase(), 15),
+        label(this, L + w - 30, ry + rowH / 2, state, here ? PALETTE.allerta : !block && lvl < max ? OPS.gain : OPS.label, 9).setOrigin(1, 0.5),
+        label(this, L + w - 12, ry + rowH / 2, '›', OPS.text, 14).setOrigin(1, 0.5));
     });
     if (c) {
-      const total = BALANCE.camp.buildings[c.id][p.buildings[c.id]].timeSec * 1000, pct = Phaser.Math.Clamp(1 - (c.until - now) / total, 0, 1);
-      const by = y0 + H - 70, cost = rushCost(c.until, now), ok = p.stash.metallo >= cost;
-      items.push(this.add.rectangle(x0 + 16, by, W - 32, 10, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1, INK, 0.6),
-        this.add.rectangle(x0 + 16, by, (W - 32) * pct, 10, PALETTE.allerta).setOrigin(0));
-      items.push(this.btn(`FINISCI ORA · ${cost} METALLO`, x0 + 16, y0 + H - 54, W - 32, ok, () => {
+      const total = BALANCE.camp.buildings[c.id][p.buildings[c.id]].timeSec * 1000, cost = rushCost(c.until, now), ok = p.stash.metallo >= cost;
+      this.bar(items, L, y0 + H - 70, w, 1 - (c.until - now) / total, PALETTE.allerta);
+      items.push(this.btn(`FINISCI ORA · ${cost} METALLO`, L, y0 + H - 56, w, ok, () => {
         if (!rush(p, 'construction', Date.now())) return;
         analytics.design(['mercato', 'accelera', 'construction'], cost);
         saveProfile(p);
@@ -724,37 +747,36 @@ export class CampScene extends Phaser.Scene {
 
   /** Ricerca: progetto in corso, avanzamento di ogni ramo, ingresso all'albero. */
   private fillResearch(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, H: number) {
-    const p = this.profile, now = Date.now(), r = p.research;
+    const p = this.profile, now = Date.now(), r = p.research, L = x0 + 18, w = W - 36;
     if (!p.buildings.laboratorio) {
-      items.push(this.add.text(x0 + 16, y0 + 48, 'Senza Laboratorio non si studia niente. Costruiscilo per aprire l\'albero della ricerca.', textStyle(12, PALETTE.tenue, false)).setWordWrapWidth(W - 32));
-      items.push(this.btn('VAI AL LABORATORIO ›', x0 + 16, y0 + H - 56, W - 32, true, () => this.openPanel('laboratorio'), 14, true));
+      const y = this.head(items, L, y0 + 44, w, 'ricerca');
+      items.push(body(this, L, y, 'Senza Laboratorio non si studia niente. Costruiscilo per aprire l\'albero della ricerca.', 13, OPS.text, w));
+      items.push(this.btn('VAI AL LABORATORIO ›', L, y0 + H - 56, w, true, () => this.openPanel('laboratorio'), 14, true));
       return;
     }
     // progetto in corso
-    const g = this.add.graphics();
-    items.push(g);
-    const cy = y0 + 48;
-    box(g, x0 + 16, cy, W - 32, 74, 0.9, 0.6);
-    items.push(notch(this, x0 + 20, cy, 'In corso'));
+    let y = this.head(items, L, y0 + 44, w, 'in corso', r ? `finisce tra ${fmtTime(r.until - now)}` : 'fermo', r ? PALETTE.allerta : OPS.label);
     if (r) {
-      const t = techInfo(r.id), total = (BALANCE.tech[r.id]?.timeSec ?? 1) * 1000, pct = Phaser.Math.Clamp(1 - (r.until - now) / total, 0, 1);
-      items.push(this.add.text(x0 + 28, cy + 12, t.name.toUpperCase(), textStyle(14, INK)),
-        this.add.text(x0 + W - 28, cy + 12, `finisce tra ${fmtTime(r.until - now)}`, italic(10, PALETTE.allerta)).setOrigin(1, 0),
-        this.add.text(x0 + 28, cy + 32, t.desc, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 56).setMaxLines(1));
-      g.fillStyle(PALETTE.inchiostro, 1).fillRect(x0 + 28, cy + 54, W - 56, 8).lineStyle(1, INK, 0.6).strokeRect(x0 + 28, cy + 54, W - 56, 8).fillStyle(PALETTE.allerta, 1).fillRect(x0 + 28, cy + 54, (W - 56) * pct, 8);
-    } else items.push(this.add.text(x0 + 28, cy + 26, 'Nessun progetto in corso: scegline uno dall\'albero.', textStyle(12, PALETTE.tenue, false)));
-    // rami: quanti progetti completati su quanti
-    const ty = cy + 92, rowH = 30;
-    items.push(this.add.text(x0 + 16, ty, 'rami della ricerca', italic(10)));
+      const t = techInfo(r.id), total = (BALANCE.tech[r.id]?.timeSec ?? 1) * 1000;
+      this.rowBox(items, L, y, w, 70, undefined, PALETTE.allerta);
+      items.push(value(this, L + 14, y + 8, t.name.toUpperCase(), 17), body(this, L + 14, y + 32, t.desc, 11, OPS.body).setWordWrapWidth(w - 28).setMaxLines(1));
+      this.bar(items, L + 14, y + 56, w - 28, 1 - (r.until - now) / total, PALETTE.allerta);
+      y += 82;
+    } else {
+      const t = body(this, L, y, 'Nessun progetto in corso: scegline uno dall\'albero.', 13, OPS.text, w);
+      items.push(t);
+      y += t.height + 14;
+    }
+    // rami: quanti progetti completati su quanti (si toccano per aprire l'albero lì)
+    y = this.head(items, L, y + 6, w, 'rami della ricerca');
     Object.entries(BRANCHES).forEach(([k, name], i) => {
-      const ids = TECH_IDS.filter((id) => BALANCE.tech[id].branch === k), done = ids.filter((id) => p.techs.includes(id)).length, ry = ty + 16 + i * rowH;
-      const bw = W - 32 - 170;
-      g.fillStyle(PALETTE.inchiostro, 1).fillRect(x0 + 150, ry + 8, bw, 6).lineStyle(1, INK, 0.5).strokeRect(x0 + 150, ry + 8, bw, 6)
-        .fillStyle(done === ids.length ? PALETTE.radioattivo : INK, 1).fillRect(x0 + 150, ry + 8, ids.length ? (bw * done) / ids.length : 0, 6);
-      const hit = this.add.text(x0 + 16, ry + 11, name.toUpperCase(), textStyle(11, INK)).setOrigin(0, 0.5).setInteractive({ useHandCursor: true }).on('pointerup', () => this.openTree(k));
-      items.push(hit, this.add.text(x0 + W - 16, ry + 11, `${done}/${ids.length}`, textStyle(11, done === ids.length ? PALETTE.radioattivo : PALETTE.tenue)).setOrigin(1, 0.5));
+      const ids = TECH_IDS.filter((id) => BALANCE.tech[id].branch === k), done = ids.filter((id) => p.techs.includes(id)).length, ry = y + i * 40, full = done === ids.length;
+      this.rowBox(items, L, ry, w, 34, () => this.openTree(k));
+      items.push(value(this, L + 14, ry + 17, name.toUpperCase(), 14).setOrigin(0, 0.5),
+        label(this, L + w - 12, ry + 17, `${done}/${ids.length}`, full ? OPS.gain : OPS.label, 10).setOrigin(1, 0.5));
+      this.bar(items, L + w * 0.45, ry + 15, w * 0.4, ids.length ? done / ids.length : 0, full ? OPS.gain : OPS.text);
     });
-    items.push(this.btn('APRI L\'ALBERO DELLA RICERCA ›', x0 + 16, y0 + H - 56, W - 32, true, () => this.openTree(r ? BALANCE.tech[r.id].branch : 'esercito'), 14, true));
+    items.push(this.btn('APRI L\'ALBERO DELLA RICERCA ›', L, y0 + H - 56, w, true, () => this.openTree(r ? BALANCE.tech[r.id].branch : 'esercito'), 14, true));
   }
 
   /** Scheda a destra con dettagli e azione (costruisci / migliora / spedisci / ritira). */
@@ -792,15 +814,20 @@ export class CampScene extends Phaser.Scene {
     } else if (spot === 'radar' && this.panelMode !== 'build' && this.profile.buildings.radar > 0) {
       this.fillRadar(items, x0, y0 - 28, W, H + 28);
     } else if (spot === 'spedizione') {
-      const T = buildingText.spedizione;
-      items.push(this.add.text(x0 + 18, y0 + 18, T.desc, textStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 36));
+      const T = buildingText.spedizione, L = x0 + 18, w = W - 36;
+      let y = this.head(items, L, y0 + 16, w, 'a cosa serve');
+      const d = body(this, L, y, T.desc, 13, OPS.text, w);
+      items.push(d);
+      y = d.y + d.height + 18;
       const e = this.profile.expedition;
       if (e && e.until > now) {
-        items.push(this.add.text(x0 + 16, y0 + 72, `${T.kinds[e.kind]}\nIn viaggio: torna tra ${fmtTime(e.until - now)}`, textStyle(14, PALETTE.ruggine)));
+        y = this.head(items, L, y, w, 'in missione', `torna tra ${fmtTime(e.until - now)}`, PALETTE.allerta);
+        this.rowBox(items, L, y, w, 46, undefined, PALETTE.allerta);
+        items.push(value(this, L + 14, y + 23, T.kinds[e.kind].toUpperCase(), 16).setOrigin(0, 0.5));
       } else if (e) {
-        items.push(this.add.text(x0 + 16, y0 + 72, 'Le squadre sono rientrate cariche!', textStyle(14, PALETTE.ocra)));
-        items.push(this.bagRow(e.reward, x0 + 16, y0 + 104));
-        items.push(this.btn('RITIRA IL BOTTINO', x0 + 16, y0 + H - 60, W - 32, true, () => {
+        y = this.head(items, L, y, w, 'squadre rientrate', 'bottino pronto', OPS.gain);
+        items.push(this.bagRow(e.reward, L, y + 4));
+        items.push(this.btn('RITIRA IL BOTTINO', L, y0 + H - 60, w, true, () => {
           const kind = this.profile.expedition?.kind ?? 'breve';
           const got = collectExpedition(this.profile, Date.now());
           if (!got) return;
@@ -816,32 +843,23 @@ export class CampScene extends Phaser.Scene {
           this.toast(`+${got.metallo} metallo · +${got.benzina} benzina · +${got.cibo} cibo`, PALETTE.radioattivo);
         }, 16, true));
       } else {
-        // tabella delle missioni: tipo · durata · costo · bottino atteso; si tocca la riga per partire
-        const cx = [x0 + 16, x0 + 16 + (W - 32) * 0.38, x0 + 16 + (W - 32) * 0.56, x0 + 16 + (W - 32) * 0.74], ty = y0 + 70;
-        ['missione', 'durata', 'costo', 'bottino'].forEach((h, k) => items.push(this.add.text(cx[k] + 6, ty, h, italic(10))));
+        // missioni: nome grande, durata e costo sotto, bottino atteso a destra; si tocca la riga per partire
+        y = this.head(items, L, y, w, 'missioni', 'tocca per partire');
         EXPEDITIONS.forEach((kind: ExpeditionKind, i) => {
-          const E = BALANCE.camp.expeditions[kind];
-          const cost = expeditionCost(kind);
-          const ok = this.profile.stash.cibo >= cost;
-          const ry = ty + 18 + i * 46;
-          const r = this.add.rectangle(x0 + 16, ry, W - 32, 40, PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1.2, INK, ok ? 0.75 : 0.25);
-          if (ok) {
-            r.setInteractive({ useHandCursor: true }).on('pointerover', () => r.setFillStyle(PALETTE.pannelloAlto)).on('pointerout', () => r.setFillStyle(PALETTE.inchiostro));
-            r.on('pointerup', () => {
-              if (!startExpedition(this.profile, kind, Date.now())) return;
-              analytics.design(['spedizione', 'parti', kind]);
-              saveProfile(this.profile);
-              this.closePanel();
-              this.redrawSpot('spedizione');
-              this.updateStash();
-              this.toast('Le squadre partono. Torneranno con quello che trovano.', PALETTE.carta);
-            });
-          }
-          items.push(r,
-            this.add.text(cx[0] + 6, ry + 20, T.kinds[kind], textStyle(12, INK)).setOrigin(0, 0.5).setAlpha(ok ? 1 : 0.5),
-            this.add.text(cx[1] + 6, ry + 20, fmtTime(expeditionTimeSec(this.profile, kind) * 1000), textStyle(12, INK)).setOrigin(0, 0.5),
-            this.add.text(cx[2] + 6, ry + 20, cost ? `${cost} cibo` : 'gratis', textStyle(12, ok ? INK : PALETTE.ko)).setOrigin(0, 0.5),
-            this.add.text(cx[3] + 6, ry + 20, `${E.metallo[0]}–${E.metallo[1]} met.\n${E.benzina[0]}–${E.benzina[1]} benz. · ${E.cibo[0]}–${E.cibo[1]} cibo`, textStyle(9, PALETTE.tenue, false)).setOrigin(0, 0.5));
+          const E = BALANCE.camp.expeditions[kind], cost = expeditionCost(kind), ok = this.profile.stash.cibo >= cost, ry = y + i * 62;
+          this.rowBox(items, L, ry, w, 56, ok ? () => {
+            if (!startExpedition(this.profile, kind, Date.now())) return;
+            analytics.design(['spedizione', 'parti', kind]);
+            saveProfile(this.profile);
+            this.closePanel();
+            this.redrawSpot('spedizione');
+            this.updateStash();
+            this.toast('Le squadre partono. Torneranno con quello che trovano.', PALETTE.carta);
+          } : undefined, undefined, !ok);
+          items.push(value(this, L + 14, ry + 8, T.kinds[kind].toUpperCase(), 15),
+            label(this, L + 14, ry + 36, `${fmtTime(expeditionTimeSec(this.profile, kind) * 1000)} · ${cost ? `${cost} cibo` : 'gratis'}`, ok ? OPS.text : OPS.loss, 9),
+            label(this, L + w - 12, ry + 14, 'bottino atteso', OPS.label, 8).setOrigin(1, 0),
+            label(this, L + w - 12, ry + 30, `${E.metallo[0]}–${E.metallo[1]} met · ${E.benzina[0]}–${E.benzina[1]} benz · ${E.cibo[0]}–${E.cibo[1]} cibo`, OPS.body, 8).setOrigin(1, 0));
         });
       }
     } else {
@@ -932,57 +950,51 @@ export class CampScene extends Phaser.Scene {
       this.toast(msg, PALETTE.radioattivo);
       this.openPanel('mercato');
     };
-    const desc = this.add.text(x0 + 16, y0 + 44, shopText.desc, textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 32);
+    const L = x0 + 18, w = W - 36;
+    let y = this.head(items, L, y0 + 44, w, 'a cosa serve');
+    const desc = body(this, L, y, shopText.desc, 12, OPS.text, w);
     items.push(desc);
     const g = this.add.graphics(); // icone: aggiunte in fondo, sopra le schede
-    const tile = (x: number, y: number, w: number, h: number, ok: boolean, on: boolean, run: () => void) => {
-      const r = this.add.rectangle(x, y, w, h, on ? PALETTE.pannelloAlto : PALETTE.inchiostro).setOrigin(0).setStrokeStyle(1, on ? PALETTE.ocra : INK, on ? 1 : ok ? 0.7 : 0.25)
-        .setAlpha(ok || on ? 1 : 0.55);
-      if (ok) r.setInteractive({ useHandCursor: true }).on('pointerup', run);
-      items.push(r);
-    };
+    const tile = (x: number, ty: number, tw: number, th: number, ok: boolean, on: boolean, run: () => void) =>
+      this.rowBox(items, x, ty, tw, th, ok ? run : undefined, on ? OPS.gain : undefined, !ok && !on);
     // scambio: 50 di una → 30 di un'altra
-    let y = Math.max(y0 + (P ? 82 : 70), desc.y + desc.height + 8); // descrizione su più righe (colonna stretta)
-    items.push(this.add.text(x0 + 16, y, shopText.trade, textStyle(10, PALETTE.ocra)));
-    y += 18;
+    y = this.head(items, L, desc.y + desc.height + 16, w, shopText.trade);
     const pairs = RESOURCES.flatMap((a) => RESOURCES.filter((b) => b !== a).map((b) => [a, b] as const));
-    const cols = P ? 2 : 3, tw = (W - 32 - (cols - 1) * 6) / cols, th = 36;
+    const cols = P ? 2 : 3, tw = (w - (cols - 1) * 6) / cols, th = 36;
     pairs.forEach(([a, b], k) => {
-      const x = x0 + 16 + (k % cols) * (tw + 6), ty = y + Math.floor(k / cols) * (th + 6);
+      const x = L + (k % cols) * (tw + 6), ty = y + Math.floor(k / cols) * (th + 6);
       const ok = p.stash[a] >= S.trade.give;
       tile(x, ty, tw, th, ok, false, () => { if (trade(p, a, b)) done(`SCAMBIO · −${S.trade.give} ${RESOURCE_INFO[a].name.toLowerCase()} · +${S.trade.get} ${RESOURCE_INFO[b].name.toLowerCase()}`); });
-      drawResourceIcon(g, a, x + 18, ty + th / 2, 7);
-      items.push(this.add.text(x + 30, ty + th / 2, String(S.trade.give), textStyle(13, ok ? INK : PALETTE.tenue)).setOrigin(0, 0.5),
-        this.add.text(x + tw / 2, ty + th / 2, '→', textStyle(13, PALETTE.ocra)).setOrigin(0.5));
-      drawResourceIcon(g, b, x + tw - 44, ty + th / 2, 7);
-      items.push(this.add.text(x + tw - 32, ty + th / 2, String(S.trade.get), textStyle(13, ok ? PALETTE.ok : PALETTE.tenue)).setOrigin(0, 0.5));
+      drawResourceIcon(g, a, x + 16, ty + th / 2, 7);
+      items.push(label(this, x + 28, ty + th / 2, String(S.trade.give), ok ? OPS.text : OPS.label, 12).setOrigin(0, 0.5),
+        label(this, x + tw / 2, ty + th / 2, '→', OPS.label, 12).setOrigin(0.5));
+      drawResourceIcon(g, b, x + tw - 42, ty + th / 2, 7);
+      items.push(label(this, x + tw - 30, ty + th / 2, String(S.trade.get), ok ? OPS.gain : OPS.label, 12).setOrigin(0, 0.5));
     });
-    y += Math.ceil(pairs.length / cols) * (th + 6) + 10;
+    y += Math.ceil(pairs.length / cols) * (th + 6) + 12;
     // rifornimenti: uno per tipo, valgono per la prossima campagna
-    items.push(this.add.text(x0 + 16, y, shopText.supplies, textStyle(10, PALETTE.ocra)));
-    y += 18;
-    const scols = P ? 1 : 3, sw = (W - 32 - (scols - 1) * 6) / scols, sh = P ? 44 : 64;
+    y = this.head(items, L, y, w, shopText.supplies);
+    const scols = P ? 1 : 3, sw = (w - (scols - 1) * 6) / scols, sh = P ? 48 : 70;
     SUPPLIES.forEach((k, i) => {
       const T = shopText.items[k], D = S.supplies[k], own = (p.supplies ?? []).includes(k), ok = !own && canAfford(p.stash, D.cost);
-      const x = x0 + 16 + (i % scols) * (sw + 6), ty = y + Math.floor(i / scols) * (sh + 6);
+      const x = L + (i % scols) * (sw + 6), ty = y + Math.floor(i / scols) * (sh + 6);
       tile(x, ty, sw, sh, ok, own, () => { if (buySupply(p, k)) done(`${T.name.toUpperCase()} · pronti per la prossima campagna`); });
-      items.push(this.add.text(x + 10, ty + 6, T.name.toUpperCase(), textStyle(11, own ? PALETTE.ocra : INK)),
-        this.add.text(x + 10, ty + 22, T.desc, textStyle(9, PALETTE.tenue, false)));
-      if (own) items.push(this.add.text(x + sw - 10, ty + (P ? sh / 2 : sh - 12), '✓ PRONTO', textStyle(10, PALETTE.ocra)).setOrigin(1, 0.5));
-      else this.costRow(g, items, D.cost, P ? x + sw - 150 : x + 10, P ? ty + sh / 2 : ty + sh - 12, p.stash);
+      items.push(value(this, x + 12, ty + 6, T.name.toUpperCase(), 14, own ? OPS.gain : OPS.text),
+        body(this, x + 12, ty + 26, T.desc, 10, OPS.body).setWordWrapWidth(sw - 24).setMaxLines(1));
+      if (own) items.push(label(this, x + sw - 10, ty + (P ? sh / 2 : sh - 12), 'pronto', OPS.gain, 9).setOrigin(1, 0.5));
+      else this.costRow(g, items, D.cost, P ? x + sw - 150 : x + 12, P ? ty + sh / 2 : ty + sh - 12, p.stash);
     });
-    y += Math.ceil(SUPPLIES.length / scols) * (sh + 6) + 10;
+    y += Math.ceil(SUPPLIES.length / scols) * (sh + 6) + 12;
     // lavori in corso: finiti subito pagando metallo
-    items.push(this.add.text(x0 + 16, y, shopText.rush, textStyle(10, PALETTE.ocra)));
-    y += 18;
+    y = this.head(items, L, y, w, shopText.rush);
     const jobs = [
       { what: 'construction' as const, job: p.construction, name: p.construction ? `${buildingText[p.construction.id].name} liv. ${p.buildings[p.construction.id] + 1}` : '' },
       { what: 'research' as const, job: p.research, name: p.research ? techInfo(p.research.id).name : '' },
     ].filter((j) => j.job && j.job.until > now);
-    if (!jobs.length) items.push(this.add.text(x0 + 16, y + 4, 'Nessun cantiere o ricerca in corso.', textStyle(11, PALETTE.tenue, false)));
+    if (!jobs.length) items.push(label(this, L, y + 2, 'nessun cantiere o ricerca in corso', OPS.label, 9));
     jobs.forEach((j, i) => {
       const cost = rushCost(j.job!.until, now), ok = p.stash.metallo >= cost;
-      items.push(this.btn(`FINISCI ORA: ${j.name.toUpperCase()} · ${cost} METALLO`, x0 + 16, y + i * 46, W - 32, ok, () => {
+      items.push(this.btn(`FINISCI ORA: ${j.name.toUpperCase()} · ${cost} METALLO`, L, y + i * 46, w, ok, () => {
         if (!rush(p, j.what, Date.now())) return;
         analytics.design(['mercato', 'accelera', j.what], cost);
         saveProfile(p);
@@ -995,24 +1007,24 @@ export class CampScene extends Phaser.Scene {
 
   /** Costo del prossimo livello a schede: icona, quanto serve, quanto hai (barra verde se basta, rossa se no) e tempo. */
   private costChips(items: Phaser.GameObjects.GameObject[], cost: Bag, timeSec: number, x: number, y: number, w: number) {
-    const have = this.profile.stash, rs = RESOURCES.filter((r) => cost[r] > 0), n = rs.length + 1, cw = (w - (n - 1) * 6) / n, ch = 48;
+    const have = this.profile.stash, rs = RESOURCES.filter((r) => cost[r] > 0), n = rs.length + 1, cw = (w - (n - 1) * 6) / n, ch = 50;
+    items.push(label(this, x, y - 18, 'costo del prossimo livello', OPS.label, 9));
     const g = this.add.graphics();
     items.push(g);
     rs.forEach((r, i) => {
       const cx = x + i * (cw + 6), ok = have[r] >= cost[r];
-      g.fillStyle(PALETTE.inchiostro, 1).fillRect(cx, y, cw, ch).lineStyle(1.2, ok ? INK : PALETTE.ko, ok ? 0.7 : 1).strokeRect(cx, y, cw, ch);
-      drawResourceIcon(g, r, cx + 16, y + 18, 8);
-      g.fillStyle(PALETTE.linea, 1).fillRect(cx + 8, y + ch - 9, cw - 16, 4);
-      g.fillStyle(ok ? PALETTE.radioattivo : PALETTE.ko, 1).fillRect(cx + 8, y + ch - 9, (cw - 16) * Math.min(1, have[r] / cost[r]), 4);
-      // scheda stretta (pagina della stanza): "hai" va sotto il numero invece che accanto
-      const narrow = cw < 110;
-      items.push(this.add.text(cx + 30, y + (narrow ? 14 : 18), String(cost[r]), textStyle(15, ok ? INK : PALETTE.ko)).setOrigin(0, 0.5),
-        this.add.text(narrow ? cx + 30 : cx + cw - 8, narrow ? y + 30 : y + 18, `hai ${have[r]}`, textStyle(9, PALETTE.tenue, false)).setOrigin(narrow ? 0 : 1, 0.5));
+      g.fillStyle(0x2b333b, 0.55).fillRect(cx, y, cw, ch);
+      if (!ok) g.fillStyle(OPS.loss, 1).fillRect(cx, y, 2, ch);
+      drawResourceIcon(g, r, cx + 16, y + 17, 7);
+      g.fillStyle(OPS.edge, 0.4).fillRect(cx + 10, y + ch - 9, cw - 20, 3);
+      g.fillStyle(ok ? OPS.gain : OPS.loss, 1).fillRect(cx + 10, y + ch - 9, (cw - 20) * Math.min(1, have[r] / cost[r]), 3);
+      items.push(value(this, cx + 30, y + 17, String(cost[r]), 17, ok ? OPS.text : OPS.loss).setOrigin(0, 0.5),
+        label(this, cx + cw - 8, y + 30, `hai ${have[r]}`, OPS.label, 8).setOrigin(1, 0.5));
     });
     const tx = x + rs.length * (cw + 6);
-    dashedBox(g, tx, y, cw, ch, INK, 0.7);
-    items.push(this.add.text(tx + cw / 2, y + 14, 'tempo', italic(10)).setOrigin(0.5),
-      this.add.text(tx + cw / 2, y + 31, fmtTime(timeSec * 1000), textStyle(14, INK)).setOrigin(0.5));
+    g.fillStyle(0x2b333b, 0.3).fillRect(tx, y, cw, ch);
+    items.push(label(this, tx + cw / 2, y + 12, 'tempo', OPS.label, 8).setOrigin(0.5),
+      value(this, tx + cw / 2, y + 31, fmtTime(timeSec * 1000), 16).setOrigin(0.5));
   }
 
   /** Costo in fila: icona, quanto serve (rosso se non basta). */
@@ -1021,7 +1033,7 @@ export class CampScene extends Phaser.Scene {
     for (const r of RESOURCES) {
       if (!cost[r]) continue;
       drawResourceIcon(g, r, cx + 6, y, 6);
-      const t = this.add.text(cx + 15, y, String(cost[r]), textStyle(11, have[r] < cost[r] ? PALETTE.ko : INK)).setOrigin(0, 0.5);
+      const t = label(this, cx + 15, y, String(cost[r]), have[r] < cost[r] ? OPS.loss : OPS.text, 10).setOrigin(0, 0.5);
       items.push(t);
       cx += t.width + 26;
     }
@@ -1030,11 +1042,12 @@ export class CampScene extends Phaser.Scene {
   /** Modalità test: sblocca tutto per provare armi, civiltà e ricerche senza aspettare; si torna indietro azzerando il profilo. */
   private fillTest(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, H: number) {
     const p = this.profile;
-    items.push(this.add.text(x0 + 16, y0 + 10, 'MODALITÀ TEST', textStyle(16, PALETTE.allerta)));
+    const L = x0 + 18, w = W - 36;
+    const y = this.head(items, L, y0 + 16, w, 'modalità test', p.test ? 'attiva' : 'spenta', p.test ? PALETTE.allerta : OPS.label);
     const txt = p.test
-      ? 'ATTIVA. Postazioni al massimo, tutte le ricerche, risorse piene, civiltà sbloccate, cantieri e spedizioni istantanei, +1000 truppe a inizio campagna, abilità con ricarica ridotta.'
+      ? 'Postazioni al massimo, tutte le ricerche, risorse piene, civiltà sbloccate, cantieri e spedizioni istantanei, +1000 truppe a inizio campagna, abilità con ricarica ridotta.'
       : 'Sblocca subito tutto: postazioni al massimo (tutte le armi e le abilità), tutte le ricerche, risorse piene, civiltà sbloccate, cantieri e spedizioni istantanei, +1000 truppe a inizio campagna.\n\nServe solo per provare il gioco: i progressi veri si perdono.';
-    items.push(this.add.text(x0 + 16, y0 + 46, txt, textStyle(11, PALETTE.carta, false)).setWordWrapWidth(W - 32).setLineSpacing(4));
+    items.push(body(this, L, y, txt, 13, OPS.text, w));
     const restart = () => this.scene.restart();
     if (!p.test) {
       items.push(this.btn('ATTIVA LA MODALITÀ TEST', x0 + 16, y0 + H - 104, W - 32, true, () => {
@@ -1051,8 +1064,8 @@ export class CampScene extends Phaser.Scene {
   }
 
   /** Testo cliccabile piccolo (link nei pannelli). */
-  private link(label: string, x: number, y: number, onClick: () => void, origin = 1) {
-    return this.add.text(x, y, label, textStyle(11, PALETTE.ocra)).setOrigin(origin, 0).setInteractive({ useHandCursor: true }).on('pointerup', onClick);
+  private link(text: string, x: number, y: number, onClick: () => void, origin = 1) {
+    return label(this, x, y, text, OPS.accent, 10).setOrigin(origin, 0).setInteractive({ useHandCursor: true }).on('pointerup', onClick);
   }
 
   /** Preparazione della campagna: vista principale (potenza, mazzo, durata, avvia) e due sotto-viste. Max 6 scelte per vista. */
@@ -1061,7 +1074,7 @@ export class CampScene extends Phaser.Scene {
     const civ = activeCiv(p);
     const back = () => items.push(this.link('‹ indietro', x0 + W - 40, y0 + 12, () => this.openPanel('gioca', '')));
     if (this.panelMode === 'civ') {
-      items.push(this.add.text(x0 + 16, y0 + 10, 'SCEGLI LA POTENZA', textStyle(16, INK)));
+      this.head(items, x0 + 18, y0 + 14, W - 110, 'scegli la potenza');
       back();
       // quattro sistemi politici: immagine (Figma), insegna, nome e forma di governo
       const P = this.portrait, cols = P ? 2 : 4, gap = 8;
@@ -1071,7 +1084,7 @@ export class CampScene extends Phaser.Scene {
         const cx = x0 + 16 + (k % cols) * (cw + gap), cy = y + Math.floor(k / cols) * (ch + gap);
         const img = coverImage(this, civImage(id), cx, cy, cw, ch, 0.4).setTint(open ? 0xffffff : 0x555a66).setAlpha(open ? 1 : 0.6);
         const shade = fade(this, cx, cy + ch * 0.35, cw, ch * 0.65, PALETTE.inchiostro, 0, 0.95);
-        const frame = this.add.rectangle(cx, cy, cw, ch).setOrigin(0).setStrokeStyle(sel ? 2 : 1, sel ? PALETTE.ocra : PALETTE.linea)
+        const frame = this.add.rectangle(cx, cy, cw, ch).setOrigin(0).setStrokeStyle(sel ? 2 : 1, sel ? OPS.text : OPS.edge, sel ? 1 : 0.6)
           .setInteractive({ useHandCursor: open });
         frame.on('pointerup', () => {
           if (!open) return this.toast(`${info.name}: ${info.unlock}`, PALETTE.carta);
@@ -1082,19 +1095,25 @@ export class CampScene extends Phaser.Scene {
         const g = this.add.graphics();
         drawPatch(g, cx + 20, cy + 20, 13, st.fill, st.symbol);
         items.push(img, shade, frame, g,
-          this.add.text(cx + 10, cy + ch - 38, info.name.toUpperCase(), textStyle(16, open ? PALETTE.carta : PALETTE.tenue)),
-          this.add.text(cx + 10, cy + ch - 16, open ? info.regime : `🔒 ${info.unlock}`, textStyle(9, open ? PALETTE.ocra : PALETTE.tenue, false)));
-        if (sel) items.push(this.add.rectangle(cx, cy, cw, 3, PALETTE.ocra).setOrigin(0));
+          value(this, cx + 10, cy + ch - 44, info.name.toUpperCase(), 18, open ? OPS.text : OPS.label),
+          label(this, cx + 10, cy + ch - 18, open ? info.regime : `bloccata · ${info.unlock}`, open ? OPS.body : OPS.label, 8).setWordWrapWidth(cw - 20).setMaxLines(1));
+        if (sel) items.push(this.add.rectangle(cx, cy, cw, 3, OPS.text).setOrigin(0));
       });
       // scheda della potenza scelta: classe dirigente, dottrina, storia, regole
       const info = civInfo(civ), unit = unitInfo(info.unit);
       const ty = y + (P ? 2 : 1) * (ch + gap) + 4;
-      items.push(this.add.text(x0 + 16, ty, info.classe.toUpperCase(), textStyle(11, PALETTE.ocra)).setWordWrapWidth(W - 32),
-        this.add.text(x0 + W - 16, ty, `${info.dottrina.toUpperCase()} · «${info.motto}»`, textStyle(9, PALETTE.tenue, false)).setOrigin(1, 0)
-          .setVisible(!P));
-      items.push(this.add.text(x0 + 16, ty + 20, info.lore, textStyle(11, PALETTE.carta, false)).setWordWrapWidth(W - 32).setLineSpacing(3));
-      items.push(this.add.text(x0 + 16, ty + (P ? 82 : 62), [`▸ ${info.bonus}`, `▸ Unità unica: ${unit.name} (Arsenale liv. ${BALANCE.camp.arsenaleUnique})`,
-        `▸ Edificio unico: ${info.building} — ${info.buildingText}`].join('\n'), textStyle(10, PALETTE.tenue, false)).setWordWrapWidth(W - 32).setLineSpacing(3));
+      const doc = label(this, x0 + 18, ty + 16, `${info.dottrina} · «${info.motto}»`, OPS.label, 8).setWordWrapWidth(W - 36);
+      items.push(label(this, x0 + 18, ty, info.classe, OPS.text, 9).setWordWrapWidth(W - 36), doc);
+      const lore = body(this, x0 + 18, doc.y + doc.height + 8, info.lore, 12, OPS.body, W - 36);
+      items.push(lore);
+      // regole della potenza: bonus, unità, edificio (etichetta mono e testo)
+      let ry = lore.y + lore.height + 12;
+      for (const [k, v] of [['bonus', info.bonus], ['unità unica', `${unit.name} (Arsenale liv. ${BALANCE.camp.arsenaleUnique})`], ['edificio unico', `${info.building} — ${info.buildingText}`]]) {
+        items.push(label(this, x0 + 18, ry + 2, k, OPS.label, 8));
+        const t = body(this, x0 + 140, ry, v, 12, OPS.text, W - 158);
+        items.push(t);
+        ry += t.height + 6;
+      }
       return;
     }
     if (this.panelMode === 'fronti') return this.fillFronts(items, x0, y0, W, H);
@@ -1105,12 +1124,12 @@ export class CampScene extends Phaser.Scene {
     items.push(banner, fade(this, x0 + 1, y0 + 1, W - 2, bh, PALETTE.inchiostro, 0.35, 0.97));
     const bp = this.add.graphics();
     drawPatch(bp, x0 + 34, y0 + bh - 34, 16, st.fill, st.symbol);
-    items.push(bp, this.add.text(x0 + 60, y0 + bh - 56, info.name.toUpperCase(), textStyle(24, INK)),
-      this.add.text(x0 + 60, y0 + bh - 22, `${info.regime} · ${info.bonus}`, textStyle(9, PALETTE.carta, false)).setWordWrapWidth(W - 90));
+    items.push(bp, value(this, x0 + 60, y0 + bh - 58, info.name.toUpperCase(), 26),
+      body(this, x0 + 60, y0 + bh - 24, `${info.regime} · ${info.bonus}`, 10, OPS.body, W - 90));
     if (civChoice(p)) {
       const hit = this.add.rectangle(x0 + 1, y0 + 1, W - 2, bh, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true });
       hit.on('pointerup', () => this.openPanel('gioca', 'civ'));
-      items.push(hit, this.add.text(x0 + W - 16, y0 + 10, 'cambia potenza ›', textStyle(10, PALETTE.ocra)).setOrigin(1, 0));
+      items.push(hit, label(this, x0 + W - 16, y0 + 12, 'cambia potenza ›', OPS.accent, 9).setOrigin(1, 0));
     }
     const row = (y: number, h: number, text: string, onClick: (() => void) | null, warn = false) => {
       // riga traslucida come nella home; etichetta in mono, rossa se avverte di un pericolo
@@ -1204,14 +1223,16 @@ export class CampScene extends Phaser.Scene {
 
   /** Archivio della Caduta: i frammenti di lore sbloccati dal ramo "La Caduta" dell'albero. */
   private fillLab(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, H: number) {
-    const frags = loreFragments(this.profile);
-    const txt = frags.length ? frags.map((f, i) => `${i + 1}. ${f.name.toUpperCase()}\n${f.lore}`).join('\n\n')
-      : 'Nessun frammento. Le ricerche del ramo "La Caduta" riempiono questo archivio.';
-    const body = this.add.text(x0 + 16, y0 + 44, txt, textStyle(10, PALETTE.carta, false)).setWordWrapWidth(W - 32).setLineSpacing(3);
-    items.push(body);
-    items.push(this.link('albero della ricerca ›', x0 + 16, y0 + H - 26, () => this.openTree('caduta'), 0));
-    const ly = body.y + body.height + 18; // pagina alta: registro di stanza sotto i fascicoli
-    void ly;
+    const frags = loreFragments(this.profile), L = x0 + 18, w = W - 36;
+    let y = this.head(items, L, y0 + 44, w, 'frammenti decifrati', `${frags.length}/${loreTotal}`);
+    if (!frags.length) items.push(body(this, L, y, 'Nessun frammento. Le ricerche del ramo "La Caduta" riempiono questo archivio.', 13, OPS.text, w));
+    frags.forEach((f, i) => {
+      items.push(label(this, L, y, `frammento ${ROMAN[i] ?? i + 1}`, OPS.accent, 9), value(this, L, y + 14, f.name.toUpperCase(), 16));
+      const t = body(this, L, y + 38, f.lore, 12, OPS.body, w);
+      items.push(t);
+      y = t.y + t.height + 18;
+    });
+    items.push(this.link('albero della ricerca ›', L, y0 + H - 26, () => this.openTree('caduta'), 0));
   }
 
   /** Albero della ricerca a tutto schermo, sopra l'HQ. */
@@ -1249,24 +1270,30 @@ export class CampScene extends Phaser.Scene {
   private fillRadar(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, _H: number) {
     const p = this.profile;
     items.push(this.link('migliora la sala ›', x0 + 16, y0 + _H - 26, () => this.openPanel('radar', 'build'), 0));
+    const L = x0 + 18, w = W - 36;
+    const best = p.history.reduce((m, r) => Math.max(m, r.tiles), p.bestTiles);
+    // tre numeri grandi, poi le vittorie per potenza, poi il registro in tabella
+    let y = this.head(items, L, y0 + 44, w, 'registro delle campagne');
+    ([['campagne', p.runs], ['vittorie', p.wins], ['territorio max', best]] as [string, number][]).forEach(([k, v], i) => {
+      const sx = L + i * (w / 3);
+      items.push(label(this, sx, y, k, OPS.label, 8), value(this, sx, y + 14, String(v), 26));
+    });
+    y += 56;
     const byCiv = CIV_IDS.map((c) => {
       const h = p.history.filter((r) => r.civ === c);
       return h.length ? `${civInfo(c).name} ${h.filter((r) => r.outcome === 'victory').length}/${h.length}` : '';
     }).filter(Boolean).join(' · ');
-    const best = p.history.reduce((m, r) => Math.max(m, r.tiles), p.bestTiles);
-    items.push(this.add.text(x0 + 16, y0 + 40, `CAMPAGNE ${p.runs} · VITTORIE ${p.wins} · TERRITORIO MAX ${best}\n${byCiv || 'Nessuna campagna registrata.'}`,
-      textStyle(11, PALETTE.carta)).setLineSpacing(4).setWordWrapWidth(W - 32));
-    const OUT: Record<string, string> = { victory: 'VITTORIA', retreat: 'RITIRATA', eliminated: 'ELIMINATO', timeout: 'FINE TEMPO' };
-    const rows = p.history.slice(0, 7).map((r) => {
-      const d = new Date(r.at);
+    items.push(label(this, L, y, byCiv || 'nessuna campagna registrata', OPS.body, 9));
+    y = this.head(items, L, y + 24, w, 'ultime campagne');
+    const OUT: Record<string, [string, number]> = { victory: ['vittoria', OPS.gain], retreat: ['ritirata', PALETTE.allerta], eliminated: ['eliminato', OPS.loss], timeout: ['fine tempo', OPS.label] };
+    p.history.slice(0, 7).forEach((r, i) => {
+      const d = new Date(r.at), ry = y + i * 24;
       const when = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-      return `${when}  ${civInfo(r.civ).name.toUpperCase().padEnd(12)} ${CAMPAIGN_NAME[r.campaign].padEnd(8)} ${(OUT[r.outcome] ?? r.outcome).padEnd(9)} ${String(r.tiles).padStart(4)} caselle  ${fmtTime(r.timeMs)}`;
+      const [o, oc] = OUT[r.outcome] ?? [r.outcome, OPS.label];
+      items.push(label(this, L, ry, when, OPS.label, 9), label(this, L + w * 0.24, ry, civInfo(r.civ).name, OPS.text, 9),
+        label(this, L + w * 0.5, ry, o, oc, 9), label(this, L + w, ry, `${r.tiles} · ${fmtTime(r.timeMs)}`, OPS.body, 9).setOrigin(1, 0));
     });
-    const list = this.add.text(x0 + 16, y0 + 92, rows.length ? rows.join('\n') : '', textStyle(9, PALETTE.ocra, false)).setLineSpacing(5);
-    items.push(list);
-    // pagina alta: sotto il registro, il registro di stanza
-    const ly = list.y + list.height + 18;
-    void ly;
+    items.push(this.link('migliora la sala ›', L, y0 + _H - 26, () => this.openPanel('radar', 'build'), 0));
   }
 
   /** Riga di risorse (costo o bottino); in rosso quelle che non bastano. */
@@ -1279,11 +1306,11 @@ export class CampScene extends Phaser.Scene {
       if (!bag[r]) continue;
       drawResourceIcon(g, r, cx + 6, y + 8, 6);
       const short = have && have[r] < bag[r];
-      const t = this.add.text(cx + 16, y + 8, `${bag[r]} ${RESOURCE_INFO[r].name.toLowerCase()}`, textStyle(12, short ? PALETTE.ko : INK)).setOrigin(0, 0.5);
+      const t = value(this, cx + 16, y + 8, `${bag[r]}`, 18, short ? OPS.loss : OPS.text).setOrigin(0, 0.5);
       c.add(t);
       cx += t.width + 30;
     }
-    if (have && !canAfford(have, bag)) c.add(this.add.text(x, y + 20, 'servono altre run', textStyle(10, PALETTE.ko, false)));
+    if (have && !canAfford(have, bag)) c.add(label(this, x, y + 22, 'servono altre campagne', OPS.loss, 9));
     return c;
   }
 
