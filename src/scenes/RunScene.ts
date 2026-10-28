@@ -248,6 +248,7 @@ export class RunScene extends Phaser.Scene {
     // carta da terminale (MapSCII): disegnata a caratteri braille; la carta a campiture resta sotto, nascosta
     this.term?.destroy();
     this.term = new TerminalMap(this, this.shapes, DPR, D.owned + 0.5);
+    this.term.setTerrain(Uint8Array.from(this.map.provinces, (p) => TERRAIN_IDX[p.terrain] ?? 0)); // per la base fissa (terra e rilievo)
     // allineata ai pixel a fine fotogramma, dopo ogni spostamento della camera (anche WASD, che arriva dopo il ridisegno):
     // a metà pixel spariva una colonna di puntini, una linea verticale su tutta la carta (Nico)
     const align = () => this.term.align();
@@ -1621,20 +1622,24 @@ export class RunScene extends Phaser.Scene {
     }
     this.map.provinces.forEach((p, idx) => {
       if (p.city < 0 || !this.state.isCity(idx)) return; // solo le città che valgono di più (Nico: niente punto in ogni provincia)
-      const { x, y } = center(p.city);
+      const c0 = center(p.city);
+      // agganciato ai pixel dello schermo: niente bordi sfocati o lati di misura diversa
+      const x = v.x + Math.round((c0.x - v.x) / px) * px, y = v.y + Math.round((c0.y - v.y) / px) * px;
       if (!inV(x, y)) return;
       if (this.map.tiles[p.city]!.capital) {
-        // capitale: una stella (Nico), azzurra come i nomi della carta; si vede a ogni zoom (da lontano più piccola)
-        const r = 5 * px * Phaser.Math.Clamp(z / 4, 0.55, 1), pts: Phaser.Types.Math.Vector2Like[] = []; // da lontano più piccole
+        // capitale: una stella (Nico), azzurra come i nomi della carta; solo da vicino, sempre della stessa misura sullo schermo
+        if (z < 2.2) return;
+        const r = 5 * px, pts: Phaser.Types.Math.Vector2Like[] = []; // da lontano più piccole
         for (let k = 0; k < 10; k++) {
           const a = -Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? r * 0.45 : r;
           pts.push({ x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr });
         }
         g.fillStyle(CITY_COL, 1).fillPoints(pts, true).lineStyle(1.4 * px, 0x000000, 1).strokePoints(pts, true);
-      } else {
-        // città: un quadrato con bordo nero, a ogni zoom (Nico: "mancano ancora le città", da lontano non si vedevano)
-        const r = 3.2 * px * Phaser.Math.Clamp(z / 4, 0.55, 1);
-        g.fillStyle(0x000000, 1).fillRect(x - r - 1.3 * px, y - r - 1.3 * px, 2 * r + 2.6 * px, 2 * r + 2.6 * px).fillStyle(CITY_COL, 1).fillRect(x - r, y - r, 2 * r, 2 * r);
+      } else if (z >= 2.2) {
+        // città: un quadrato con bordo nero, solo da vicino (Nico: "non ci devono essere nella mappa da fuori"),
+        // sempre della stessa misura sullo schermo (prima cambiava con lo zoom)
+        const r = 3 * px; // misure intere in pixel dello schermo: 6 di lato più 1 di bordo
+        g.fillStyle(0x000000, 1).fillRect(x - r - px, y - r - px, 2 * r + 2 * px, 2 * r + 2 * px).fillStyle(CITY_COL, 1).fillRect(x - r, y - r, 2 * r, 2 * r);
       }
     });
   }

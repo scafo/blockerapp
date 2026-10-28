@@ -6,7 +6,15 @@ import type { RunState } from '../game/RunState';
 import type { RunOptions } from '../game/camp';
 import type { FactionKind } from '../map/generate';
 
-const DB = 'ashen-dev', STORE = 'resume', KEY = 'run', FLAG = 'aa-hmr-reload';
+const DB = 'ashen-dev', STORE = 'resume', FLAG = 'aa-hmr-reload';
+// una partita salvata per scheda: due schede aperte (o una di prova) non si sovrascrivono a vicenda
+const KEY = (() => {
+  try {
+    let id = sessionStorage.getItem('aa-tab');
+    if (!id) { id = Math.random().toString(36).slice(2); sessionStorage.setItem('aa-tab', id); }
+    return `run-${id}`;
+  } catch { return 'run'; }
+})();
 
 export interface ResumeData {
   seed: string;

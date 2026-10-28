@@ -259,8 +259,8 @@ export class RunState {
     // economia per provincia: crescita pesata dal terreno, risorsa del terreno prevalente
     const T = BALANCE.terrain;
     this.provGrowthW = Float32Array.from(map.provinces, (p) => p.tiles.reduce((s, i) => s + T[map.tiles[i]!.terrain].growth, 0));
-    // città: capitali delle nazioni (le città vere della carta le aggiunge la scena, setCities)
-    map.provinces.forEach((pr, p) => { if (pr.city >= 0 && map.tiles[pr.city]?.capital) this.cityProv.add(p); });
+    // città: solo quelle della carta (`places.json`, sparse su tutto il mondo), le aggiunge la scena con setCities.
+    // Prima valevano anche tutte le capitali delle nazioni: quasi tutte in Europa, che diventava la zona più ricca (Nico)
     this.worksBuilt = map.starts.map(() => 0);
     this.provWork = new Int8Array(map.provinces.length).fill(-1);
     this.provCoastal = Uint8Array.from(map.provinces, (pr) => (pr.tiles.some((i) => isCoast(map.tiles, i)) ? 1 : 0));

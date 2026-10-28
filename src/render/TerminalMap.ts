@@ -30,16 +30,6 @@ export const TERM = {
 // in toni di blu che salgono con l'altitudine (pianura, deserto, colline, montagne) sfumati tra un terreno e l'altro, più una
 // leggera grana fissa al mondo per variare.
 const ELEV = [0, 1.15, 2.4, 0.55]; // pianura, colline, montagne, deserto
-// mare: dalle acque basse (chiaro) al profondo, sette gradini tra i colori del terminale
-const SEA_SHADES = (() => {
-  const hx = (c: string) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
-  const stops = ['#d3dae2', '#c3ccd6', '#b3bdc9'].map(hx), out: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    const t = (i / 6) * 2, a = stops[Math.min(1, Math.floor(t))], b = stops[Math.min(2, Math.floor(t) + 1)], u = t - Math.min(1, Math.floor(t));
-    out.push('#' + a.map((v, j) => Math.round(v + (b[j] - v) * u).toString(16).padStart(2, '0')).join(''));
-  }
-  return out;
-})();
 const LAND_SHADES = ['#1b2331', '#1f283a', '#253046', '#2c3953', '#354463', '#405176', '#4d6089'];
 const FORT = '#f2f2f2'; // muro: seconda fila del confine
 
@@ -143,7 +133,7 @@ export class TerminalMap {
   }
 
   /** Vettore riusato di n elementi (azzerato o riempito con `fill`). */
-  private buf<T extends Uint8Array | Int16Array | Int32Array | Uint32Array | Float32Array | Float64Array>(name: string, C: { new (n: number): T }, n: number, fill = 0): T {
+  private buf<T extends Uint8Array | Int16Array | Int32Array | Uint32Array | Float32Array>(name: string, C: { new (n: number): T }, n: number, fill = 0): T {
     let b = this.bufs.get(name) as T | undefined;
     if (!b || b.length < n) { b = new C(Math.ceil(n * 1.25)); this.bufs.set(name, b); }
     const v = b.subarray(0, n) as T;
@@ -160,6 +150,130 @@ export class TerminalMap {
       this.colInt.set(color, v);
     }
     return v;
+  }
+
+  private base: { key: string; x0: number; y0: number; w: number; h: number; land: Uint8Array; ter: Uint8Array; dots: Uint32Array; halo: Uint32Array } | null = null;
+  private terrainOf: ArrayLike<number> = [];
+
+  /** Terreno di ogni provincia (0 pianura, 1 colline, 2 montagne, 3 deserto): serve alla base, che copre anche fuori vista. */
+  setTerrain(t: ArrayLike<number>) {
+    this.terrainOf = t;
+    this.base = null;
+  }
+
+  /** Riempie a righe la sagoma della provincia `id` (regola del centro del puntino): `span(Y, xa, xb)` per ogni tratto. */
+  private raster(id: number, gx0: number, gy0: number, sx: number, sy: number, DW: number, DH: number, span: (Y: number, xa: number, xb: number) => void) {
+    const sh = this.shapes.provinces[id];
+    const ya = Math.max(0, Math.ceil((sh.y0 - gy0) * sy - 0.5)), yb = Math.min(DH - 1, Math.floor((sh.y1 - gy0) * sy - 0.5));
+    if (yb < ya) return;
+    const rowsX: number[][] = (this.rowsX ??= []); // incroci per riga, riusati
+    for (let Y = ya; Y <= yb; Y++) (rowsX[Y - ya] ??= []).length = 0;
+    // ogni lato una volta sola: le righe che attraversa (centro della riga in [ymin, ymax)) ricevono il suo incrocio
+    for (const part of sh.parts) {
+      const r = part.outer, n = r.length;
+      for (let j = 0; j < n; j += 2) {
+        const k = j + 2 < n ? j + 2 : 0, y1 = r[j + 1], y2 = r[k + 1];
+        if (y1 === y2) continue;
+        const lo = Math.min(y1, y2), hi = Math.max(y1, y2);
+        const Y0 = Math.max(ya, Math.ceil((lo - gy0) * sy - 0.5)), Y1 = Math.min(yb, Math.ceil((hi - gy0) * sy - 0.5) - 1);
+        if (Y1 < Y0) continue;
+        const x1 = r[j], dxdy = (r[k] - x1) / (y2 - y1);
+        for (let Y = Y0; Y <= Y1; Y++) rowsX[Y - ya].push(x1 + (gy0 + (Y + 0.5) / sy - y1) * dxdy);
+      }
+    }
+    for (let Y = ya; Y <= yb; Y++) {
+      const xs = rowsX[Y - ya];
+      if (xs.length < 2) continue;
+      if (xs.length === 2) { if (xs[0] > xs[1]) { const a = xs[0]; xs[0] = xs[1]; xs[1] = a; } } else xs.sort((a, b) => a - b);
+      for (let i = 0; i + 1 < xs.length; i += 2) {
+        const xa = Math.max(0, Math.ceil((xs[i] - gx0) * sx - 0.5)), xb = Math.min(DW - 1, Math.ceil((xs[i + 1] - gx0) * sx - 0.5) - 1);
+        if (xb >= xa) span(Y, xa, xb);
+      }
+    }
+  }
+
+  /**
+   * Base fissa della carta per una zona (in puntini del mondo, a questo zoom): terra, terreno, mare a tre fasce di profondità
+   * (con l'alone) e rilievo della terra libera, sfumato e sgranato da lontano. Stessi conti di prima, fatti una volta sola.
+   */
+  private buildBase(key: string, x0: number, y0: number, w: number, h: number, sx: number, sy: number, landDots?: string) {
+    const n = w * h, gx0 = x0 / sx, gy0 = y0 / sy;
+    const land = new Uint8Array(n), ter = new Uint8Array(n), dots = new Uint32Array(n), halo = new Uint32Array(n);
+    const v = { x0: gx0, y0: gy0, x1: gx0 + w / sx, y1: gy0 + h / sy };
+    this.shapes.provinces.forEach((sh, id) => {
+      if (!sh?.parts.length || sh.x1 < v.x0 || sh.x0 > v.x1 || sh.y1 < v.y0 || sh.y0 > v.y1) return;
+      const tv = 1 + (this.terrainOf[id] ?? 0);
+      this.raster(id, gx0, gy0, sx, sy, w, h, (Y, xa, xb) => { const a = Y * w + xa, b = Y * w + xb + 1; land.fill(1, a, b); ter.fill(tv, a, b); });
+    });
+    // buchi di un puntino tra due province vicine (gli incroci dei lati condivisi non sempre coincidono al centesimo): si
+    // riempiono dal vicino, se no venivano letti come mare e attorno spuntava un bordo blu (Nico: "pixel a caso")
+    for (let Y = 0; Y < h; Y++) for (let X = 0; X < w; X++) {
+      const k = Y * w + X;
+      if (land[k]) continue;
+      if (X > 0 && X < w - 1 && land[k - 1] && land[k + 1]) { land[k] = 1; ter[k] = ter[k - 1]; continue; }
+      if (Y > 0 && Y < h - 1 && land[k - w] && land[k + w]) { land[k] = 1; ter[k] = ter[k - w]; }
+    }
+    // profondità: distanza dalla terra in puntini (passi dritti e in diagonale √2: fasce tonde attorno alle isole, non a rombo)
+    const dist = new Float32Array(n).fill(1e9);
+    const shallowD = 30 * sx, midD = 110 * sx; // 30 e 110 pixel-mondo dalla costa (le fasce coprono tutto il mare)
+    for (let k = 0; k < n; k++) if (land[k]) dist[k] = 0;
+    for (let y = 0, k = 0; y < h; y++) for (let x = 0; x < w; x++, k++) {
+      let d = dist[k];
+      if (!d) continue;
+      if (x > 0 && dist[k - 1] + 1 < d) d = dist[k - 1] + 1;
+      if (y > 0 && dist[k - w] + 1 < d) d = dist[k - w] + 1;
+      if (x > 0 && y > 0 && dist[k - w - 1] + 1.414 < d) d = dist[k - w - 1] + 1.414;
+      if (x < w - 1 && y > 0 && dist[k - w + 1] + 1.414 < d) d = dist[k - w + 1] + 1.414;
+      dist[k] = d;
+    }
+    for (let y = h - 1, k = n - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--, k--) {
+      let d = dist[k];
+      if (!d) continue;
+      if (x < w - 1 && dist[k + 1] + 1 < d) d = dist[k + 1] + 1;
+      if (y < h - 1 && dist[k + w] + 1 < d) d = dist[k + w] + 1;
+      if (x < w - 1 && y < h - 1 && dist[k + w + 1] + 1.414 < d) d = dist[k + w + 1] + 1.414;
+      if (x > 0 && y < h - 1 && dist[k + w - 1] + 1.414 < d) d = dist[k + w - 1] + 1.414;
+      dist[k] = d;
+    }
+    // altitudine della terra libera sfumata (media su un quadrato di ~6 pixel-mondo, separabile): niente scalini tra terreni
+    const HALO = this.rgba('#1a2430'); // alone del mare: grigio-blu (l'indaco di prima lo faceva sembrare rosa)
+    const seaInt = [this.rgba(TERM.shallow), this.rgba(TERM.water), this.rgba(TERM.deep)];
+    const shadeInt = LAND_SHADES.map((c) => this.rgba(c));
+    const elev = new Float32Array(n), wt = new Float32Array(n);
+    for (let k = 0; k < n; k++) if (land[k]) { elev[k] = ELEV[Math.min(3, Math.max(0, ter[k] - 1))]; wt[k] = 1; }
+    // da vicino (Nico): ogni provincia di un tono solo, quello del suo terreno, niente sfumatura né grana; da lontano sfumato
+    const near = sx > 1.5;
+    const rad = Math.max(1, Math.min(8, Math.round(6 * sx)));
+    const grain = 0.6;
+    const tmp = new Float32Array(n);
+    const blur = (src: Float32Array, dst: Float32Array, horiz: boolean) => {
+      const len = horiz ? w : h, lines = horiz ? h : w, st = horiz ? 1 : w, ls = horiz ? w : 1;
+      for (let l = 0; l < lines; l++) {
+        const b0 = l * ls;
+        let acc = 0;
+        for (let i = -rad; i <= rad; i++) if (i >= 0 && i < len) acc += src[b0 + i * st];
+        for (let i = 0; i < len; i++) {
+          dst[b0 + i * st] = acc;
+          const out = i - rad, inn = i + rad + 1;
+          if (out >= 0) acc -= src[b0 + out * st];
+          if (inn < len) acc += src[b0 + inn * st];
+        }
+      }
+    };
+    if (landDots && !near) { blur(elev, tmp, true); blur(tmp, elev, false); blur(wt, tmp, true); blur(tmp, wt, false); }
+    for (let Y = 0; Y < h; Y++) for (let X = 0; X < w; X++) {
+      const k = Y * w + X;
+      if (!land[k]) { dots[k] = seaInt[dist[k] <= shallowD ? 0 : dist[k] <= midD ? 1 : 2]; halo[k] = HALO; continue; } // mare
+      if (!landDots || wt[k] <= 0) continue;
+      if (near) { dots[k] = shadeInt[Math.round((elev[k] / 2.4) * (LAND_SHADES.length - 1))]; continue; }
+      // grana: rumore fisso al mondo (non sfarfalla scorrendo), al massimo ±0,3 di gradino
+      let hh = ((X + x0) * 374761393 + (Y + y0) * 668265263) | 0;
+      hh = Math.imul(hh ^ (hh >>> 13), 1274126177);
+      const noise = (((hh ^ (hh >>> 16)) & 1023) / 1023 - 0.5) * grain;
+      const e = elev[k] / wt[k] / 2.4 * (LAND_SHADES.length - 1) + noise;
+      dots[k] = shadeInt[Math.max(0, Math.min(LAND_SHADES.length - 1, Math.round(e)))];
+    }
+    return { key, x0, y0, w, h, land, ter, dots, halo };
   }
 
   render(frame: TermFrame) {
@@ -200,71 +314,62 @@ export class TerminalMap {
     const sx = (2 * ppw) / cwPx, sy = (4 * ppw) / chPx;
     const toDot = (x: number, y: number): [number, number] => [(x - gx0) * sx, (y - gy0) * sy];
 
-    // 1. terra e territorio a un valore per puntino, riempiti a righe (regola del centro del puntino): niente sfumature né
-    // buchi tra province vicine, e molto più veloce del disegno su canvas (Nico: lo zoom veloce era "un bordello")
+    // 0. base fissa (terra, terreno, mare a fasce, rilievo sfumato): non cambia mai a parità di zoom, si calcola una volta per
+    // una zona ampia attorno alla vista e poi si copia. Prima si rifaceva tutto (≈770.000 puntini) a ogni spostamento: 60–90 ms
+    // per ridisegno da lontano, la carta scattava (Nico: "lentissimo")
+    const gxi = Math.round(gx0 * sx), gyi = Math.round(gy0 * sy); // primo puntino della vista, in puntini del mondo
+    const bkey = `${sx.toFixed(5)}|${sy.toFixed(5)}|${frame.landDots ?? ''}`;
+    let B = this.base;
+    if (!B || B.key !== bkey || gxi < B.x0 || gyi < B.y0 || gxi + DW > B.x0 + B.w || gyi + DH > B.y0 + B.h) {
+      // margine attorno alla vista: spostarsi un po' non la ricalcola (fuori dal mondo è mare, costa poco)
+      const mx = Math.ceil(DW * 0.4), my = Math.ceil(DH * 0.4);
+      const x0 = gxi - mx, y0 = gyi - my, x1 = gxi + DW + mx, y1 = gyi + DH + my;
+      B = this.base = this.buildBase(bkey, x0, y0, x1 - x0, y1 - y0, sx, sy, frame.landDots);
+    }
+
+    // 1. territori delle potenze sopra la base: solo le province colorate, riempite a righe (regola del centro del puntino)
     const terr = this.buf('terr', Int16Array, DW * DH, -1);
     const palCss: string[] = [];
     for (const pr of frame.provinces) if (pr.color && !palCss.includes(pr.color)) palCss.push(pr.color);
     const land = this.buf('land', Uint8Array, DW * DH), ter = this.buf('ter', Uint8Array, DW * DH); // terra (1) e terreno della terra libera (1…4)
-    const rowsX: number[][] = (this.rowsX ??= []); // incroci per riga, riusati
     const fortAt = this.buf('fort', Uint8Array, DW * DH); // puntini di province col muro
+    const bx = gxi - B.x0, by = gyi - B.y0;
+    for (let Y = 0; Y < DH; Y++) {
+      const src = (by + Y) * B.w + bx;
+      land.set(B.land.subarray(src, src + DW), Y * DW);
+      ter.set(B.ter.subarray(src, src + DW), Y * DW);
+    }
+    let tMinY = DH, tMaxY = -1;
     for (const pr of frame.provinces) {
-      const sh = this.shapes.provinces[pr.id], t = pr.color ? palCss.indexOf(pr.color) : -1, tv = 1 + (pr.terrain ?? 0), fort = pr.fort ? 1 : 0, stripe = pr.stripe ?? 0;
-      const ya = Math.max(0, Math.ceil((sh.y0 - gy0) * sy - 0.5)), yb = Math.min(DH - 1, Math.floor((sh.y1 - gy0) * sy - 0.5));
-      if (yb < ya) continue;
-      for (let Y = ya; Y <= yb; Y++) (rowsX[Y - ya] ??= []).length = 0;
-      // ogni lato una volta sola: le righe che attraversa (centro della riga in [ymin, ymax)) ricevono il suo incrocio
-      for (const part of sh.parts) {
-        const r = part.outer, n = r.length;
-        for (let j = 0; j < n; j += 2) {
-          const k = j + 2 < n ? j + 2 : 0, y1 = r[j + 1], y2 = r[k + 1];
-          if (y1 === y2) continue;
-          const lo = Math.min(y1, y2), hi = Math.max(y1, y2);
-          const Y0 = Math.max(ya, Math.ceil((lo - gy0) * sy - 0.5)), Y1 = Math.min(yb, Math.ceil((hi - gy0) * sy - 0.5) - 1);
-          if (Y1 < Y0) continue;
-          const x1 = r[j], dxdy = (r[k] - x1) / (y2 - y1);
-          for (let Y = Y0; Y <= Y1; Y++) rowsX[Y - ya].push(x1 + (gy0 + (Y + 0.5) / sy - y1) * dxdy);
+      if (!pr.color) continue;
+      const t = palCss.indexOf(pr.color), fort = pr.fort ? 1 : 0, stripe = pr.stripe ?? 0;
+      this.raster(pr.id, gx0, gy0, sx, sy, DW, DH, (Y, xa, xb) => {
+        if (Y < tMinY) tMinY = Y;
+        if (Y > tMaxY) tMaxY = Y;
+        const a = Y * DW + xa, b = Y * DW + xb + 1;
+        land.fill(1, a, b);
+        fortAt.fill(fort, a, b);
+        if (!stripe) { terr.fill(t, a, b); return; } // a riempimenti interi: molto più veloce
+        for (let X = xa, k = a; X <= xb; X++, k++) {
+          if ((stripe === 1 ? X + Y : X - Y + 4096) % 4 >= 2) continue; // a righe in diagonale: terra senza puntino (e senza trama)
+          terr[k] = t;
         }
-      }
-      for (let Y = ya; Y <= yb; Y++) {
-        const xs = rowsX[Y - ya];
-        if (xs.length < 2) continue;
-        if (xs.length === 2) { if (xs[0] > xs[1]) { const a = xs[0]; xs[0] = xs[1]; xs[1] = a; } } else xs.sort((a, b) => a - b);
-        for (let i = 0; i + 1 < xs.length; i += 2) {
-          const xa = Math.max(0, Math.ceil((xs[i] - gx0) * sx - 0.5)), xb = Math.min(DW - 1, Math.ceil((xs[i + 1] - gx0) * sx - 0.5) - 1);
-          if (xb < xa) continue;
-          const a = Y * DW + xa, b = Y * DW + xb + 1;
-          land.fill(1, a, b);
-          fortAt.fill(fort, a, b);
-          if (!stripe) { if (t >= 0) terr.fill(t, a, b); else ter.fill(tv, a, b); continue; } // a riempimenti interi: molto più veloce
-          for (let X = xa, k = a; X <= xb; X++, k++) {
-            if ((stripe === 1 ? X + Y : X - Y + 4096) % 4 >= 2) continue; // a righe in diagonale: terra senza puntino (e senza trama)
-            if (t >= 0) terr[k] = t;
-            else ter[k] = tv;
-          }
-        }
-      }
+      });
     }
 
-    // buchi di un puntino tra due province vicine (gli incroci dei lati condivisi non sempre coincidono al centesimo): si
-    // riempiono dal vicino, se no venivano letti come mare e attorno spuntava un bordo blu (Nico: "pixel a caso")
-    const copy = (k: number, j: number) => { land[k] = 1; ter[k] = ter[j]; terr[k] = terr[j]; fortAt[k] = fortAt[j]; };
-    // fessure fino a 3 puntini dentro un territorio (stesso padrone ai due lati): chiuse anche quelle (Nico: macchie chiare col
-    // bordo blu dentro le tue province). Tra terre di padroni diversi o libere solo 1 puntino: gli stretti di mare restano
+    // fessure fino a 3 puntini dentro un territorio (stesso padrone ai due lati): si chiudono (Nico: macchie chiare col bordo
+    // blu dentro le tue province). I buchi di un puntino tra terre qualsiasi li chiude già la base. Solo le righe coi territori
     const G = 3;
-    for (let Y = 0; Y < DH; Y++) for (let X = 0; X < DW; X++) {
+    const copy = (k: number, j: number) => { land[k] = 1; ter[k] = ter[j]; terr[k] = terr[j]; fortAt[k] = fortAt[j]; };
+    for (let Y = Math.max(0, tMinY - 1); Y <= Math.min(DH - 1, tMaxY + G); Y++) for (let X = 0; X < DW; X++) {
       const k = Y * DW + X;
       if (land[k]) continue;
-      if (X > 0 && X < DW - 1 && land[k - 1] && land[k + 1]) { copy(k, k - 1); continue; }
-      if (Y > 0 && Y < DH - 1 && land[k - DW] && land[k + DW]) { copy(k, k - DW); continue; }
-      // orizzontale: territorio a sinistra (già riempito, anche da questo giro) e lo stesso entro G puntini a destra
       if (X > 0 && land[k - 1] && terr[k - 1] >= 0) {
         const t = terr[k - 1];
         let hit = false;
         for (let d = 1; d <= G && X + d < DW; d++) if (land[k + d]) { hit = terr[k + d] === t; break; }
         if (hit) { copy(k, k - 1); continue; }
       }
-      // verticale: lo stesso, dall'alto in basso
       if (Y > 0 && land[k - DW] && terr[k - DW] >= 0) {
         const t = terr[k - DW];
         let hit = false;
@@ -323,7 +428,7 @@ export class TerminalMap {
     const grpOf = (n: number) => (n < 0 ? n : grp[n]);
     let tt = 0;
     const over = (n: number) => n >= 0 && n !== tt && (ownT[n] ? !ownT[tt] : !ownT[tt] && n < tt);
-    if (frame.edges) for (let y = 0; y < DH; y++) for (let x = 0; x < DW; x++) {
+    if (frame.edges) for (let y = Math.max(0, tMinY - 1); y <= Math.min(DH - 1, tMaxY + G + 1); y++) for (let x = 0; x < DW; x++) {
       const k = y * DW + x, t0 = terr[k];
       if (t0 < 0 || border[k]) continue;
       const e = edgeOf[t0];
@@ -348,7 +453,7 @@ export class TerminalMap {
     // confine di un puntino, attaccato al territorio. Muro (bunker): dietro il confine una seconda fila bianca.
     const ring = this.buf('ring', Int32Array, DW * DH);
     let nr = 0;
-    for (let y = 0; y < DH; y++) for (let x = 0; x < DW; x++) {
+    for (let y = Math.max(0, tMinY - 1); y <= Math.min(DH - 1, tMaxY + G + 1); y++) for (let x = 0; x < DW; x++) {
       const k = y * DW + x, t = terr[k];
       if (t < 0 || border[k] || !fortAt[k]) continue;
       // muro: tocca la prima fila anche solo in diagonale, così la fila bianca è continua
@@ -365,43 +470,6 @@ export class TerminalMap {
     }
     // dopo il giro: se no la fila si allargava a tutta la provincia
     for (let i = 0; i < nr; i++) border[ring[i]] = fortC;
-
-    // profondità: distanza vera (euclidea) dalla terra, in puntini. Prima era a passi in croce: attorno alle isole le fasce
-    // venivano a rombi e quadrati, con tre gradini netti (Nico: "a volte è proprio squadrata"). Ora cerchi morbidi, poi la
-    // sfumatura si sgrana come il rilievo della terra.
-    const dist = this.buf('dist', Float32Array, DW * DH, 0);
-    const shallowD = 30 * sx, midD = 110 * sx; // in puntini: 30 e 110 pixel-mondo dalla costa (le fasce coprono tutto il mare)
-    {
-      // trasformata della distanza di Felzenszwalb: righe poi colonne, distanza al quadrato esatta
-      const INF = 1e12, n = Math.max(DW, DH);
-      const f = this.buf('edtF', Float64Array, n), dd = this.buf('edtD', Float64Array, n);
-      const v = this.buf('edtV', Int32Array, n), zb = this.buf('edtZ', Float64Array, n + 1);
-      const pass = (len: number) => {
-        let k = 0;
-        v[0] = 0; zb[0] = -INF; zb[1] = INF;
-        for (let q = 1; q < len; q++) {
-          let sct = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
-          while (sct <= zb[k]) { k--; sct = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
-          k++; v[k] = q; zb[k] = sct; zb[k + 1] = INF;
-        }
-        k = 0;
-        for (let q = 0; q < len; q++) {
-          while (zb[k + 1] < q) k++;
-          dd[q] = (q - v[k]) * (q - v[k]) + f[v[k]];
-        }
-      };
-      for (let y = 0; y < DH; y++) {
-        const r = y * DW;
-        for (let x = 0; x < DW; x++) f[x] = land[r + x] ? 0 : INF;
-        pass(DW);
-        for (let x = 0; x < DW; x++) dist[r + x] = dd[x];
-      }
-      for (let x = 0; x < DW; x++) {
-        for (let y = 0; y < DH; y++) f[y] = dist[y * DW + x];
-        pass(DH);
-        for (let y = 0; y < DH; y++) dist[y * DW + x] = Math.sqrt(dd[y]);
-      }
-    }
 
     // 3. nomi agganciati alla griglia: prendono il posto dei caratteri (prima i più importanti, niente sovrapposizioni)
     const text = this.buf('text', Uint8Array, this.cols * this.rows);
@@ -421,62 +489,22 @@ export class TerminalMap {
       draws.push({ x: ox + c0 * cwPx, y: oy + row * chPx + chPx / 2, text: l.text, color: l.color, px: fpx * dpr });
     }
 
-    // 4. un pixel per puntino: confine > territorio > mare > terra libera (toni dell'altitudine sfumata)
+    // 4. un pixel per puntino: confine > territorio > base (mare a fasce, terra libera sfumata); niente sotto i nomi
     const dots = this.buf('dots', Uint32Array, DW * DH), halos = this.buf('halos', Uint32Array, DW * DH);
-    const HALO = this.rgba('#1a2430'); // alone del mare: grigio-blu (l'indaco di prima lo faceva sembrare rosa)
     const palInt = palCss.map((c) => this.rgba(c));
-    // mare a gradini fitti dalle acque basse al profondo (stessi tre colori di prima, passaggi in mezzo)
-    const seaInt = SEA_SHADES.map((c) => this.rgba(c));
-    const seaT = (d: number) => (d <= shallowD ? (d / shallowD) / 3 : d <= midD ? 1 / 3 + ((d - shallowD) / (midD - shallowD)) / 3 : 2 / 3 + Math.min(1, (d - midD) / midD) / 3);
-    const shadeInt = LAND_SHADES.map((c) => this.rgba(c));
-    // altitudine della terra libera sfumata (media su un quadrato di ~6 pixel-mondo, separabile): niente scalini tra terreni
-    const elev = this.buf('elev', Float32Array, DW * DH), wt = this.buf('wt', Float32Array, DW * DH);
-    const tmpE = this.buf('tmpE', Float32Array, DW * DH), tmpW = this.buf('tmpW', Float32Array, DW * DH);
-    for (let k = 0; k < DW * DH; k++) if (land[k] && terr[k] < 0) { elev[k] = ELEV[Math.min(3, Math.max(0, ter[k] - 1))]; wt[k] = 1; }
-    // da vicino (Nico): ogni provincia di un tono solo, quello del suo terreno, niente sfumatura né grana; da lontano sfumato
-    const near = sx > 1.5;
-    const rad = Math.max(1, Math.min(8, Math.round(6 * sx)));
-    const grain = 0.6;
-    const blur = (src: Float32Array, dst: Float32Array, horiz: boolean) => {
-      const n = horiz ? DW : DH, lines = horiz ? DH : DW, st = horiz ? 1 : DW, ls = horiz ? DW : 1;
-      for (let l = 0; l < lines; l++) {
-        const base = l * ls;
-        let acc = 0;
-        for (let i = -rad; i <= rad; i++) if (i >= 0 && i < n) acc += src[base + i * st];
-        for (let i = 0; i < n; i++) {
-          dst[base + i * st] = acc;
-          const out = i - rad, inn = i + rad + 1;
-          if (out >= 0) acc -= src[base + out * st];
-          if (inn < n) acc += src[base + inn * st];
-        }
-      }
-    };
-    if (frame.landDots && !near) { blur(elev, tmpE, true); blur(tmpE, elev, false); blur(wt, tmpW, true); blur(tmpW, wt, false); }
-    const colBase = Math.round((gx0 * ppw) / cwPx) * 2, rowBase = Math.round((gy0 * ppw) / chPx) * 4; // puntino nel mondo (per la grana)
+    for (let Y = 0; Y < DH; Y++) {
+      const src = (by + Y) * B.w + bx;
+      dots.set(B.dots.subarray(src, src + DW), Y * DW);
+      halos.set(B.halo.subarray(src, src + DW), Y * DW);
+    }
+    for (let k = 0, n = DW * DH; k < n; k++) {
+      const bc = border[k];
+      if (bc) dots[k] = bc;
+      else if (terr[k] >= 0) dots[k] = palInt[terr[k]]; // territorio di una potenza
+    }
     for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++) {
-      if (text[r * this.cols + c]) continue;
-      for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 2; dx++) {
-        const X = c * 2 + dx, Y = r * 4 + dy, k = Y * DW + X, bc = border[k];
-        if (bc) { dots[k] = bc; continue; }
-        if (terr[k] >= 0) { dots[k] = palInt[terr[k]]; continue; } // territorio di una potenza
-        if (!land[k]) {
-          // mare: sfumato e sgranato come la terra (rumore fisso al mondo, non sfarfalla scorrendo)
-          let h = ((X + colBase) * 374761393 + (Y + rowBase) * 668265263) | 0;
-          h = Math.imul(h ^ (h >>> 13), 1274126177);
-          const nz = (((h ^ (h >>> 16)) & 1023) / 1023 - 0.5) * 1.3;
-          dots[k] = seaInt[Math.max(0, Math.min(SEA_SHADES.length - 1, Math.round(seaT(dist[k]) * (SEA_SHADES.length - 1) + nz)))];
-          halos[k] = HALO;
-          continue;
-        }
-        if (!frame.landDots || wt[k] <= 0) continue;
-        if (near) { dots[k] = shadeInt[Math.round((elev[k] / 2.4) * (LAND_SHADES.length - 1))]; continue; }
-        // grana: rumore fisso al mondo (non sfarfalla scorrendo), al massimo ±0,3 di gradino (da vicino molto meno)
-        let h = ((X + colBase) * 374761393 + (Y + rowBase) * 668265263) | 0;
-        h = Math.imul(h ^ (h >>> 13), 1274126177);
-        const noise = (((h ^ (h >>> 16)) & 1023) / 1023 - 0.5) * grain;
-        const e = elev[k] / wt[k] / 2.4 * (LAND_SHADES.length - 1) + noise;
-        dots[k] = shadeInt[Math.max(0, Math.min(LAND_SHADES.length - 1, Math.round(e)))];
-      }
+      if (!text[r * this.cols + c]) continue;
+      for (let dy = 0; dy < 4; dy++) { const k = (r * 4 + dy) * DW + c * 2; dots[k] = dots[k + 1] = halos[k] = halos[k + 1] = 0; }
     }
 
     // 5. disegno sulla GPU: immagini ingrandite (un blocco per puntino), poi le trame ritagliano puntini e aloni; poi le lettere
