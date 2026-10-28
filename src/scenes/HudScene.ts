@@ -1138,7 +1138,7 @@ export class HudScene extends Phaser.Scene {
         st.battles.some((b) => b.unit === unit.id), unit.path.length > 0, group.length, group.every((u) => u.stance === 'attacca'));
     } else if (this.selUnit < 0 && p >= 0) {
       const o = st.provOwner[p], prog = o === PLAYER ? st.workInProgress(p) : null, b = st.battleAt(p);
-      const fc = o !== PLAYER && (st.seesProv(p) || o === NEUTRAL) && st.isFrontierProv(p) ? st.forecast(p) : null;
+      const fc = o === NEUTRAL && st.isFrontierProv(p) ? st.forecast(p) : null;
       const cost = o === PLAYER ? 0 : st.provCost(PLAYER, p);
       k.push(o, st.seesProv(p), o > PLAYER ? st.relation[o] : '', st.provDefense(p), st.provPerMin(p).toFixed(1), st.workOf(p),
         prog ? mmss(prog.leftMs) : '', Math.round(st.supply[p] * 100), st.capitalProv[PLAYER], cost, st.troops > cost,
@@ -1162,7 +1162,7 @@ export class HudScene extends Phaser.Scene {
     const own = !unit && st.provOwner[p] === PLAYER;
     const ready = own ? st.workOf(p) : null, prog = own ? st.workInProgress(p) : null;
     // previsione dell'assalto (province attaccabili che vedi)
-    const fc = !unit && p >= 0 && st.provOwner[p] !== PLAYER && (st.seesProv(p) || st.provOwner[p] === NEUTRAL) && st.isFrontierProv(p) ? st.forecast(p) : null;
+    const fc = !unit && p >= 0 && st.provOwner[p] === NEUTRAL && st.isFrontierProv(p) ? st.forecast(p) : null; // il prezzo vale solo per il vuoto
 
     // Gerarchia (Nico: "100 cose tutte attaccate, stesso font, stesse grandezze"): titolo 16 bianco → riga grigia 11 di chi/cosa →
     // dati principali grandi (16) → dati secondari (13) → azioni. Etichette sempre 11 grigie, margini a passi di 8.
@@ -1287,7 +1287,8 @@ export class HudScene extends Phaser.Scene {
         // una riga sola (Nico: "appiattiscila"); la costruzione solo se c'è
         const w = st.workOf(p);
         stats([
-          { k: 'per prenderla', v: seen || o === NEUTRAL ? `${cost}` : '?', c: st.troops > cost ? TCOL.text : TCOL.alert, icon: 'ico-truppe' },
+          o === NEUTRAL ? { k: 'per prenderla', v: `${cost}`, c: st.troops > cost ? TCOL.text : TCOL.alert, icon: 'ico-truppe' }
+            : { k: 'per prenderla', v: 'pedine', c: TCOL.text, icon: 'ico-truppe' }, // Nico: imperi e milizie si combattono alla HOI4
           ...(fc ? [{ k: 'esito', v: odds, c: fc.odds === 'incerta' ? TCOL.accent : fc.odds === 'difficile' || !fc.can ? TCOL.alert : TCOL.ok }] : []),
           { k: 'difesa', v: seen || o === NEUTRAL ? String(st.provDefense(p)) : '?', icon: 'ico-difesa' },
           { k: `${resName} al min`, v: st.provPerMin(p).toFixed(1).replace('.', ','), res: T.res },

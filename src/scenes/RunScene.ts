@@ -901,7 +901,7 @@ export class RunScene extends Phaser.Scene {
   private redrawFrontier(force = false) {
     const front = this.state.frontier();
     const troops = this.state.troops;
-    const ok = front.map((p) => troops > this.state.provCost(PLAYER, p));
+    const ok = front.map((p) => this.state.provOwner[p] === NEUTRAL && troops > this.state.provCost(PLAYER, p)); // con le truppe solo il vuoto
     const key = ok.map((v) => (v ? 1 : 0)).join('') + front.join(',');
     if (!force && key === this.lastAffordable) return;
     this.lastAffordable = key;
@@ -934,9 +934,8 @@ export class RunScene extends Phaser.Scene {
       const { x, y } = center(this.map.provinces[p].anchor);
       if (x < view.x - S || x > view.right + S || y < view.y - S || y > view.bottom + S) continue;
       const def = this.state.provCost(PLAYER, p);
-      if (!def) continue; // provincia vuota: si prende subito, niente numero
-      const enemy = this.state.provOwner[p] !== NEUTRAL;
-      this.frontLabels.push({ x, y, text: String(def), color: enemy ? PALETTE.ko : this.state.troops > def ? MAP_INK : PALETTE.mappa.segno });
+      if (this.state.provOwner[p] !== NEUTRAL) continue; // province di imperi e milizie: si prendono con le pedine, niente prezzo
+      this.frontLabels.push({ x, y, text: String(def), color: this.state.troops > def ? MAP_INK : PALETTE.mappa.segno });
     }
   }
 
@@ -1310,7 +1309,7 @@ export class RunScene extends Phaser.Scene {
       this.dashedPath(g, [main.tile, ...path].map(center), 1.4 * px, MAP_SEL, 0.45);
       return;
     }
-    if (this.selectedCard || this.selectedAbility || this.wallMode || this.frontPick || this.linePick || !this.state.isFrontier(i)) return this.hud.hideForecast();
+    if (this.selectedCard || this.selectedAbility || this.wallMode || this.frontPick || this.linePick || !this.state.isFrontier(i) || this.state.owner[i] !== NEUTRAL) return this.hud.hideForecast();
     const t = this.tileToScreen(i);
     this.hud.showForecast(this.state.provOf(i), t.x, t.y);
   }
@@ -1385,7 +1384,7 @@ export class RunScene extends Phaser.Scene {
       return;
     }
     if (this.state.paused && !this.state.over) {
-      if (!this.state.provPassable(p) || this.state.provOwner[p] === PLAYER) return;
+      if (!this.state.provPassable(p) || this.state.provOwner[p] !== NEUTRAL) return; // il piano compra solo il vuoto
       const added = this.state.togglePlan(p);
       this.floatText(x, y - 4, added ? `piano · ${this.state.plan.length}` : 'tolta dal piano', MAP_SEL);
       this.syncPlan();
@@ -1431,6 +1430,8 @@ export class RunScene extends Phaser.Scene {
       this.failFx(x, y, `servono ${res.need! + 1}`);
     } else if (res.reason === 'battle') {
       this.failFx(x, y, 'assalto in corso');
+    } else if (res.reason === 'units') {
+      this.failFx(x, y, 'si prende con le pedine');
     } else if (res.reason === 'not-adjacent') {
       this.failFx(x, y, 'troppo lontano');
     } else if (res.reason === 'impassable') {
@@ -2200,7 +2201,7 @@ export class RunScene extends Phaser.Scene {
       this.lastPainted = p;
       if (this.state.paused) {
         // in pausa il trascinamento disegna il piano
-        if (this.state.provPassable(p) && this.state.provOwner[p] !== PLAYER && !this.state.plan.includes(p)) this.state.togglePlan(p);
+        if (this.state.provPassable(p) && this.state.provOwner[p] === NEUTRAL && !this.state.plan.includes(p)) this.state.togglePlan(p);
         continue;
       }
       if (!this.state.isFrontier(i) || this.state.troops <= this.state.provCost(PLAYER, p)) continue;

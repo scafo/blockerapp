@@ -84,7 +84,7 @@ export interface RunSummary {
 
 export type ConquerResult =
   | { ok: true; tile: Tile; cost: number; loot: number; lootType: Resource; battle?: Battle }
-  | { ok: false; reason: 'not-adjacent' | 'impassable' | 'owned' | 'troops' | 'battle'; need?: number };
+  | { ok: false; reason: 'not-adjacent' | 'impassable' | 'owned' | 'troops' | 'battle' | 'units'; need?: number };
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -964,11 +964,12 @@ export class RunState {
   // ---------- navi ----------
 
   /** Nave verso una costa: parte dalla tua costa più vicina con la forza d'attacco. */
-  launchBoat(target: number): null | 'locked' | 'notCoast' | 'far' | 'max' | 'troops' | 'peace' {
+  launchBoat(target: number): null | 'locked' | 'notCoast' | 'far' | 'max' | 'troops' | 'peace' | 'units' {
     const B = BALANCE.boats;
     if (this.opts.tutorial) return 'locked';
     if (!this.passable(target) || this.owner[target] === PLAYER || !isCoast(this.map.tiles, target)) return 'notCoast';
     if (!this.atWar(PLAYER, this.owner[target])) return 'peace';
+    if (this.owner[target] !== NEUTRAL) return 'units'; // le navi sbarcano solo sul vuoto: il resto con le pedine
     const port = this.worksOf(PLAYER, 'porto') > 0;
     if (this.boats.filter((b) => b.owner === PLAYER).length >= B.maxInFlight + (port ? 1 : 0)) return 'max';
     const troops = Math.floor(this.troops * this.attackRatio);
@@ -996,7 +997,7 @@ export class RunState {
     this.boats = this.boats.filter((x) => x !== b);
     const t = b.path[b.path.length - 1];
     const f = this.factions[b.owner];
-    if (this.owner[t] === b.owner || !this.atWar(b.owner, this.owner[t])) { // costa tua, o pace firmata durante la traversata: si rientra
+    if (this.owner[t] !== NEUTRAL) { // costa presa da qualcuno durante la traversata (o tua): si rientra, si sbarca solo sul vuoto
       f.troops += b.troops;
       this.events.push({ type: 'boat', phase: 'landed', boat: b });
       return;
@@ -1104,7 +1105,7 @@ export class RunState {
   /** Avanzata verso la provincia di `target`: il fronte prende da solo una provincia alla volta, verso il bersaglio. */
   startFlow(target: number): boolean {
     const T = this.provOf(target);
-    if (T < 0 || !this.provPassable(T) || this.provOwner[T] === PLAYER || !this.atWar(PLAYER, this.provOwner[T])) return false;
+    if (T < 0 || !this.provPassable(T) || this.provOwner[T] !== NEUTRAL) return false; // l'avanzata compra solo il vuoto
     if (!this.provReachable(T)) return false;
     this.flowTarget = T;
     this.flowAcc = BALANCE.flow.stepMs; // primo passo subito
@@ -1145,7 +1146,7 @@ export class RunState {
   private nextPlan() {
     while (this.plan.length) {
       const p = this.plan[0];
-      if (this.provOwner[p] === PLAYER || !this.provPassable(p)) { this.plan.shift(); continue; }
+      if (this.provOwner[p] !== NEUTRAL || !this.provPassable(p)) { this.plan.shift(); continue; } // il piano compra solo il vuoto
       if (this.isFrontierProv(p) && this.troops > this.provCost(PLAYER, p)) {
         this.attackProvince(PLAYER, p);
         this.plan.shift();
@@ -1170,7 +1171,7 @@ export class RunState {
     let best = -1, bestD = Infinity, bestCost = Infinity;
     if (this.battleAt(T)?.by === PLAYER) return; // il bersaglio è sotto assalto: si aspetta l'esito
     for (const p of this.frontier(PLAYER)) {
-      if (this.battleAt(p)) continue;
+      if (this.battleAt(p) || this.provOwner[p] !== NEUTRAL) continue; // si compra solo il vuoto
       const d = p === T ? 0 : hexDistance(this.map.provinces[p].anchor, tc), cost = this.provCost(PLAYER, p);
       if (d < bestD || (d === bestD && cost < bestCost)) {
         best = p;
@@ -1200,7 +1201,7 @@ export class RunState {
     const E = BALANCE.events;
     this.nextEventAt = this.gameTimeMs + Math.max(E.minEveryMs, (E.everyMs + (this.evRng() * 2 - 1) * E.jitterMs) / radars);
     // prima i rapporti utili: armata in arrivo, scorta da recuperare, punto debole; ogni tanto un evento classico
-    const intel = [this.reportAttack(radars), this.reportCache(radars), this.reportWeak()].filter((e): e is GameEvent => !!e);
+    const intel = [this.reportAttack(radars), this.reportCache(radars)].filter((e): e is GameEvent => !!e);
     if (intel.length && this.evRng() < 0.75) {
       const ev = intel[Math.floor(this.evRng() * intel.length)];
       this.pendingEvent = ev;
@@ -1256,25 +1257,6 @@ export class RunState {
       text: `RADAR: deposito della Concordia ancora intatto vicino a ${this.nationOf(p)}. Uomini sbandati e ${res} nei magazzini.`,
       left: { label: 'Lascia', effects: {}, result: 'Il deposito resta dov\'è.' },
       right: { label: 'Recupera', effects: { troops, loot: { [res]: n }, focus: p }, result: `+${troops} truppe, +${n} ${res}.` },
-    };
-  }
-
-  /** Radar: provincia nemica sguarnita sul tuo confine: per un minuto prenderla costa la metà. */
-  private reportWeak(): GameEvent | null {
-    let best = -1, bestC = Infinity;
-    for (const p of this.frontier(PLAYER)) {
-      const o = this.provOwner[p];
-      if (o === NEUTRAL || this.battleAt(p)) continue;
-      const c = this.provCost(PLAYER, p);
-      if (c > 0 && c < bestC) { bestC = c; best = p; }
-    }
-    if (best < 0) return null;
-    const who = FACTION_INFO[this.provOwner[best]]?.name ?? 'il nemico';
-    return {
-      id: 'radar-debole', rare: false,
-      text: `RADAR: ${who} ha spostato il presidio di ${this.nationOf(best)}. Per un minuto la provincia è quasi sguarnita.`,
-      left: { label: 'Ignora', effects: {}, result: 'Il presidio tornerà presto.' },
-      right: { label: 'Segna', effects: { weak: best, focus: best }, result: 'Per un minuto prenderla costa la metà.' },
     };
   }
 
@@ -1853,17 +1835,12 @@ export class RunState {
   /** IA: attacca la provincia vicina più debole, se se lo può permettere. */
   private aiAttack(f: Faction): boolean {
     let best = -1, bestScore = Infinity, bestCost = 0;
-    const grace = this.opts.tutorial || this.gameTimeMs < this.opts.front.graceMs;
-    const assault = this.offensive?.phase === 'on' && this.offensive.faction === f.id;
     for (const p of this.frontier(f.id)) {
-      const o = this.provOwner[p];
-      if ((grace && o === PLAYER) || this.battleAt(p)) continue; // già sotto assalto: si sceglie un altro bersaglio
+      if (this.provOwner[p] !== NEUTRAL || this.battleAt(p)) continue; // con le truppe solo il vuoto: gli altri si attaccano con le pedine
       const prov = this.map.provinces[p];
       const capital = prov.city >= 0 && this.map.tiles[prov.city]!.capital ? BALANCE.provinces.aiCityAttraction : 1; // le capitali attirano
-      const focus = this.coalition.has(f.id) ? BALANCE.coalition.focusBias : 1; // in coalizione puntano su di te
-      const bias = o === PLAYER ? (assault ? BALANCE.offensive.playerBias : BALANCE.ai.playerBias) * focus : 1;
       const cost = this.provCost(f.id, p);
-      const score = cost * bias * capital;
+      const score = cost * capital;
       if (score < bestScore || (score === bestScore && this.aiRng() < 0.5)) {
         best = p;
         bestScore = score;
@@ -1915,12 +1892,12 @@ export class RunState {
     return by === PLAYER && this.owner[i] === NEUTRAL ? Math.ceil(d * this.opts.mods.neutralCostMult) : d;
   }
 
-  /** Difesa attuale: contano solo le truppe vere (Nico, come negli altri giochi). Provincia libera = 0: si prende subito e
-   *  senza perdite. Posseduta = presidio del proprietario (× bunker) + caselle fortificate dal genio. */
+  /** Difesa attuale. Provincia libera = prezzo in truppe della casella (Nico: il vuoto si compra con gli uomini).
+   *  Posseduta = presidio del proprietario (× bunker) + caselle fortificate dal genio. */
   defenseOf(i: number): number {
     const t = this.map.tiles[i]!;
     const o = this.owner[i];
-    if (o === NEUTRAL) return 0;
+    if (o === NEUTRAL) return t.defense;
     const work = this.workOf(t.province);
     // bunker: chiunque tenga la provincia (le fortezze rinforzano i tuoi)
     const bunker = work ? 1 + (BALANCE.works[work].defenseMult - 1) * (o === PLAYER ? this.opts.mods.bunkerMult : 1) : 1;
@@ -1971,6 +1948,8 @@ export class RunState {
     if (this.provOwner[p] === by) return { ok: false, reason: 'owned' };
     if (!this.isFrontierProv(p, by)) return { ok: false, reason: 'not-adjacent' };
     if (this.battleAt(p)) return { ok: false, reason: 'battle' };
+    // Nico: con le truppe si compra solo il territorio vuoto; le province di imperi e milizie si prendono con le pedine (alla HOI4)
+    if (this.provOwner[p] !== NEUTRAL) return { ok: false, reason: 'units' };
     const cost = this.provCost(by, p);
     const att = this.factions[by];
     if (att.troops <= cost) return { ok: false, reason: 'troops', need: cost };
