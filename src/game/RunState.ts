@@ -1,5 +1,5 @@
 // Stato logico di una run: nessuna dipendenza da Phaser.
-import { BALANCE, type AbilityType, type CampaignId, type CivId, type Resource, type UnitType, type WorkId } from '../config/balance';
+import { BALANCE, type WorkDef, type AbilityType, type CampaignId, type CivId, type Resource, type UnitType, type WorkId } from '../config/balance';
 import { addBag, emptyBag, scaleBag, type Bag } from './resources';
 import { neighbors, hexDistance } from '../map/hexGrid';
 import { UNIT_TYPES, findPath, isNaval, rps, type Stance, type Unit } from './units';
@@ -7,10 +7,14 @@ import { isCoast, seaRoute, type Boat } from './boats';
 import { DEFAULT_OPTIONS, type RunOptions } from './camp';
 import { EVENTS, type EventChoice, type EventEffects, type GameEvent } from './events';
 import { createRng, type Rng } from '../map/rng';
+import { FACTION_INFO } from './factions';
 import type { FactionKind, RunMap, Tile } from '../map/generate';
 
+const RESOURCE_KEYS: Resource[] = ['metallo', 'benzina', 'cibo'];
 export const NEUTRAL = -1;
-export const WORKS: WorkId[] = ['fabbrica', 'bunker', 'caserma', 'ospedale', 'radar', 'porto', 'aeroporto', 'rifornimenti', 'ferrovia', 'contraerea', 'raffineria'];
+/** Costruzioni che si possono fare (Nico: ospedale, aeroporto e contraerea tolti; restano nell'elenco sotto solo per l'ordine). */
+export const BUILDABLE: WorkId[] = ['fabbrica', 'bunker', 'caserma', 'radar', 'porto', 'rifornimenti', 'ferrovia'];
+export const WORKS: WorkId[] = ['fabbrica', 'bunker', 'caserma', 'ospedale', 'radar', 'porto', 'aeroporto', 'rifornimenti', 'ferrovia', 'contraerea', 'raffineria', 'fattoria'];
 export const PLAYER = 0;
 
 export interface Faction {
@@ -36,6 +40,7 @@ export type RunEvent =
   | { type: 'timer'; phase: 'warn' }
   | { type: 'work'; by: number; p: number; work: WorkId; phase: 'start' | 'done' }
   | { type: 'event'; event: GameEvent }
+  | { type: 'focus'; p: number }
   | { type: 'flowEnd'; reason: 'reached' | 'blocked' | 'budget' }
   | { type: 'boat'; phase: 'landed' | 'lost'; boat: Boat }
   | { type: 'province'; by: number; province: number; count: number; capital: boolean; nation: string; bonus: number }
@@ -96,6 +101,10 @@ export class RunState {
   // eventi
   pendingEvent: GameEvent | null = null;
   private nextEventAt: number = BALANCE.events.firstMs;
+  /** frecce dei rapporti radar sulla carta (caselle) */
+  alerts: { from: number; to: number; until: number }[] = [];
+  /** province nemiche segnalate come sguarnite: costo dimezzato fino a */
+  weakUntil = new Map<number, number>();
   private seenEvents = new Set<string>();
   private evRng: Rng;
   private growthBoost = { mult: 1, until: 0 };
@@ -117,7 +126,7 @@ export class RunState {
   provCoastal = new Uint8Array(0); // costruzioni avviate per fazione (fanno salire il prezzo)
   /** per provincia: peso di crescita (caselle × terreno), risorsa e quantità prodotta a ogni tick */
   private provGrowthW: Float32Array;
-  private provYield: Float32Array;
+  private cityProv = new Set<number>(); // province che valgono di più (Nico: le città)
   /** crescita (caselle pesate) di ogni fazione, ricalcolata a ogni tick */
   private gw: number[] = [];
   /** risorse guadagnate nell'ultimo tick per fazione (province + lavoratori) */
@@ -138,7 +147,7 @@ export class RunState {
   /** cambia quando cambia ciò che il giocatore vede (per ridisegnare la nebbia solo se serve) */
   fogVersion = 0;
   /** quota delle truppe che un'avanzata può spendere */
-  attackRatio: number = BALANCE.attack.default;
+  attackRatio = 1; // leva ATTACCO tolta (Nico: complicava solo): le avanzate usano tutte le truppe
   private flowBestD = Infinity;
   private flowSteps = 0;
   /** Genio: caselle fortificate (proprietario della fortificazione, −1 = nessuna). */
@@ -213,7 +222,9 @@ export class RunState {
       workers: id === PLAYER ? (opts.tutorial ? 0 : BALANCE.workers.default) : BALANCE.ai.workers,
       lootAcc: emptyBag(),
     }));
-    this.factions[PLAYER].loot = { ...opts.stake }; // la puntata è nello zaino: si può spendere
+    // nello zaino la puntata e la scorta di guerra (si spendono per reparti ed edifici; la scorta non conta come bottino)
+    const SS = opts.tutorial ? emptyBag() : BALANCE.economy.startStock;
+    this.factions[PLAYER].loot = { metallo: opts.stake.metallo + SS.metallo, benzina: opts.stake.benzina + SS.benzina, cibo: opts.stake.cibo + SS.cibo };
     this.factions.forEach((f) => {
       this.relation.push(f.kind === 'bot' ? 'guerra' : 'pace'); // milizie ostili, imperi in pace finché non vi toccate
       this.opinion.push(f.kind === 'bot' ? -20 : 0);
@@ -242,13 +253,14 @@ export class RunState {
       }
     }
     this.cooldowns = this.factions.map(() => Object.fromEntries(UNIT_TYPES.map((t) => [t, 0])) as Record<UnitType, number>);
-    this.aiSpawnAt = this.factions.map(() => opts.front.graceMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
+    this.aiSpawnAt = this.factions.map(() => BALANCE.aiUnits.firstSpawnMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
     this.nextOffensiveAt = opts.front.offensiveFirstMs;
     this.aiStrikeAt = this.factions.map(() => BALANCE.aiStrike.firstMs + this.aiRng() * BALANCE.aiStrike.jitterMs);
     // economia per provincia: crescita pesata dal terreno, risorsa del terreno prevalente
     const T = BALANCE.terrain;
     this.provGrowthW = Float32Array.from(map.provinces, (p) => p.tiles.reduce((s, i) => s + T[map.tiles[i]!.terrain].growth, 0));
-    this.provYield = Float32Array.from(map.provinces, (p) => (T[p.terrain].perMin * BALANCE.tick.ms) / 60_000);
+    // città: capitali delle nazioni (le città vere della carta le aggiunge la scena, setCities)
+    map.provinces.forEach((pr, p) => { if (pr.city >= 0 && map.tiles[pr.city]?.capital) this.cityProv.add(p); });
     this.worksBuilt = map.starts.map(() => 0);
     this.provWork = new Int8Array(map.provinces.length).fill(-1);
     this.provCoastal = Uint8Array.from(map.provinces, (pr) => (pr.tiles.some((i) => isCoast(map.tiles, i)) ? 1 : 0));
@@ -376,7 +388,10 @@ export class RunState {
       : this.opts.tutorial ? BALANCE.tutorial.aiGrowthMult : this.opts.front.aiGrowthMult;
     const perSettlement = BALANCE.settlements.growthTiles + (f.id === PLAYER ? this.opts.mods.settlementGrowth : 0);
     const tiles = this.gw[f.id] + f.settlements * perSettlement; // caselle pesate dal terreno + caserme + insediamenti
-    return tiles * BALANCE.tick.troopsPerTile * mult;
+    // freno della valanga sulla crescita (non sui costi, che restano fissi): oltre il ginocchio un impero più grande cresce
+    // meno che in proporzione, così la campagna dura e i prezzi non cambiano mai
+    const E = BALANCE.economy, eff = tiles <= E.growthKnee ? tiles : E.growthKnee * Math.pow(tiles / E.growthKnee, E.growthExp);
+    return eff * BALANCE.tick.troopsPerTile * mult;
   }
 
   /** Rancio: l'esercito mangia il cibo dello zaino; con cibo cresce di più, senza cresce meno (run guidata: niente). */
@@ -440,14 +455,14 @@ export class RunState {
       const sup = 0.5 + 0.5 * this.supply[p]; // logistica: lontano dalla capitale si cresce e si produce meno (al massimo la metà)
       this.gw[o] += this.provGrowthW[p] * sup + (ready?.growthTiles ?? 0);
       const f = this.factions[o];
-      const res = BALANCE.terrain[this.map.provinces[p].terrain].res;
       const k = (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1) * sup;
-      const made = this.provYield[p] * k, extra = ready ? ((ready.prodAdd * BALANCE.tick.ms) / 60_000) * k : 0;
-      const exRes = ready?.res ?? res; // raffineria: benzina, qualunque sia il terreno
-      f.lootAcc[res] += made;
-      this.incomeTick[o][res] += made;
-      f.lootAcc[exRes] += extra;
-      this.incomeTick[o][exRes] += extra;
+      // tutte e tre le risorse da ogni provincia (Nico): quella del terreno di più; la fabbrica moltiplica tutto
+      const bag = this.provMade(p, ready);
+      for (const r of RESOURCE_KEYS) {
+        const v = bag[r] * k * (BALANCE.tick.ms / 60_000);
+        f.lootAcc[r] += v;
+        this.incomeTick[o][r] += v;
+      }
       // ferrovia: le pedine del padrone corrono qui e nelle sue province accanto
       if (ready?.railMult) {
         this.railBy[p] = o;
@@ -464,23 +479,35 @@ export class RunState {
 
   /** Risorse al minuto prodotte dalla provincia (terreno + fabbrica), come le conta economyTick. */
   provPerMin(p: number): number {
-    const w = this.workOf(p), o = this.provOwner[p];
-    const base = BALANCE.terrain[this.map.provinces[p].terrain].perMin + (w && !BALANCE.works[w].res ? BALANCE.works[w].prodAdd : 0);
-    return base * (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1);
+    const b = this.provBag(p);
+    return b.metallo + b.benzina + b.cibo;
   }
 
-  /** ARRUOLA: risorse dello zaino (le più abbondanti) in truppe subito. Ritorna le truppe arruolate (0 = zaino vuoto). */
-  recruit(): number {
-    const S = BALANCE.stake, bag = this.player.loot;
-    if (this.over || bag.metallo + bag.benzina + bag.cibo < S.recruitCost) return 0;
-    for (let left = S.recruitCost; left > 0;) {
-      const r = (Object.keys(bag) as Resource[]).reduce((a, c) => (bag[c] > bag[a] ? c : a));
-      const take = Math.min(left, bag[r]);
-      bag[r] -= take;
-      left -= take;
-    }
-    this.player.troops += S.recruitTroops;
-    return S.recruitTroops;
+  /** Risorse al minuto della provincia, una per una (senza la logistica). */
+  provBag(p: number): Bag {
+    const w = this.workOf(p), o = this.provOwner[p], k = o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1;
+    const b = this.provMade(p, w ? BALANCE.works[w] : null);
+    return { metallo: b.metallo * k, benzina: b.benzina * k, cibo: b.cibo * k };
+  }
+
+  /** Aggiunge le province delle città vere della carta (nomi in places.json). */
+  setCities(provs: number[]) {
+    for (const p of provs) if (p >= 0) this.cityProv.add(p);
+  }
+
+  /** Città: province con più valore (città vere della carta e capitali delle nazioni): producono di più e premiano di più. */
+  isCity(p: number): boolean {
+    return this.cityProv.has(p);
+  }
+
+  /** Produzione al minuto (60% risorsa del terreno, 20% ciascuna le altre; città × cityMult, fabbrica ×, raffineria/fattoria +). */
+  private provMade(p: number, ready: WorkDef | null): Bag {
+    const E = BALANCE.economy, prov = this.map.provinces[p], T = BALANCE.terrain[prov.terrain];
+    const total = T.perMin * E.totalMult * (this.cityProv.has(p) ? E.cityMult : 1) * (ready?.prodMult ?? 1);
+    const out: Bag = { metallo: 0, benzina: 0, cibo: 0 };
+    for (const r of RESOURCE_KEYS) out[r] = total * (r === T.res ? E.mainShare : (1 - E.mainShare) / 2);
+    if (ready?.res && ready.prodAdd) out[ready.res] += ready.prodAdd;
+    return out;
   }
 
   /** Costruzioni pronte di quel tipo nel territorio della fazione. */
@@ -504,9 +531,9 @@ export class RunState {
     return this.worksBuilt[PLAYER] ?? 0;
   }
 
-  /** Truppe che costa la prossima costruzione di quel tipo (sale con quelle già avviate). */
-  workPrice(w: WorkId, by = PLAYER): number {
-    return Math.round(BALANCE.works[w].troops * (1 + BALANCE.worksPriceStep * (this.worksBuilt[by] ?? 0)));
+  /** Truppe che costa una costruzione di quel tipo: prezzo fisso per tutta la partita (come in Call of War). */
+  workPrice(w: WorkId, _by = PLAYER): number {
+    return BALANCE.works[w].troops;
   }
 
   /** Costruzione pronta in questa provincia (null se niente o ancora in cantiere). */
@@ -540,13 +567,13 @@ export class RunState {
   }
 
   /** Muro: bunker su tutte le province trascinate, in ordine, finché bastano truppe e metallo. */
-  buildWall(provs: number[]): { built: number; skipped: number; stop: ReturnType<RunState['workBlock']> } {
+  buildWall(provs: number[], w: WorkId = 'bunker'): { built: number; skipped: number; stop: ReturnType<RunState['workBlock']> } {
     let built = 0, skipped = 0, stop: ReturnType<RunState['workBlock']> = null;
     for (const p of provs) {
-      const why = this.workBlock(p, 'bunker');
+      const why = this.workBlock(p, w);
       if (why === 'troops' || why === 'metal' || why === 'over') { stop = why; break; }
       if (why) { skipped++; continue; }
-      if (this.build(PLAYER, p, 'bunker')) built++;
+      if (this.build(PLAYER, p, w)) built++;
     }
     return { built, skipped, stop };
   }
@@ -572,9 +599,7 @@ export class RunState {
     this.nextAiBunkerAt[f.id] = this.gameTimeMs + every;
     const mine = this.frontier(PLAYER).filter((p) => this.provOwner[p] === f.id && this.provWork[p] < 0);
     if (!mine.length || f.troops < this.workPrice('bunker', f.id) * 2) return;
-    // contro chi bombarda: ogni tanto una contraerea al posto del bunker
-    const aa = this.opts.abilities.includes('bombardamento') && this.aiRng() < 0.25;
-    this.build(f.id, mine[Math.floor(this.aiRng() * mine.length)], aa ? 'contraerea' : 'bunker');
+    this.build(f.id, mine[Math.floor(this.aiRng() * mine.length)], 'bunker'); // contraerea tolta (Nico)
   }
 
   // ---------- diplomazia (alla HOI4) ----------
@@ -848,7 +873,11 @@ export class RunState {
     const staked = S.metallo + S.benzina + S.cibo > 0;
     const stakeK = outcome === 'timeout' && staked ? 1 - BALANCE.stake.lossShare : 1;
     const kept = {} as Bag;
-    for (const r of Object.keys(bag) as Resource[]) kept[r] = Math.floor((Math.min(bag[r], S[r]) * stakeK + Math.max(0, bag[r] - S[r]) * gain) * k);
+    const SS = this.opts.tutorial ? emptyBag() : BALANCE.economy.startStock; // la scorta di guerra torna al Comando, non è bottino
+    for (const r of Object.keys(bag) as Resource[]) {
+      const b = Math.max(0, bag[r] - SS[r]);
+      kept[r] = Math.floor((Math.min(b, S[r]) * stakeK + Math.max(0, b - S[r]) * gain) * k);
+    }
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
       maxTiles: this.player.maxTiles, maxProvinces: this.player.maxProvinces, backpack: { ...bag }, kept, stake: { ...S },
@@ -1129,17 +1158,89 @@ export class RunState {
   // ---------- eventi ----------
 
   private eventTick() {
-    if (this.over || this.opts.events <= 0 || this.opts.tutorial || this.gameTimeMs < this.nextEventAt) return;
+    this.alerts = this.alerts.filter((a) => a.until > this.gameTimeMs);
+    // rapporti dal campo solo con una Sala Radar finita; più radar, più rapporti (Nico)
+    const radars = this.worksOf(PLAYER, 'radar');
+    if (this.over || this.opts.events <= 0 || this.opts.tutorial || !radars || this.gameTimeMs < this.nextEventAt) return;
     const E = BALANCE.events;
-    this.nextEventAt = this.gameTimeMs + E.everyMs + (this.evRng() * 2 - 1) * E.jitterMs;
+    this.nextEventAt = this.gameTimeMs + Math.max(E.minEveryMs, (E.everyMs + (this.evRng() * 2 - 1) * E.jitterMs) / radars);
+    // prima i rapporti utili: armata in arrivo, scorta da recuperare, punto debole; ogni tanto un evento classico
+    const intel = [this.reportAttack(radars), this.reportCache(radars), this.reportWeak()].filter((e): e is GameEvent => !!e);
+    if (intel.length && this.evRng() < 0.75) {
+      const ev = intel[Math.floor(this.evRng() * intel.length)];
+      this.pendingEvent = ev;
+      this.events.push({ type: 'event', event: ev });
+      return;
+    }
     const pool = EVENTS.filter((e) => !this.seenEvents.has(e.id) && (!e.rare || this.opts.events >= 2));
     if (!pool.length) return;
     // i rari, quando ammessi, escono un po' più spesso: è la Radio che li cerca
     const rare = pool.filter((e) => e.rare);
     const ev = rare.length && this.evRng() < 0.35 ? rare[Math.floor(this.evRng() * rare.length)] : pool[Math.floor(this.evRng() * pool.length)];
     this.seenEvents.add(ev.id);
-    this.pendingEvent = ev;
-    this.events.push({ type: 'event', event: ev });
+    this.pendingEvent = boosted(ev);
+    this.events.push({ type: 'event', event: this.pendingEvent });
+  }
+
+  private nationOf(p: number): string {
+    const c = this.map.provinces[p].country;
+    return this.map.nations.find((n) => n.id === c)?.name ?? 'una provincia di confine';
+  }
+
+  /** Radar: armata nemica (in guerra con te) che punta su una tua provincia. */
+  private reportAttack(radars: number): GameEvent | null {
+    let best: Unit | null = null, bestD = Infinity, to = -1;
+    for (const u of this.units) {
+      if (u.owner === PLAYER || u.hp <= 0 || !this.atWar(u.owner, PLAYER) || !u.path.length) continue;
+      const end = u.path[u.path.length - 1], pe = this.provOf(end);
+      if (pe < 0 || this.provOwner[pe] !== PLAYER) continue;
+      const d = hexDistance(u.tile, end);
+      if (d < bestD) { bestD = d; best = u; to = end; }
+    }
+    if (!best) return null;
+    const n = this.unitsOf(best.owner).filter((u) => hexDistance(u.tile, best!.tile) < 12).length;
+    const who = FACTION_INFO[best.owner]?.name ?? 'il nemico', where = this.nationOf(this.provOf(to));
+    return {
+      id: 'radar-attacco', rare: false,
+      text: `RADAR: ${n} ${n === 1 ? 'reparto' : 'reparti'} di ${who} in marcia verso ${where}. ${radars > 1 ? 'Le stazioni concordano sulla rotta.' : 'Contatto debole, ma la rotta è chiara.'}`,
+      left: { label: 'Ricevuto', effects: { alert: { from: best.tile, to } }, result: 'Rotta segnata sulla carta.' },
+      right: { label: 'Mostra', effects: { alert: { from: best.tile, to }, focus: this.provOf(to) }, result: 'Rotta segnata sulla carta.' },
+    };
+  }
+
+  /** Radar: deposito abbandonato vicino al confine: truppe e bottino gratis. */
+  private reportCache(radars: number): GameEvent | null {
+    const front = this.frontier(PLAYER);
+    if (!front.length) return null;
+    const p = front[Math.floor(this.evRng() * front.length)];
+    const troops = Math.round((40 + 15 * radars) * (0.8 + this.evRng() * 0.4));
+    const res = (['metallo', 'benzina', 'cibo'] as Resource[])[Math.floor(this.evRng() * 3)];
+    const n = Math.round((10 + 4 * radars) * (0.8 + this.evRng() * 0.4));
+    return {
+      id: 'radar-scorta', rare: false,
+      text: `RADAR: deposito della Concordia ancora intatto vicino a ${this.nationOf(p)}. Uomini sbandati e ${res} nei magazzini.`,
+      left: { label: 'Lascia', effects: {}, result: 'Il deposito resta dov\'è.' },
+      right: { label: 'Recupera', effects: { troops, loot: { [res]: n }, focus: p }, result: `+${troops} truppe, +${n} ${res}.` },
+    };
+  }
+
+  /** Radar: provincia nemica sguarnita sul tuo confine: per un minuto prenderla costa la metà. */
+  private reportWeak(): GameEvent | null {
+    let best = -1, bestC = Infinity;
+    for (const p of this.frontier(PLAYER)) {
+      const o = this.provOwner[p];
+      if (o === NEUTRAL || this.battleAt(p)) continue;
+      const c = this.provCost(PLAYER, p);
+      if (c > 0 && c < bestC) { bestC = c; best = p; }
+    }
+    if (best < 0) return null;
+    const who = FACTION_INFO[this.provOwner[best]]?.name ?? 'il nemico';
+    return {
+      id: 'radar-debole', rare: false,
+      text: `RADAR: ${who} ha spostato il presidio di ${this.nationOf(best)}. Per un minuto la provincia è quasi sguarnita.`,
+      left: { label: 'Ignora', effects: {}, result: 'Il presidio tornerà presto.' },
+      right: { label: 'Segna', effects: { weak: best, focus: best }, result: 'Per un minuto prenderla costa la metà.' },
+    };
   }
 
   /** La scelta è possibile? (costi in truppe o risorse coperti) */
@@ -1168,6 +1269,9 @@ export class RunState {
     if (fx.loot) for (const [r, v] of Object.entries(fx.loot)) p.loot[r as Resource] = Math.max(0, p.loot[r as Resource] + v);
     if (fx.growth) this.growthBoost = { mult: fx.growth.mult, until: this.gameTimeMs + fx.growth.durationMs };
     if (fx.timeBonusMs) this.bonusTimeMs += fx.timeBonusMs;
+    if (fx.alert) this.alerts.push({ ...fx.alert, until: this.gameTimeMs + 20_000 });
+    if (fx.weak !== undefined) { this.weakUntil.set(fx.weak, this.gameTimeMs + 60_000); this.frontierCache.clear(); }
+    if (fx.focus !== undefined) this.events.push({ type: 'focus', p: fx.focus });
     if (fx.unit) {
       // pedina gratuita su una nostra casella di confine; se non c'è posto, valore in truppe
       const border = [];
@@ -1198,28 +1302,29 @@ export class RunState {
   }
 
   /** Perché non si può schierare (null = si può). */
-  deployBlock(f: number, type: UnitType, i?: number): null | 'locked' | 'cooldown' | 'troops' | 'cap' | 'tile' | 'fuel' {
+  deployBlock(f: number, type: UnitType, i?: number): null | 'locked' | 'cooldown' | 'troops' | 'cap' | 'tile' | 'res' {
     if (f === PLAYER && !this.opts.units.includes(type)) return 'locked';
     if (f !== PLAYER && this.gameTimeMs < this.cooldowns[f][type]) return 'cooldown'; // il giocatore non ha ricarica: si schiera subito
     if (f !== PLAYER && this.unitsOf(f).length >= BALANCE.units.maxPerFaction) return 'cap'; // il giocatore non ha un massimo di pedine
     if (this.factions[f].troops < this.unitCost(f, type)) return 'troops';
-    if (f === PLAYER && this.backpack.benzina < this.unitFuel(type)) return 'fuel'; // i mezzi consumano benzina dallo zaino
+    if (f === PLAYER && this.backpack[this.unitRes(type).res] < this.unitRes(type).n) return 'res'; // la risorsa del reparto, dallo zaino
     if (i !== undefined && isNaval(type)) {
       if (this.owner[i] !== f || this.seaSpawn(i) < 0) return 'tile'; // nave: da una tua costa con mare libero accanto
     } else if (i !== undefined && (this.owner[i] !== f || this.unitAt(i))) return 'tile';
     return null;
   }
 
-  /** Benzina per schierare (solo il giocatore; run guidata: niente). */
-  unitFuel(type: UnitType): number {
-    return this.opts.tutorial ? 0 : BALANCE.units[type].fuel;
+  /** Risorsa che il reparto costa oltre alle truppe (come Call of War; solo il giocatore; run guidata: niente). */
+  unitRes(type: UnitType): { res: Resource; n: number } {
+    const U = BALANCE.units[type];
+    return { res: U.res, n: this.opts.tutorial ? 0 : U.resCost };
   }
 
   deploy(f: number, type: UnitType, i: number, free = false): Unit | null {
     if (!free && this.deployBlock(f, type, i)) return null;
     if (!free) {
       this.factions[f].troops -= this.unitCost(f, type);
-      if (f === PLAYER) this.backpack.benzina -= this.unitFuel(type);
+      if (f === PLAYER) { const c = this.unitRes(type); this.backpack[c.res] -= c.n; }
       if (f !== PLAYER) this.cooldowns[f][type] = this.gameTimeMs + BALANCE.units.cooldownMs; // il giocatore: nessuna ricarica (neanche la barra sulla carta)
     }
     const maxHp = BALANCE.units[type].hp * (f === PLAYER ? this.opts.unitHpMult : this.opts.front.aiUnitHpMult);
@@ -1228,7 +1333,7 @@ export class RunState {
     const u: Unit = {
       id: this.nextUnitId++, type, owner: f, tile, hp: maxHp, maxHp,
       path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs,
-      size: 1, stance: 'tieni', front: -1, supply: 1,
+      size: 1, stance: 'tieni', front: -1, supply: 1, post: -1,
     };
     this.units.push(u);
     return u;
@@ -1263,6 +1368,7 @@ export class RunState {
   /** Ordine del giocatore: la pedina lascia il fronte assegnato e va dove le dici. */
   command(u: Unit, to: number): boolean {
     u.front = -1;
+    u.post = -1;
     return this.order(u, to);
   }
 
@@ -1281,8 +1387,23 @@ export class RunState {
   assignFront(units: Unit[], faction: number): boolean {
     if (faction < 0 || faction === PLAYER || !this.factions[faction]?.alive) return false;
     if (!this.frontLine(PLAYER, faction).length) return false;
-    for (const u of units) if (!isNaval(u.type)) { u.front = faction; u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs; }
+    for (const u of units) if (!isNaval(u.type)) { u.front = faction; u.post = -1; u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs; }
     return true;
+  }
+
+  /**
+   * Linea d'attacco alla HOI4: le pedine si spartiscono le caselle `posts` (già in ordine lungo la linea, una a testa),
+   * ci vanno conquistando la strada e poi la tengono. Ritorna quante sono partite.
+   */
+  holdLine(units: Unit[], posts: number[]): number {
+    let n = 0;
+    units.forEach((u, k) => {
+      if (isNaval(u.type) || k >= posts.length) return;
+      u.front = -1;
+      u.post = posts[k];
+      if (u.tile === u.post || this.order(u, u.post)) n++;
+    });
+    return n;
   }
 
   /** Province di `f` che confinano con `enemy` (la linea del fronte). */
@@ -1323,7 +1444,7 @@ export class RunState {
     const k = Math.floor(u.size / 2), share = k / u.size;
     const v: Unit = {
       id: this.nextUnitId++, type: u.type, owner: u.owner, tile: free, hp: u.hp * share, maxHp: u.maxHp * share,
-      path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs, size: k, stance: u.stance, front: u.front, supply: u.supply,
+      path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs, size: k, stance: u.stance, front: u.front, supply: u.supply, post: u.post,
     };
     u.size -= k;
     u.hp -= v.hp;
@@ -1346,6 +1467,7 @@ export class RunState {
       const tile = provs[p].tiles.find((i) => this.owner[i] === PLAYER && !taken.has(i) && (!this.unitAt(i) || this.unitAt(i) === u)) ?? provs[p].anchor;
       taken.add(tile);
       u.front = -1;
+      u.post = -1;
       u.stance = 'tieni';
       if (tile === u.tile || this.order(u, tile)) n++;
     }
@@ -1376,6 +1498,11 @@ export class RunState {
       if (isNaval(u.type) || u.path.length || this.gameTimeMs - u.lastOrderMs < O.autoEveryMs || this.battles.some((b) => b.unit === u.id)) continue;
       u.lastOrderMs = this.gameTimeMs;
       const attack = u.stance === 'attacca';
+      if (u.post >= 0) {
+        // linea d'attacco: torna al suo posto se ne è uscita (o se la strada si è aperta solo ora)
+        if (u.tile !== u.post) this.order(u, u.post);
+        continue;
+      }
       if (u.front >= 0) {
         const enemy = u.front;
         if (!this.factions[enemy]?.alive) { u.front = -1; continue; }
@@ -1637,7 +1764,9 @@ export class RunState {
     const type = types.includes(dominant) && this.aiRng() < A.dominantChance ? dominant : types[Math.floor(this.aiRng() * types.length)];
     if (f.troops < BALANCE.units[type].cost * A.reserve) return;
     const anchor = this.map.starts[f.id];
-    const target = this.nearestEnemyTile(f.id, anchor);
+    const found = this.nearestEnemyTile(f.id, anchor);
+    // nessun nemico in vista: la pedina si schiera lo stesso, ferma sul confine a difendere (Nico: truppe almeno per difendersi)
+    const target = found >= 0 ? found : this.map.provinces[this.frontier(f.id)[0] ?? -1]?.anchor ?? -1;
     if (target < 0) return;
     let spawn = -1, bestD = Infinity;
     const provs = this.map.provinces;
@@ -1654,7 +1783,7 @@ export class RunState {
     }
     if (spawn < 0) return;
     const u = this.deploy(f.id, type, spawn);
-    if (u) this.order(u, target);
+    if (u && found >= 0) this.order(u, target);
   }
 
   /** Centro della provincia nemica (in guerra) più vicina, −1 se nessuna: si cerca tra le province, non tra le caselle. */
@@ -1729,13 +1858,14 @@ export class RunState {
     return d;
   }
 
-  /** Truppe che `by` spende per prendere la provincia (più è grande l'impero, più costa: sovraestensione). */
+  /** Truppe che `by` spende per prendere la provincia: la sua difesa (fissa: niente sovraestensione, Nico come in HOI4). */
   provCost(by: number, p: number): number {
     let d = 0;
     for (const i of this.map.provinces[p].tiles) if (this.passable(i)) d += this.costFor(by, i);
     if (by === PLAYER) d *= this.opts.mods.attackCostMult; // dottrina d'assalto
+    if (by === PLAYER && (this.weakUntil.get(p) ?? 0) > this.gameTimeMs) d *= 0.5; // segnalata dal radar: sguarnita
     d *= 1 + (1 - this.supplyFrom(by, p)) * BALANCE.logistics.attackPenalty; // attaccare da province mal rifornite costa di più
-    return Math.ceil(d * (1 + BALANCE.overextension * Math.max(0, this.factions[by].provinces - 1)));
+    return Math.ceil(d);
   }
 
   passable(i: number): boolean {
@@ -1750,24 +1880,23 @@ export class RunState {
     return by === PLAYER && this.owner[i] === NEUTRAL ? Math.ceil(d * this.opts.mods.neutralCostMult) : d;
   }
 
-  /** Difesa attuale: neutrale = base; posseduta = base * mult + presidio del proprietario. */
+  /** Difesa attuale: contano solo le truppe vere (Nico, come negli altri giochi). Provincia libera = 0: si prende subito e
+   *  senza perdite. Posseduta = presidio del proprietario (× bunker) + caselle fortificate dal genio. */
   defenseOf(i: number): number {
     const t = this.map.tiles[i]!;
     const o = this.owner[i];
+    if (o === NEUTRAL) return 0;
     const work = this.workOf(t.province);
     // bunker: chiunque tenga la provincia (le fortezze rinforzano i tuoi)
     const bunker = work ? 1 + (BALANCE.works[work].defenseMult - 1) * (o === PLAYER ? this.opts.mods.bunkerMult : 1) : 1;
-    const base = t.defense * bunker;
-    if (o === NEUTRAL) return Math.ceil(base);
     const f = this.factions[o];
     const garrison = Math.min((f.troops / Math.max(1, f.tiles)) * BALANCE.owned.garrison, BALANCE.owned.garrisonMax);
     const mine = o === PLAYER;
     const fort = this.fortBy[i] === o ? BALANCE.units.fortifyDefense : 0;
-    const settlement = t.type === 'rovine' ? BALANCE.owned.settlementDefense + (mine ? this.opts.mods.settlementDefense : 0) : 0;
     const front = mine ? this.opts.mods.ownedDefenseMult : this.opts.tutorial ? 1 : this.opts.front.aiDefenseMult; // fronti difficili: IA trincerate
     if (this.supplyDirty) this.recomputeSupply();
     const L = BALANCE.logistics, sup = L.defenseMin + (1 - L.defenseMin) * this.supply[t.province]; // province mal rifornite cedono prima
-    return Math.ceil((base * BALANCE.owned.defenseMult + garrison + settlement + fort) * front * sup);
+    return Math.ceil((garrison * bunker + fort) * front * sup);
   }
 
   /** La casella sta in una provincia attaccabile da `f`? */
@@ -1932,7 +2061,7 @@ export class RunState {
     if (from !== NEUTRAL) {
       const def = this.factions[from];
       let garrison = 0;
-      for (const i of prov.tiles) if (this.passable(i) && this.owner[i] === from) garrison += this.defenseOf(i) - this.map.tiles[i]!.defense * BALANCE.owned.defenseMult;
+      for (const i of prov.tiles) if (this.passable(i) && this.owner[i] === from) garrison += this.defenseOf(i);
       def.troops = Math.max(0, def.troops - garrison); // perde il presidio
       def.provinces--;
     }
@@ -1978,7 +2107,7 @@ export class RunState {
     const key = `${by}:${p}`;
     if (this.provincesDone.has(key)) return;
     this.provincesDone.add(key);
-    const R = BALANCE.provinceReward, n = prov.tiles.length;
+    const R = BALANCE.provinceReward, n = prov.tiles.length * (this.cityProv.has(p) ? 3 : 1); // città: premio ×3 (Nico)
     const f = this.factions[by];
     const troops = Math.round(n * R.troopsPerTile);
     f.troops += troops;
@@ -2031,7 +2160,8 @@ export class RunState {
     const near = this.factions.filter((f) => f.kind === 'empire' && f.alive && this.relation[f.id] === 'guerra' && this.frontier(f.id).some((p) => this.provOwner[p] === PLAYER));
     if (!near.length) { this.nextOffensiveAt = this.gameTimeMs + 10_000; return; }
     const f = near[Math.floor(this.aiRng() * near.length)];
-    this.offensive = { faction: f.id, phase: 'warn', until: this.gameTimeMs + O.warnMs, lostAtStart: 0 };
+    // ogni Sala Radar avvisa 6 secondi prima (Nico: più radar, avvisi utili)
+    this.offensive = { faction: f.id, phase: 'warn', until: this.gameTimeMs + O.warnMs + this.worksOf(PLAYER, 'radar') * 6000, lostAtStart: 0 };
     this.events.push({ type: 'offensive', faction: f.id, phase: 'warn' });
   }
 
@@ -2051,4 +2181,16 @@ export class RunState {
     if (f === PLAYER) this.end('eliminated');
   }
 
+}
+
+/** Eventi classici col radar (Nico): premi più alti (truppe e bottino positivi × 1,5). */
+function boosted(ev: GameEvent): GameEvent {
+  const up = (fx: EventEffects): EventEffects => {
+    const o: EventEffects = { ...fx };
+    if (o.troops && o.troops > 0) o.troops = Math.round(o.troops * 1.5);
+    if (o.loot) o.loot = Object.fromEntries(Object.entries(o.loot).map(([r, v]) => [r, v > 0 ? Math.round(v * 1.5) : v]));
+    return o;
+  };
+  const side = (c: EventChoice): EventChoice => ({ ...c, effects: up(c.effects), fail: c.fail && up(c.fail) });
+  return { ...ev, left: side(ev.left), right: side(ev.right) };
 }

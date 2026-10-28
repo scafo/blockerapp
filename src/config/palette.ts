@@ -42,3 +42,11 @@ export const PALETTE = {
 } as const;
 
 export const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
+
+// vista del terreno (tasto MAPPA): solo sfumature di blu, alcuni terreni a righe e altri pieni (Nico); legenda nell'interfaccia
+export const TERRAIN_VIEW: Record<string, { col: string; stripe: number; name: string }> = {
+  pianura: { col: '#2a4a7a', stripe: 0, name: 'pianura' },
+  colline: { col: '#4a72ad', stripe: 1, name: 'colline' },
+  montagne: { col: '#8fb0e0', stripe: 2, name: 'montagne' },
+  deserto: { col: '#6f93c8', stripe: 0, name: 'deserto' },
+};

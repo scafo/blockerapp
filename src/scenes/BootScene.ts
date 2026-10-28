@@ -3,6 +3,7 @@ import { randomSeed } from '../map/rng';
 import { loadProfile } from '../save/storage';
 import { restoreIfEmpty, requestPersistence } from '../save/backup';
 import { preloadImages } from '../ui/images';
+import { preloadIcons } from '../ui/icons';
 import type { LoadData } from './LoadScene';
 
 /** Carica le immagini e passa alla schermata di caricamento, che calcola terre e nazioni e apre la prima scena. */
@@ -13,6 +14,7 @@ export class BootScene extends Phaser.Scene {
 
   preload() {
     preloadImages(this);
+    preloadIcons(this);
   }
 
   async create() {
@@ -25,6 +27,6 @@ export class BootScene extends Phaser.Scene {
     const seed = new URLSearchParams(location.search).get('seed');
     const first = loadProfile().runs === 0; // prima volta: subito in azione (run guidata)
     const d: LoadData = seed || first ? { boot: true, next: 'Run', data: { seed: seed ?? randomSeed() } } : { boot: true, next: 'Camp' };
-    this.scene.start('Load', d);
+    this.scene.start('Title', d);
   }
 }

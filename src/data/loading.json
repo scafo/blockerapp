@@ -1,7 +1,7 @@
 {
   "screens": [
     {
-      "img": "load-festa",
+      "img": "load-statua",
       "title": "LA CONCORDIA",
       "quote": "Per cento anni il mondo non conobbe la guerra. Non avevamo nemmeno una parola per «nemico».",
       "source": "archivio del Senato · sezione distrutta",
@@ -34,7 +34,7 @@
       ]
     },
     {
-      "img": "load-nave",
+      "img": "load-arpanet",
       "title": "IL LUME",
       "quote": "I Frammenti fanno una luce che non scalda. Le flotte ora navigano con quella.",
       "source": "intercettazione navale · banda 9",

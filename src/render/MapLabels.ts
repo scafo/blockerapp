@@ -1,17 +1,15 @@
 // Etichette della mappa disegnate nello spazio dello schermo: sempre nitide e di dimensione costante con qualsiasi zoom
 // (nomi delle nazioni, numeri del fronte, insegne delle fazioni, scritte che salgono, barra di stato da terminale).
 import Phaser from 'phaser';
-import { BALANCE } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
 import { FACTION_INFO } from '../game/factions';
 import { UI, view } from '../ui/screen';
 import { FONT_PIXEL } from '../ui/style';
-import { drawSymbol } from '../ui/symbols';
 
 export interface WorldLabel { x: number; y: number; text: string; color: number }
 export interface NationLabel { x: number; y: number; name: string; size: number; width: number; tile: number; known?: boolean }
 export interface PlaceLabel { x: number; y: number; name: string; kind: 'city' | 'sea' }
-export interface FactionTag { x: number; y: number; visible: boolean; scale: number }
+export interface FactionTag { x: number; y: number; visible: boolean; scale: number; angle: number; len: number; wid: number }
 
 /** Quello che la scena della mappa espone alle etichette. */
 export interface LabelSource {
@@ -21,6 +19,8 @@ export interface LabelSource {
   frontLabels: WorldLabel[];
   factionTags: FactionTag[];
   worldToLonLat(x: number, y: number): [number, number];
+  /** vista della carta: in quella del terreno niente nomi */
+  mapMode?: string;
 }
 
 export class MapLabels {
@@ -32,11 +32,11 @@ export class MapLabels {
 
   constructor(private scene: Phaser.Scene) {
     this.layer = scene.add.container(0, 0).setDepth(-10); // sotto i pannelli dell'interfaccia
+    // nomi delle potenze dentro il territorio (alla HOI4): lettere spaziate, grandi quanto il territorio, nel colore della potenza
     this.tags = FACTION_INFO.map((f) => {
-      const g = scene.add.graphics(), bot = f.kind === 'bot';
-      drawSymbol(g, f.symbol, 0, bot ? -10 : -12, bot ? 4.5 : 6, f.fill, PALETTE.mappa.fondo);
-      const t = scene.add.text(0, 0, f.short, { fontFamily: FONT_PIXEL, fontSize: '14px', fontStyle: '400', color: hex(f.border), resolution: UI(),
-        stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5, 0).setLetterSpacing(1);
+      const g = scene.add.graphics();
+      const t = scene.add.text(0, 0, f.name.toUpperCase(), { fontFamily: FONT_PIXEL, fontSize: '14px', fontStyle: '400', color: hex(f.border), resolution: UI(),
+        stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5).setAlpha(0.9);
       const c = scene.add.container(0, 0, [g, t]).setVisible(false);
       this.layer.add(c);
       return c;
@@ -59,7 +59,9 @@ export class MapLabels {
     const inView = (sx: number, sy: number, m = 40) => sx > -m && sx < width + m && sy > -m && sy < height + m;
 
     // nomi delle nazioni: solo da lontano (vista strategica), spaziati come sulle carte di stato maggiore
-    const showNames = zoom < BALANCE.provinces.namesMaxZoom;
+    const noNames = src.mapMode === 'terreno';
+    // i nomi di nazioni, città e mari li scrive già la carta da terminale: qui si raddoppiavano, sfasati (Nico)
+    const showNames = false;
     let n = 0;
     if (showNames) {
       const placed: number[][] = []; // riquadri già occupati (dai paesi più grandi): niente nomi sovrapposti
@@ -84,7 +86,7 @@ export class MapLabels {
         }
         if (t.text !== l.name) t.setText(l.name);
         if (t.style.fontSize !== `${size}px`) t.setFontSize(size);
-        t.setColor(hex(PALETTE.mappa.nome)).setPosition(Math.round(sx), Math.round(sy)).setVisible(true).setAlpha(1);
+        t.setColor('#9fd0f5').setPosition(Math.round(sx), Math.round(sy)).setVisible(true).setAlpha(1);
         n++;
       }
       // città in rosso e mari in grigio, come nel terminale (dopo le nazioni: prendono gli spazi liberi)
@@ -105,7 +107,7 @@ export class MapLabels {
           this.names.push(t);
         }
         if (t.text !== l.name) t.setText(l.name);
-        t.setColor(l.kind === 'city' ? '#a52a24' : '#a5adb1').setPosition(Math.round(sx), Math.round(sy)).setVisible(true).setAlpha(1);
+        t.setColor(l.kind === 'city' ? '#4f8fd6' : '#a5adb1').setPosition(Math.round(sx), Math.round(sy)).setVisible(true).setAlpha(1);
         n++;
       }
     }
@@ -128,13 +130,17 @@ export class MapLabels {
     }
     for (let k = f; k < this.front.length; k++) this.front[k].setVisible(false);
 
-    // insegne delle fazioni nel cuore del loro territorio
+    // nomi delle potenze nel loro territorio: corpo in proporzione alla lunghezza del territorio sullo schermo
     src.factionTags.forEach((tag, k) => {
       const c = this.tags[k];
       if (!c) return;
-      if (!tag.visible || (FACTION_INFO[k]?.kind === 'bot' && zoom < 3)) return void c.setVisible(false); // milizie: solo da vicino
-      const [sx, sy] = this.toScreen(cam, tag.x, tag.y), far = Phaser.Math.Clamp(zoom / 4, 0.6, 1);
-      c.setPosition(Math.round(sx), Math.round(sy)).setScale(Phaser.Math.Clamp(tag.scale, 0.9, 1.6) * far).setVisible(inView(sx, sy));
+      if (!tag.visible || noNames) return void c.setVisible(false);
+      const [sx, sy] = this.toScreen(cam, tag.x, tag.y), t = c.list[1] as Phaser.GameObjects.Text;
+      const lenPx = (tag.len * cam.zoom) / UI(), widPx = (tag.wid * cam.zoom) / UI(), chars = Math.max(1, t.text.length);
+      const fs = Math.floor(Math.min(64, (lenPx * 0.78) / (chars * 0.6 + (chars - 1) * 0.35), widPx * 0.55));
+      if (fs < 11 || !inView(sx, sy, 200)) return void c.setVisible(false); // territorio troppo piccolo per scriverci il nome
+      if (t.style.fontSize !== `${fs}px`) t.setFontSize(fs).setLetterSpacing(Math.round(fs * 0.35));
+      c.setPosition(Math.round(sx), Math.round(sy)).setRotation(tag.angle).setScale(1).setVisible(true);
     });
 
     // barra di stato da terminale: centro della vista e zoom

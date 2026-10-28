@@ -100,6 +100,7 @@ export class Button extends Phaser.GameObjects.Container {
     const ink = this.term ? 0x000000 : PALETTE.inchiostro, paper = this.term ? 0xd8dadc : PALETTE.carta;
     this.bg.setFillStyle(on ? paper : ink, on ? 1 : this.term ? 0.92 : 0.96);
     this.label.setColor(hex(on ? ink : this.term ? 0xf2f2f2 : PALETTE.carta));
+    if (on) this.icon?.setTint(ink); else this.icon?.clearTint(); // acceso: l'icona bianca su fondo chiaro spariva
     return this;
   }
 

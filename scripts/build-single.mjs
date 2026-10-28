@@ -11,16 +11,16 @@ const res = await build({
 });
 const js = res.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
 
-const page = `<title>Ashen Atlas</title>
+const page = `<title>ARCHEON</title>
 <style>
-  :root { --bg: #0b1118; --fg: #e9eef3; --accent: #d8b86e; color-scheme: dark; }
+  :root { --bg: #000000; --fg: #e9eef3; --accent: #d8b86e; color-scheme: dark; }
   html, body { height: 100%; margin: 0; background: var(--bg); overflow: hidden; touch-action: none; }
   #game { position: relative; width: 100%; height: 100%; }
   #msg { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 8px; padding: 24px;
     color: var(--fg); font: 600 16px "Arial Narrow", Arial, sans-serif; letter-spacing: 2px; }
   #msg b { color: var(--accent); font-size: 28px; }
 </style>
-<div id="game"><div id="msg"><b>ASHEN ATLAS</b>caricamento…</div></div>
+<div id="game"></div>
 <script>
   window.addEventListener('error', function (e) {
     var m = document.getElementById('msg') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'msg' }));

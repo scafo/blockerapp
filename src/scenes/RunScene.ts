@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
-import { BALANCE, type AbilityType, type Resource, type UnitType } from '../config/balance';
+import { BALANCE, type AbilityType, type Resource, type UnitType, type WorkId } from '../config/balance';
 import buildingText from '../data/buildings.json';
 import { RESOURCES, RESOURCE_INFO } from '../game/resources';
 import { recoverStake, runOptions, settle, type RunOptions } from '../game/camp';
-import { loadPrefs, loadProfile, saveProfile } from '../save/storage';
+import { loadProfile, saveProfile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
-import { PALETTE, hex } from '../config/palette';
+import { PALETTE, TERRAIN_VIEW, hex } from '../config/palette';
 import { TerminalMap, TERM, type TermBorder, type TermFrame } from '../render/TerminalMap';
 import { generateMap, type RunMap } from '../map/generate';
 import { neighbors, HEX_W, WORLD_H, WORLD_W, center, pixelToIndex } from '../map/hexGrid';
@@ -32,6 +32,16 @@ import { setupCamera, zoomAt } from './run/CameraControl';
 
 const S = BALANCE.map.hexSize;
 // profondità dei livelli della mappa
+const BUNKER = WORKS.indexOf('bunker'), RAIL = WORKS.indexOf('ferrovia');
+// vista logistica: sfumatura continua rosso → giallo → verde (a gradini fitti, così i vicini si fondono)
+const LOGI_STEPS = 16;
+const LOGI_COLS = Array.from({ length: LOGI_STEPS + 1 }, (_, k) => {
+  const t = k / LOGI_STEPS, C = Phaser.Display.Color;
+  const [a, b, u] = t < 0.5 ? [0xe0473a, 0xe1e496, t * 2] : [0xe1e496, 0x9fe0a8, (t - 0.5) * 2];
+  const c = C.Interpolate.ColorWithColor(C.ValueToColor(a), C.ValueToColor(b), 100, Math.round(u * 100));
+  return '#' + C.GetColor(c.r, c.g, c.b).toString(16).padStart(6, '0');
+});
+const RAIL_COL = '#14161a'; // binari: tratteggio scuro, si stacca dal colore del territorio
 const PLAYER_EDGE = '#3d6bff'; // confine del tuo territorio: blu scuro acceso, si vede sul nero e si stacca dal riempimento
 const TERRAIN_IDX: Record<string, number> = { pianura: 0, colline: 1, montagne: 2, deserto: 3 }; // trama della carta da terminale
 const D = { owned: 1, borders: 2, fog: 2.5, front: 3, marks: 4, path: 7, units: 8, fx: 9 };
@@ -39,6 +49,7 @@ const CAM = BALANCE.camera;
 // segni sulla carta chiara: inchiostro per scritte e simboli, cobalto scuro per selezioni e ordini
 const MAP_INK = 0xf2f2f2;
 const MAP_SEL = 0x8fd6ff;
+const CITY_COL = 0x9fd0f5; // città e capitali: azzurro come i nomi della carta
 
 
 export class RunScene extends Phaser.Scene {
@@ -49,8 +60,14 @@ export class RunScene extends Phaser.Scene {
   private territory!: TerritoryLayer;
   private mapLayer!: Phaser.GameObjects.Layer;
   private term!: TerminalMap;
-  private termKey = '';
   private termDirty = true;
+  private termRect: Phaser.Geom.Rectangle | null = null; // zona già disegnata (con margine mentre si sposta la carta)
+  private termZoom = 0;
+  private termAt = 0;
+  private termMovedAt = 0;
+  private termLastView = '';
+  private camZoomPrev = 0; // zoom del fotogramma prima: per capire quando lo zoom si ferma
+  private zoomAt = 0;
   /** Vista logistica (tasto LOGISTICA o L): rifornimento delle tue province sulla carta. */
   logistics = false;
   private logiTimer = 0;
@@ -68,11 +85,14 @@ export class RunScene extends Phaser.Scene {
   private chainBox: Float32Array = new Float32Array(0);
   private ruinTiles: number[] = [];
   private workTimer = 0;
+  private worksSig = 0; // impronta delle costruzioni finite: cambia → la carta (muri, ferrovie) si ridisegna
   private planImgs = new Map<number, Phaser.GameObjects.Graphics>();
   /** Etichette per l'interfaccia (spazio schermo, sempre nitide). */
   nationLabels: NationLabel[] = [];
   placeLabels: PlaceLabel[] = [];
   frontLabels: WorldLabel[] = [];
+  private buildPeek = false; // menu COSTRUISCI aperto
+  private workCardP = -1; // provincia della scheda in basso: le sue costruzioni si vedono sulla carta
   factionTags: FactionTag[] = [];
   private labelTimer = 0;
   private lastAffordable = '';
@@ -112,11 +132,20 @@ export class RunScene extends Phaser.Scene {
   private lastGroupKey = { n: -1, at: 0 };
   /** Muro: trascinando sulle tue province si mettono in coda i bunker (tasto MURO o B). */
   wallMode = false;
+  private buildWork: WorkId | null = null;
+  /** Vista della carta (tasto MAPPA): politica, terreno (senza nomi, colori del terreno), logistica (rifornimento). */
+  mapMode: 'politica' | 'terreno' | 'logistica' = 'politica';
   private wallProvs: number[] = [];
   private walling = false;
   private wallGfx!: Phaser.GameObjects.Graphics;
   /** Assegnazione al fronte: dopo FRONTE (o F) il prossimo tocco su una provincia nemica sceglie il confine. */
   frontPick = false;
+  /** Linea d'attacco alla HOI4: tasto Linea (o G), poi si trascina sulla carta; le pedine si dispongono lungo il tratto. */
+  linePick = false;
+  private lining = false;
+  private linePts: { x: number; y: number }[] = [];
+  private lineGfx!: Phaser.GameObjects.Graphics;
+  private attackLines: { pts: { x: number; y: number }[]; ids: number[] }[] = [];
   /** Anteprima del percorso delle pedine selezionate verso il punto sotto il mouse. */
   private hoverTile = -1;
   private hoverAt = 0;
@@ -158,18 +187,14 @@ export class RunScene extends Phaser.Scene {
     saveProfile(profile);
     this.state = new RunState(this.map, opts);
     this.state.initFog();
+    // città vere della carta: le loro province valgono di più (Nico)
+    this.state.setCities(places.cities.map(([, lon, lat]) => this.state.provOf(pixelToIndex(this.lonX(lon as number), this.latY(lat as number)))));
     analytics.runStart(opts.tutorial, seed);
-    if (!opts.tutorial) {
-      // forza d'attacco e lavoratori come li avevi lasciati
-      const prefs = loadPrefs();
-      if (prefs.attack !== undefined) this.state.attackRatio = prefs.attack;
-      if (prefs.workers !== undefined) this.state.setWorkers(prefs.workers);
-    }
     this.usage = { tocchi: 0, avanzate: 0, pittura: 0, pedine: 0, navi: 0 };
     this.nextMilestone = 0;
     this.tapFxTile = -1;
     this.frontLabels = [];
-    this.factionTags = this.state.factions.map(() => ({ x: 0, y: 0, visible: false, scale: 1 }));
+    this.factionTags = this.state.factions.map(() => ({ x: 0, y: 0, visible: false, scale: 1, angle: 0, len: 0, wid: 0 }));
     this.lastAffordable = '';
     this.cameras.main.setBackgroundColor(PALETTE.mappa.fondo);
     this.cameras.main.postFX.clear();
@@ -206,7 +231,13 @@ export class RunScene extends Phaser.Scene {
     // carta da terminale (MapSCII): disegnata a caratteri braille; la carta a campiture resta sotto, nascosta
     this.term?.destroy();
     this.term = new TerminalMap(this, this.shapes, DPR, D.owned + 0.5);
-    this.termKey = '';
+    // allineata ai pixel a fine fotogramma, dopo ogni spostamento della camera (anche WASD, che arriva dopo il ridisegno):
+    // a metà pixel spariva una colonna di puntini, una linea verticale su tutta la carta (Nico)
+    const align = () => this.term.align();
+    this.events.on('postupdate', align);
+    this.events.once('shutdown', () => this.events.off('postupdate', align));
+    this.termRect = null;
+    this.termZoom = 0;
     this.mapLayer.setVisible(false);
     this.borderGfx = this.add.graphics().setDepth(D.borders);
     this.borderKey = '';
@@ -238,8 +269,15 @@ export class RunScene extends Phaser.Scene {
     this.wallGfx = this.add.graphics().setDepth(D.front);
     this.previewGfx = this.add.graphics().setDepth(D.path);
     this.wallMode = false;
+    this.buildWork = null;
+    this.mapMode = 'politica';
     this.wallProvs = [];
     this.frontPick = false;
+    this.linePick = false;
+    this.lining = false;
+    this.linePts = [];
+    this.attackLines = [];
+    this.lineGfx = this.add.graphics().setDepth(D.path);
     this.groups = new Map();
     this.hoverTile = -1;
     brackets(this.selRing, 0, 0, 19, 2, MAP_SEL, 1); // mirino sulla pedina scelta
@@ -341,6 +379,11 @@ export class RunScene extends Phaser.Scene {
           this.flashProvince(e.p, PALETTE.ocra, 0.6, 900);
           this.hud.onCapital();
         }
+      } else if (e.type === 'focus') {
+        // rapporto del radar: la carta va sulla provincia segnalata
+        const { x, y } = center(this.map.provinces[e.p].anchor);
+        this.cameras.main.pan(x, y, 450, 'Sine.easeInOut');
+        this.flashProvince(e.p, PALETTE.allerta, 0.6, 900);
       } else {
         this.hud.onEliminated(e.faction, e.by, e.loot);
       }
@@ -372,8 +415,13 @@ export class RunScene extends Phaser.Scene {
     this.workTimer -= delta;
     if (this.workTimer <= 0) {
       this.workTimer = 400;
+      let sig = 0;
+      for (let p = 0; p < this.state.provWork.length; p++) if (this.state.provWork[p] >= 0 && this.state.provWorkAt[p] === 0) sig = (sig * 31 + p * 13 + this.state.provWork[p]) | 0;
+      if (sig !== this.worksSig) { this.worksSig = sig; this.termDirty = true; }
       if (this.state.provWorkAt.some((t) => t > 0)) this.borderKey = ''; // avanzamento dei cantieri
     }
+    const cardP = this.hud.cardProvince;
+    if (cardP !== this.workCardP) { this.workCardP = cardP; this.termDirty = true; this.borderKey = ''; } // costruzioni della provincia toccata
     this.redrawBorders(time);
     this.redrawTerminal();
     const zc = this.cameras.main.zoom / UI();
@@ -385,12 +433,16 @@ export class RunScene extends Phaser.Scene {
       this.territory.invalidate();
     }
     // forme intere da vicino: semplificate ognuna per conto suo lasciavano fessure scure negli angoli tra le province
-    if (landMode) {
-      this.landLayer.update(time, 1, (a, b, c, d) => this.landFills(a, b, c, d),
-        {});
+    // (la carta a campiture è nascosta sotto quella da terminale: se non si vede, non si ridisegna)
+    if (this.mapLayer.visible) {
+      if (landMode) {
+        this.landLayer.update(time, 1, (a, b, c, d) => this.landFills(a, b, c, d),
+          {});
+      }
+      this.territory.update(time, landMode ? 1 : 4, (a, b, c, d) => this.territoryFills(a, b, c, d));
     }
-    this.territory.update(time, landMode ? 1 : 4, (a, b, c, d) => this.territoryFills(a, b, c, d));
     this.syncPlan();
+    this.drawAttackLines();
     this.nameTimer -= delta;
     if (this.nameTimer <= 0) {
       this.nameTimer = 1000;
@@ -656,7 +708,7 @@ export class RunScene extends Phaser.Scene {
     const box = this.chainBox, m = 4;
     const inView = (k: number) => !(box[k * 4 + 2] < v.x - m || box[k * 4] > v.right + m || box[k * 4 + 3] < v.y - m || box[k * 4 + 1] > v.bottom + m);
     this.drawWorks(g, v, px); // costruzioni: restano sopra la carta da terminale
-    if (this.term) return;
+    if (this.term) return this.drawCities(g, v, px); // città e capitali anche sulla carta da terminale (erano sparite)
     // reticolo a matita ogni 15°, sotto i confini
     const { latMax, latMin } = BALANCE.map;
     g.lineStyle(1 * px, MP.reticolo, 0); // reticolo spento (il terminale non lo ha)
@@ -695,26 +747,68 @@ export class RunScene extends Phaser.Scene {
 
   /** Carta da terminale: si ridisegna quando si sposta la vista o cambia il territorio. */
   private redrawTerminal() {
-    const cam = this.cameras.main, v = cam.worldView;
-    const key = `${v.x.toFixed(1)}:${v.y.toFixed(1)}:${cam.zoom.toFixed(3)}`;
-    if (key === this.termKey && !this.termDirty) return;
-    this.termKey = key;
+    const cam = this.cameras.main, now = this.time.now;
+    // vista di questo fotogramma (worldView si aggiorna solo al disegno: un fotogramma in ritardo mentre si trascina)
+    const vw = cam.width / cam.zoom, vh = cam.height / cam.zoom;
+    const v0 = new Phaser.Geom.Rectangle(cam.scrollX + (cam.width - vw) / 2, cam.scrollY + (cam.height - vh) / 2, vw, vh);
+    // barra di stato (coordinate e zoom): tolta (Nico: informazioni inutili)
+    const viewKey = `${v0.x.toFixed(1)}:${v0.y.toFixed(1)}`;
+    if (viewKey !== this.termLastView) { this.termLastView = viewKey; this.termMovedAt = now; }
+    // prestazioni: la carta si ridisegna solo se cambia il territorio, lo zoom, o se la vista esce dalla zona già disegnata
+    // (mentre si sposta la carta si disegna con un margine attorno, così trascinare non ridisegna a ogni fotogramma)
+    const zoomed = cam.zoom !== this.termZoom, R0 = this.termRect;
+    if (cam.zoom !== this.camZoomPrev) { this.camZoomPrev = cam.zoom; this.zoomAt = now; }
+    const zooming = now - this.zoomAt < 180;
+    const inside = !!R0 && v0.x >= R0.x && v0.y >= R0.y && v0.right <= R0.right && v0.bottom <= R0.bottom;
+    // scorrendo si ridisegna un po' prima di arrivare al bordo della zona disegnata (a un terzo del margine): la carta nuova
+    // è pronta prima che si veda il vuoto
+    const ix = R0 ? Math.max(0, (R0.width - v0.width) / 6) : 0, iy = R0 ? Math.max(0, (R0.height - v0.height) / 6) : 0;
+    const deep = !!R0 && v0.x >= R0.x + ix && v0.y >= R0.y + iy && v0.right <= R0.right - ix && v0.bottom <= R0.bottom - iy;
+    if (!this.termDirty && !zoomed && deep) return;
+    // zoom veloce (Nico: "un bordello"): mentre lo zoom va, la carta già disegnata si ingrandisce o rimpicciolisce da sola
+    // (è nel mondo); si ridisegna solo quando lo zoom si ferma, o se la vista esce dalla zona disegnata o cambia troppo
+    // (Nico: lag nello zoom: si ridisegnava quasi a ogni scatto della rotella, 50–120 ms ciascuno). Anche i cambi di territorio
+    // aspettano la fine dello zoom
+    if (zoomed && zooming && inside) return;
+    // al massimo ~16 volte al secondo, ma solo se la carta disegnata copre ancora lo schermo: allontanandosi in fretta restava
+    // un riquadro di carta in mezzo al vuoto finché non scattava il ridisegno
+    if (zoomed && this.termZoom && inside && now - this.termAt < 60) return;
+    this.termAt = now;
+    this.termZoom = cam.zoom;
     this.termDirty = false;
+    // trascinando: margine attorno, il prossimo passo è già disegnato. Zoomando no: con il margine l'area da calcolare
+    // triplicava (fino a 120 ms a ridisegno, il lag nello zoom); allontanandosi si ridisegna solo la vista, ~20 ms
+    const moving = !zooming && now - this.zoomAt > 300 && now - this.termMovedAt < 300;
+    const maxW = 4096 / cam.zoom, maxH = 4096 / cam.zoom;
+    const mx = moving ? Math.max(0, Math.min(v0.width * 0.35, (maxW - v0.width) / 2)) : 0;
+    const my = moving ? Math.max(0, Math.min(v0.height * 0.35, (maxH - v0.height) / 2)) : 0;
+    const v = new Phaser.Geom.Rectangle(v0.x - mx, v0.y - my, v0.width + 2 * mx, v0.height + 2 * my);
+    this.termRect = v;
     const own = this.state.provOwner, provs = this.map.provinces, shapes = this.shapes.provinces, m = 8;
-    const seen = (p: number) => (p < 0 ? NEUTRAL : own[p] !== PLAYER && !this.state.seesProv(p) ? NEUTRAL : own[p]);
-    const frame: TermFrame = { view: new Phaser.Geom.Rectangle(v.x, v.y, v.width, v.height), provinces: [], borders: [], labels: [], status: '' };
+    const terrain = this.mapMode === 'terreno'; // vista del terreno: niente potenze né nomi, ogni provincia nel colore del suo terreno
+    const seen = (p: number) => (p < 0 || terrain ? NEUTRAL : own[p] !== PLAYER && !this.state.seesProv(p) ? NEUTRAL : own[p]);
+    const frame: TermFrame = { view: v, provinces: [], borders: [], labels: [], status: '' };
     for (let p = 0; p < shapes.length; p++) {
       const s = shapes[p];
       if (!s.parts.length || s.x1 < v.x - m || s.x0 > v.right + m || s.y1 < v.y - m || s.y0 > v.bottom + m) continue;
       const o = seen(p);
       // vista logistica: le tue province colorate dal rifornimento (pieno, in calo, tagliate fuori)
-      const sup = this.logistics && o === PLAYER ? this.state.supply[p] : -1;
-      const color = sup >= 0 ? (sup >= 0.95 ? '#9fe0a8' : sup >= 0.6 ? '#e1e496' : '#e0473a') : o === NEUTRAL ? null : hex(FACTION_INFO[o].fill);
-      frame.provinces.push({ id: p, color, terrain: TERRAIN_IDX[provs[p].terrain] ?? 0 });
+      // sfumata: metà la sua, metà la media delle tue province accanto (passaggi morbidi, Nico); le altre potenze sbiadite
+      let sup = -1;
+      if (this.logistics && o === PLAYER) {
+        let sum = 0, n = 0;
+        for (const q of provs[p].neighbors) if (own[q] === PLAYER) { sum += this.state.supply[q]; n++; }
+        sup = n ? (this.state.supply[p] + sum / n) / 2 : this.state.supply[p];
+      }
+      const color = terrain ? TERRAIN_VIEW[provs[p].terrain]?.col ?? null
+        : sup >= 0 ? LOGI_COLS[Math.round(Phaser.Math.Clamp((sup - 0.3) / 0.65, 0, 1) * LOGI_STEPS)]
+        : o === NEUTRAL ? null : this.logistics ? this.fadedFill(o) : hex(FACTION_INFO[o].fill);
+      // muro: le province con un bunker finito hanno il confine fortificato, disegnato sulla carta (non più l'icona)
+      const fort = o !== NEUTRAL && this.state.provWork[p] === BUNKER && this.state.provWorkAt[p] === 0 && this.showWork(p);
+      frame.provinces.push({ id: p, color, terrain: TERRAIN_IDX[provs[p].terrain] ?? 0, fort, stripe: terrain ? TERRAIN_VIEW[provs[p].terrain]?.stripe ?? 0 : 0 });
     }
     const box = this.chainBox, zv = cam.zoom / UI();
     // da lontano i confini tra nazioni diventano grigio scuro: in bianco si confondevano col mare
-    const natCol = zv < 2 ? '#6e737a' : TERM.border;
     // da vicino anche i confini tra province (grigio tenue), per distinguere i territori piccoli; disegnati per primi
     const dim: TermBorder[] = [];
     this.shapes.chains.forEach((c, k) => {
@@ -725,71 +819,84 @@ export class RunScene extends Phaser.Scene {
         const other = oa === PLAYER ? ob : oa;
         // linea del fronte: tuo confine con un nemico in guerra, tratteggiata in rosso
         void o; void other; // i confini dei territori (e la linea del fronte) li disegna la carta sul bordo esatto del riempimento
-      } else if (c.a >= 0 && c.b >= 0 && provs[c.a].country !== provs[c.b].country) frame.borders.push({ pts: c.pts, color: natCol });
-      else if (zv >= 3 && c.a >= 0 && c.b >= 0 && oa === NEUTRAL) dim.push({ pts: c.pts, color: '#3c424a' }); // solo terra libera: dentro un territorio niente divisioni
+      // confini delle nazioni moderne tolti (Nico: inutili, i confini li fanno gli imperi che crescono durante la partita):
+      // tra due province libere solo la linea tenue della provincia, anche dove prima passava una frontiera
+      } else if (zv >= 3 && c.a >= 0 && c.b >= 0 && oa === NEUTRAL && ob === NEUTRAL) dim.push({ pts: c.pts, color: '#555c63' }); // solo terra libera: dentro un territorio niente divisioni
+      else if ((this.buildWork || this.buildPeek) && !terrain && c.a >= 0 && c.b >= 0 && oa === PLAYER && ob === PLAYER) dim.push({ pts: c.pts, color: '#1d5a66' }); // COSTRUISCI: le tue province una per una (Nico)
     });
     frame.borders.unshift(...dim);
+    // ferrovie: binari tratteggiati dal centro della provincia a quelli delle province accanto dello stesso padrone
+    // (l'effetto vale "qui e accanto"), sopra la carta come una linea del terreno invece dell'icona
+    const rails: TermBorder[] = [];
+    for (const pr of frame.provinces) {
+      const p = pr.id, o = own[p];
+      if (this.state.provWork[p] !== RAIL || this.state.provWorkAt[p] !== 0 || (o !== PLAYER && !this.state.seesProv(p)) || !this.showWork(p)) continue;
+      const a = center(provs[p].anchor);
+      for (const q of provs[p].neighbors) {
+        if (own[q] !== o) continue;
+        if (this.state.provWork[q] === RAIL && this.state.provWorkAt[q] === 0 && q < p) continue; // tra due ferrovie un binario solo
+        const b = center(provs[q].anchor);
+        rails.push({ pts: [a.x, a.y, b.x, b.y], color: RAIL_COL, dash: true });
+      }
+    }
+    frame.borders.push(...rails);
     // confine di ogni territorio: l'ultimo puntino del riempimento, nel colore di confine della potenza (il tuo: blu)
     frame.edges = {};
-    for (let f = 0; f < FACTION_INFO.length; f++) frame.edges[hex(FACTION_INFO[f].fill)] = f === PLAYER ? PLAYER_EDGE : hex(FACTION_INFO[f].border);
-    if (this.logistics) for (const c of ['#9fe0a8', '#e1e496', '#e0473a']) frame.edges[c] = PLAYER_EDGE;
-    const war = FACTION_INFO.map((_, f) => f).filter((f) => f !== PLAYER && this.state.atWar(PLAYER, f)).map((f) => hex(FACTION_INFO[f].fill));
-    frame.front = { own: [hex(FACTION_INFO[PLAYER].fill), ...(this.logistics ? ['#9fe0a8', '#e1e496', '#e0473a'] : [])], war, color: '#e0473a' };
+    // potenze IA: il colore del confine schiarito verso il bianco, se no sul riempimento dello stesso colore non si vedeva (Nico)
+    const bright = (c: number) => Phaser.Display.Color.Interpolate.ColorWithColor(Phaser.Display.Color.ValueToColor(c), Phaser.Display.Color.ValueToColor(0xffffff), 100, 55);
+    for (let f = 0; f < FACTION_INFO.length; f++) {
+      const b = bright(FACTION_INFO[f].border);
+      frame.edges[hex(FACTION_INFO[f].fill)] = f === PLAYER ? PLAYER_EDGE : hex(Phaser.Display.Color.GetColor(b.r, b.g, b.b));
+    }
+    if (this.logistics) for (const c of LOGI_COLS) frame.edges[c] = PLAYER_EDGE;
+    if (this.logistics) frame.same = LOGI_COLS; // le sfumature del tuo territorio: un confine solo attorno, niente linee dentro
+    const warF = FACTION_INFO.map((_, f) => f).filter((f) => f !== PLAYER && this.state.atWar(PLAYER, f));
+    const war = warF.map((f) => (this.logistics ? this.fadedFill(f) : hex(FACTION_INFO[f].fill)));
+    frame.front = { own: [hex(FACTION_INFO[PLAYER].fill), ...(this.logistics ? LOGI_COLS : [])], war, color: '#e0473a' };
+    // passo dei puntini: una via di mezzo tra fisso sullo schermo e fisso sulla carta (3 punti a zoom 8, 2 da lontano, fino a 5 da vicino)
+    frame.pitch = Phaser.Math.Clamp(Math.round(3 * Math.pow(zv / 8, 0.35)), 2, 5);
     frame.landDots = zv >= 2.5 ? '#2a2f36' : '#22262b'; // terra libera: un puntino per carattere, si vede la griglia
     const zpx = cam.zoom / DPR; // punti CSS per pixel-mondo
-    for (const n of this.termNations) if (n.width * zpx >= n.name.length * 9 * 1.1) frame.labels.push({ x: n.x, y: n.y, text: n.name, color: TERM.country, priority: 0 });
-    // la tua capitale: scritta sulla carta nel blu del tuo confine
-    const cap = this.state.capitalProv[PLAYER];
-    if (cap >= 0 && own[cap] === PLAYER) {
-      const { x, y } = center(provs[cap].anchor);
-      frame.labels.push({ x, y: y - 10, text: '▣ CAPITALE', color: '#7f9dff', priority: -1, small: true });
-    }
-    for (const l of this.termPlaces) frame.labels.push({ x: l.x, y: l.y, text: l.name, color: l.kind === 'city' ? TERM.city : TERM.sea, priority: l.kind === 'city' ? 1 : 2, small: l.kind === 'city' });
-    const [lon, lat] = this.worldToLonLat(v.centerX, v.centerY);
-    frame.status = `center: ${lat.toFixed(3)}, ${lon.toFixed(3)}   zoom: ${(cam.zoom / UI()).toFixed(2)}`;
+    if (!terrain) for (const n of this.termNations) if (n.width * zpx >= n.name.length * 9 * 1.1) frame.labels.push({ x: n.x, y: n.y, text: n.name, color: TERM.country, priority: 0 });
+    // niente scritta CAPITALE: il nome della potenza sta dentro il suo territorio, alla HOI4
+    if (!terrain) for (const l of this.termPlaces) frame.labels.push({ x: l.x, y: l.y, text: l.name, color: l.kind === 'city' ? TERM.city : TERM.sea, priority: l.kind === 'city' ? 1 : 2, small: l.kind === 'city' });
     this.term.render(frame);
   }
 
   /** Simbolo + nome di ogni fazione nel punto più interno del suo territorio, più grande se l'impero cresce. */
   private placeNameTags() {
-    // per province (non per caselle): la provincia più lontana dal confine di ogni fazione
-    const own = this.state.provOwner, provs = this.map.provinces;
-    const dist = new Int16Array(own.length).fill(-1);
-    const queue: number[] = [];
-    for (let p = 0; p < own.length; p++) {
-      if (own[p] === NEUTRAL) continue;
-      if (!provs[p].neighbors.length || provs[p].neighbors.some((q) => own[q] !== own[p])) {
-        dist[p] = 0;
-        queue.push(p);
-      }
-    }
-    for (let h = 0; h < queue.length; h++) {
-      const c = queue[h];
-      for (const q of provs[c].neighbors) {
-        if (dist[q] < 0 && own[q] === own[c]) {
-          dist[q] = dist[c] + 1;
-          queue.push(q);
-        }
-      }
-    }
-    const best = this.state.factions.map(() => -1);
+    // nome della potenza dentro il suo territorio, alla HOI4: al centro delle sue province (che vedi), lungo l'asse più lungo
+    // del territorio (componenti principali dei centri delle province, pesati per grandezza)
+    const own = this.state.provOwner, provs = this.map.provinces, F = this.state.factions.length;
+    const sw = new Float64Array(F), sx = new Float64Array(F), sy = new Float64Array(F);
+    const pts: { x: number; y: number; w: number }[][] = this.state.factions.map(() => []);
     for (let p = 0; p < own.length; p++) {
       const o = own[p];
       if (o === NEUTRAL) continue;
-      const b = best[o];
-      if (b < 0 || dist[p] > dist[b] || (dist[p] === dist[b] && provs[p].tiles.length > provs[b].tiles.length)) best[o] = p;
+      if (o !== PLAYER && !this.state.seesProv(p)) continue; // niente nomi nella nebbia
+      const { x, y } = center(provs[p].anchor), w = provs[p].tiles.length;
+      sw[o] += w; sx[o] += x * w; sy[o] += y * w;
+      pts[o].push({ x, y, w });
     }
     this.state.factions.forEach((f, k) => {
       const tag = this.factionTags[k];
-      const a = best[k] >= 0 ? provs[best[k]].anchor : -1;
-      if (!f.alive || a < 0 || !this.state.sees(a)) return void (tag.visible = false); // niente nomi nella nebbia
-      const { x, y } = center(a);
-      const scale = f.kind === 'bot' ? 0.9 : Phaser.Math.Clamp(0.8 + Math.sqrt(f.tiles) * 0.03, 0.9, 1.6);
-      if (!tag.visible) Object.assign(tag, { x, y, scale, visible: true });
-      else this.tweens.add({ targets: tag, x, y, scale, duration: 450, ease: 'Sine.easeInOut' });
+      if (!f.alive || !sw[k]) return void (tag.visible = false);
+      const mx = sx[k] / sw[k], my = sy[k] / sw[k];
+      let xx = 0, xy = 0, yy = 0;
+      for (const q of pts[k]) { const dx = q.x - mx, dy = q.y - my; xx += dx * dx * q.w; xy += dx * dy * q.w; yy += dy * dy * q.w; }
+      let ang = 0.5 * Math.atan2(2 * xy, xx - yy);
+      if (ang > Math.PI / 2) ang -= Math.PI; else if (ang < -Math.PI / 2) ang += Math.PI;
+      ang = Phaser.Math.Clamp(ang, -0.6, 0.6); // scritte quasi orizzontali, come sulle carte
+      const ux = Math.cos(ang), uy = Math.sin(ang);
+      let lo = Infinity, hi = -Infinity, wlo = Infinity, whi = -Infinity;
+      for (const q of pts[k]) {
+        const along = (q.x - mx) * ux + (q.y - my) * uy, across = -(q.x - mx) * uy + (q.y - my) * ux, r = Math.sqrt(q.w) * S * 0.9;
+        lo = Math.min(lo, along - r); hi = Math.max(hi, along + r); wlo = Math.min(wlo, across - r); whi = Math.max(whi, across + r);
+      }
+      const mid = (lo + hi) / 2, x = mx + ux * mid, y = my + uy * mid;
+      Object.assign(tag, { x, y, angle: ang, len: hi - lo, wid: whi - wlo, visible: true, scale: 1 });
     });
   }
-
 
   /** Evidenzia le province attaccabili: velo chiaro se abbordabili, appena accennato se no. */
   private redrawFrontier(force = false) {
@@ -809,10 +916,26 @@ export class RunScene extends Phaser.Scene {
     this.frontLabels.length = 0;
     if (this.cameras.main.zoom < CAM.labelMinZoom * UI()) return;
     const view = this.cameras.main.worldView;
+    if (this.buildWork || this.buildPeek) {
+      // COSTRUISCI (Nico): su ogni tua provincia quanto rende al minuto (tutte e tre le risorse), nel colore della risorsa
+      // principale; scritte che si toccherebbero sullo schermo: solo la prima
+      const provs = this.map.provinces, z = this.cameras.main.zoom / UI(), placed: { x: number; y: number }[] = [];
+      for (let p = 0; p < provs.length; p++) {
+        if (this.state.provOwner[p] !== PLAYER) continue;
+        const c = center(provs[p].anchor), x = c.x, y = c.y + (this.state.provWork[p] >= 0 ? S * 0.9 : 0); // sotto l'icona dell'edificio
+        if (x < view.x - S || x > view.right + S || y < view.y - S || y > view.bottom + S) continue;
+        if (placed.some((q) => Math.abs(q.x - x) * z < 44 && Math.abs(q.y - y) * z < 18)) continue;
+        placed.push({ x, y });
+        const res = BALANCE.terrain[provs[p].terrain].res, b = this.state.provBag(p);
+        this.frontLabels.push({ x, y, text: `+${(b.metallo + b.benzina + b.cibo).toFixed(1).replace('.', ',')}`, color: RESOURCE_INFO[res].color });
+      }
+      return;
+    }
     for (const p of this.state.frontier()) {
       const { x, y } = center(this.map.provinces[p].anchor);
       if (x < view.x - S || x > view.right + S || y < view.y - S || y > view.bottom + S) continue;
       const def = this.state.provCost(PLAYER, p);
+      if (!def) continue; // provincia vuota: si prende subito, niente numero
       const enemy = this.state.provOwner[p] !== NEUTRAL;
       this.frontLabels.push({ x, y, text: String(def), color: enemy ? PALETTE.ko : this.state.troops > def ? MAP_INK : PALETTE.mappa.segno });
     }
@@ -889,6 +1012,7 @@ export class RunScene extends Phaser.Scene {
     if (ids.length > 1) this.hud.setHint(`${ids.length} pedine selezionate: tocca (o clic destro) la meta per mandarle tutte.\nCtrl o Maiusc + numero: salva il gruppo.`);
     else if (ids.length === 1) this.hud.setHint('Tocca una casella (o clic destro): la pedina ci va conquistando la strada.');
     else {
+      this.linePick = false; // niente pedine: niente linea da tracciare
       this.hud.hideUnit(); // nessuna pedina scelta: via la sua scheda
       if (!this.selectedCard) this.hud.setHint(null);
     }
@@ -935,7 +1059,7 @@ export class RunScene extends Phaser.Scene {
   }
 
   /** Comandi delle pedine dalla scheda in basso o da tastiera: comportamento, fronte, unisci, dividi, ritirata. */
-  unitAction(kind: 'stance' | 'front' | 'merge' | 'split' | 'retreat') {
+  unitAction(kind: 'stance' | 'front' | 'merge' | 'split' | 'retreat' | 'line') {
     const units = this.selectedUnits(), st = this.state, main = units[units.length - 1];
     if (!main) return this.hud.notify('seleziona prima una pedina', PALETTE.ko);
     const { x, y } = center(main.tile);
@@ -943,6 +1067,11 @@ export class RunScene extends Phaser.Scene {
       const next = units.every((u) => u.stance === 'attacca') ? 'tieni' : 'attacca';
       st.setStance(units, next);
       this.floatText(x, y - 8, next === 'attacca' ? 'attacca da sola' : 'tiene la posizione', MAP_SEL);
+    } else if (kind === 'line') {
+      this.linePick = true;
+      this.frontPick = false;
+      this.hud.setHint('LINEA D\'ATTACCO · trascina sulla carta dove schierarle.\nLe pedine si dispongono lungo la linea, ci vanno conquistando la strada e la tengono.');
+      return;
     } else if (kind === 'front') {
       this.frontPick = true;
       this.hud.setHint('FRONTE · tocca una provincia della potenza da fronteggiare.\nLe pedine si dispongono sul confine (se attaccano da sole lo spingono).');
@@ -972,6 +1101,103 @@ export class RunScene extends Phaser.Scene {
     this.hud.refreshProvince();
   }
 
+  /** Coordinate schermo → mondo. */
+  private worldAt(sx: number, sy: number) {
+    const cam = this.cameras.main, w = cam.width / 2, h = cam.height / 2;
+    return { x: cam.scrollX + w + (sx - w) / cam.zoom, y: cam.scrollY + h + (sy - h) / cam.zoom };
+  }
+
+  /** Linea tracciata col dito: un punto ogni pochi pixel sullo schermo. */
+  private lineAlong(sx: number, sy: number) {
+    const q = this.worldAt(sx, sy), last = this.linePts[this.linePts.length - 1], z = this.cameras.main.zoom;
+    if (last && Math.hypot((q.x - last.x) * z, (q.y - last.y) * z) < 6) return;
+    this.linePts.push(q);
+    this.drawAttackLines();
+  }
+
+  /**
+   * Linea finita: tante caselle quante pedine, alla stessa distanza lungo il tratto; le pedine prese nell'ordine in cui
+   * stanno lungo la linea (così non si incrociano), ognuna verso il suo posto.
+   */
+  private finishLine() {
+    const pts = this.linePts;
+    this.linePts = [];
+    this.linePick = false;
+    this.hud.setHint(null);
+    const units = this.selectedUnits().filter((u) => !isNaval(u.type));
+    this.drawAttackLines();
+    if (!pts.length) return;
+    if (!units.length) return this.failFx(pts[0].x, pts[0].y, 'seleziona prima le pedine');
+    if (pts.length < 2) return this.failFx(pts[0].x, pts[0].y, 'trascina una linea');
+    const seg: number[] = [0];
+    for (let k = 1; k < pts.length; k++) seg.push(seg[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y));
+    const L = seg[seg.length - 1], n = units.length;
+    const at = (d: number) => {
+      let k = 1;
+      while (k < pts.length - 1 && seg[k] < d) k++;
+      const t = seg[k] > seg[k - 1] ? (d - seg[k - 1]) / (seg[k] - seg[k - 1]) : 0;
+      return { x: pts[k - 1].x + (pts[k].x - pts[k - 1].x) * t, y: pts[k - 1].y + (pts[k].y - pts[k - 1].y) * t };
+    };
+    const used = new Set<number>(), posts: number[] = [];
+    for (let k = 0; k < n; k++) {
+      const q = at(n === 1 ? L / 2 : (L * k) / (n - 1));
+      let i = pixelToIndex(q.x, q.y);
+      // sul mare o già preso: la casella di terra libera più vicina
+      if (i < 0 || !this.map.tiles[i] || used.has(i)) {
+        const ring = i >= 0 ? [...neighbors(i), ...neighbors(i).flatMap((m) => (m >= 0 ? neighbors(m) : []))] : [];
+        i = ring.find((m) => m >= 0 && this.map.tiles[m] && !used.has(m)) ?? -1;
+      }
+      if (i >= 0) used.add(i);
+      posts.push(i);
+    }
+    // ordine lungo la linea: proiezione di ogni pedina sulla direzione dal primo all'ultimo punto
+    const a = pts[0], b = pts[pts.length - 1], dx = b.x - a.x, dy = b.y - a.y;
+    const proj = (u: Unit) => { const c = center(u.tile); return (c.x - a.x) * dx + (c.y - a.y) * dy; };
+    const sorted = [...units].sort((u, v) => proj(u) - proj(v));
+    const pairs = sorted.map((u, k) => ({ u, i: posts[k] })).filter((x) => x.i >= 0);
+    const sent = this.state.holdLine(pairs.map((x) => x.u), pairs.map((x) => x.i));
+    if (!sent) { this.drawAttackLines(); return this.failFx(a.x, a.y, 'irraggiungibile'); }
+    const ids = pairs.map((x) => x.u.id);
+    // una pedina sta su una linea sola: quelle riassegnate escono dalle linee vecchie
+    for (const l of this.attackLines) l.ids = l.ids.filter((id) => !ids.includes(id));
+    this.attackLines.push({ pts, ids });
+    const m = at(L / 2);
+    this.floatText(m.x, m.y - 6, sent > 1 ? `in linea · ${sent}` : 'in linea', MAP_SEL);
+    buzz(12);
+    this.selectUnit(null);
+    this.hud.tutorialSignal('order');
+  }
+
+  /** Linee d'attacco attive (e quella che si sta tracciando): tratto pieno con freccia in avanti ogni tanto. */
+  private drawAttackLines() {
+    const g = this.lineGfx.clear(), px = UI() / this.cameras.main.zoom;
+    // via le linee senza più pedine che le tengono
+    this.attackLines = this.attackLines.filter((l) => (l.ids = l.ids.filter((id) => this.state.units.some((u) => u.id === id && u.post >= 0))).length > 0);
+    const stroke = (pts: { x: number; y: number }[], alpha: number) => {
+      if (pts.length < 2) return;
+      g.lineStyle(5 * px, 0x000000, 0.35 * alpha).beginPath().moveTo(pts[0].x, pts[0].y);
+      for (const p of pts) g.lineTo(p.x, p.y);
+      g.strokePath();
+      g.lineStyle(2.4 * px, MAP_SEL, alpha).beginPath().moveTo(pts[0].x, pts[0].y);
+      for (const p of pts) g.lineTo(p.x, p.y);
+      g.strokePath();
+      // denti sul lato d'attacco (a destra del verso di tracciamento), come la linea del fronte di HOI4
+      let acc = 0;
+      for (let k = 1; k < pts.length; k++) {
+        const ax = pts[k - 1].x, ay = pts[k - 1].y, bx = pts[k].x, by = pts[k].y, d = Math.hypot(bx - ax, by - ay);
+        if (!d) continue;
+        const ux = (bx - ax) / d, uy = (by - ay) / d, step = 14 * px;
+        for (let t = step - acc; t < d; t += step) {
+          const cx = ax + ux * t, cy = ay + uy * t, h = 4 * px;
+          g.fillStyle(MAP_SEL, alpha).fillTriangle(cx - ux * h, cy - uy * h, cx + ux * h, cy + uy * h, cx - uy * h * 1.3, cy + ux * h * 1.3);
+        }
+        acc = (acc + d) % step;
+      }
+    };
+    for (const l of this.attackLines) stroke(l.pts, 0.8);
+    if (this.linePts.length) stroke(this.linePts, 1);
+  }
+
   /** Fronte scelto: le pedine selezionate vanno sul confine con il padrone della provincia toccata. */
   private pickFront(i: number) {
     this.hud.setHint(null);
@@ -984,14 +1210,30 @@ export class RunScene extends Phaser.Scene {
     this.hud.refreshProvince();
   }
 
-  /** Muro acceso o spento (tasto MURO o B); ritorna lo stato nuovo. */
-  toggleWall(): boolean {
-    this.wallMode = !this.wallMode;
+  /**
+   * Costruzione a trascinamento (tasto COSTRUISCI o B), come il vecchio muro ma per ogni edificio: scelto l'edificio, trascini
+   * sulle tue province e ne mette uno su ognuna. null = spento.
+   */
+  /** Menu COSTRUISCI aperto: già si vedono le tue province una per una e cosa rendono. */
+  setBuildPeek(on: boolean) {
+    if (this.buildPeek === on) return;
+    this.buildPeek = on;
+    this.termDirty = true;
+    this.borderKey = '';
+    this.updateLabels();
+  }
+
+  setBuildMode(w: WorkId | null) {
+    this.buildWork = w;
+    this.wallMode = !!w;
     this.wallProvs = [];
     this.wallGfx.clear();
-    if (this.wallMode) { this.selectedCard = null; this.selectedAbility = null; this.selectUnit(null); }
-    this.hud.setHint(this.wallMode ? `MURO · trascina sulle tue province: un bunker su ognuna (${this.state.workPrice('bunker')}+ truppe e ${this.state.workMetal('bunker')} metallo l'uno).` : null);
-    return this.wallMode;
+    if (w) { this.selectedCard = null; this.selectedAbility = null; this.selectUnit(null); }
+    this.hud.setHint(w ? `${WORK_NAME[w].toUpperCase()} · trascina sulle tue province: uno su ognuna (${this.state.workPrice(w)} truppe e ${this.state.workMetal(w)} metallo l'uno).` : null);
+    this.hud.setBuildOn(w);
+    this.termDirty = true; // confini tra le tue province (solo in COSTRUISCI)
+    this.borderKey = '';
+    this.updateLabels();
   }
 
   /** Aggiunge al muro le tue province sotto il tratto trascinato e le evidenzia. */
@@ -1001,6 +1243,8 @@ export class RunScene extends Phaser.Scene {
     for (let k = 0; k <= steps; k++) {
       const p = this.state.provOf(this.tileAt(x0 + ((x1 - x0) * k) / steps, y0 + ((y1 - y0) * k) / steps));
       if (p < 0 || this.state.provOwner[p] !== PLAYER || this.state.provWork[p] >= 0 || this.wallProvs.includes(p)) continue;
+      const why = this.buildWork ? this.state.workBlock(p, this.buildWork) : null;
+      if (why === 'tech' || why === 'coast' || why === 'busy') continue; // qui non si può: niente evidenza
       this.wallProvs.push(p);
       changed = true;
     }
@@ -1014,16 +1258,15 @@ export class RunScene extends Phaser.Scene {
     this.wallProvs = [];
     this.wallGfx.clear();
     if (!provs.length) return;
-    const r = this.state.buildWall(provs);
+    const w = this.buildWork ?? 'bunker';
+    const r = this.state.buildWall(provs, w);
     const { x, y } = center(this.map.provinces[provs[0]].anchor);
-    if (!r.built) return this.failFx(x, y, r.stop === 'metal' ? 'serve metallo nello zaino' : r.stop === 'troops' ? 'truppe insufficienti' : 'niente da fortificare');
+    if (!r.built) return this.failFx(x, y, r.stop === 'metal' ? 'serve metallo nello zaino' : r.stop === 'troops' ? 'truppe insufficienti' : 'qui non si può costruire');
     for (const p of provs.slice(0, r.built)) this.flashProvince(p, PALETTE.allerta, 0.5, 500);
     const left = provs.length - r.built - r.skipped;
-    this.hud.notify(`MURO · ${r.built} bunker in costruzione${left > 0 ? ` · ${left} rimasti fuori (${r.stop === 'metal' ? 'metallo' : 'truppe'})` : ''}`, PALETTE.allerta);
+    this.hud.notify(`${WORK_NAME[w].toUpperCase()} · ${r.built} in costruzione${left > 0 ? ` · ${left} rimasti fuori (${r.stop === 'metal' ? 'metallo' : 'truppe'})` : ''}`, PALETTE.allerta);
     buzz(15);
-    this.wallMode = false;
-    this.hud.setWallOn(false);
-    this.hud.setHint(null);
+    this.setBuildMode(null);
   }
 
   /** Gruppi alla HOI4: Ctrl (o Maiusc) + numero salva la selezione, il numero la richiama (due volte: ci va la carta). */
@@ -1065,7 +1308,7 @@ export class RunScene extends Phaser.Scene {
       this.dashedPath(g, [main.tile, ...path].map(center), 1.4 * px, MAP_SEL, 0.45);
       return;
     }
-    if (this.selectedCard || this.selectedAbility || this.wallMode || this.frontPick || !this.state.isFrontier(i)) return this.hud.hideForecast();
+    if (this.selectedCard || this.selectedAbility || this.wallMode || this.frontPick || this.linePick || !this.state.isFrontier(i)) return this.hud.hideForecast();
     const t = this.tileToScreen(i);
     this.hud.showForecast(this.state.provOf(i), t.x, t.y);
   }
@@ -1223,8 +1466,16 @@ export class RunScene extends Phaser.Scene {
   }
 
   /** Accende/spegne la vista logistica; ritorna lo stato nuovo. */
+  /** Cambia la vista della carta. */
+  setMapMode(m: 'politica' | 'terreno' | 'logistica') {
+    this.mapMode = m;
+    this.logistics = m === 'logistica';
+    this.termDirty = true;
+  }
+
   toggleLogistics(): boolean {
     this.logistics = !this.logistics;
+    this.mapMode = this.logistics ? 'logistica' : 'politica';
     this.termDirty = true;
     return this.logistics;
   }
@@ -1257,22 +1508,42 @@ export class RunScene extends Phaser.Scene {
   }
 
 
+  /** Logistica: le altre potenze sbiadite verso il grigio della terra, il tuo territorio resta in primo piano. */
+  private fadedFill(o: number): string {
+    const C = Phaser.Display.Color, c = C.Interpolate.ColorWithColor(C.ValueToColor(FACTION_INFO[o].fill), C.ValueToColor(0x2a2f36), 100, 72);
+    return '#' + C.GetColor(c.r, c.g, c.b).toString(16).padStart(6, '0');
+  }
+
+  /** Costruzioni visibili solo in COSTRUISCI o sulla provincia toccata (Nico: sulla carta erano troppe). */
+  private showWork(p: number): boolean {
+    return !!this.buildWork || this.buildPeek || p === this.workCardP;
+  }
+
   /** Costruzioni nelle province inquadrate (le tue e quelle nemiche che vedi): icona e cantiere con l'avanzamento. */
   private drawWorks(g: Phaser.GameObjects.Graphics, v: Phaser.Geom.Rectangle, px: number) {
     const st = this.state;
     for (let p = 0; p < st.provWork.length; p++) {
       const w = st.provWork[p];
-      if (w < 0) continue;
+      if (w < 0 || !this.showWork(p)) continue;
       const o = st.provOwner[p];
       if (o !== PLAYER && !st.seesProv(p)) continue;
+      // muro e ferrovia finiti si vedono sulla carta (confine fortificato, binari): niente icona; il cantiere sì
+      if ((w === BUNKER || w === RAIL) && st.provWorkAt[p] === 0) continue;
       const a = this.map.provinces[p].anchor;
       const { x: cx, y: cy } = center(a);
-      const x = cx + 9 * px, y = cy - 7 * px;
+      const x = cx + 11 * px, y = cy - 13 * px;
       if (x < v.x - 20 || x > v.right + 20 || y < v.y - 20 || y > v.bottom + 20) continue;
-      const r = 7 * px, col = o >= 0 ? FACTION_INFO[o].border : MAP_INK;
-      g.fillStyle(PALETTE.mappa.fondo, 0.95).fillRect(x - r, y - r, 2 * r, 2 * r);
-      rectOutline(g, x - r, y - r, 2 * r, 2 * r, 1.2 * px, col);
-      drawWorkIcon(g, WORKS[w], x, y, r * 0.62, col);
+      // targhetta: ombra, fondo scuro con doppio filo nel colore della potenza e codino verso il centro della provincia
+      // colore della potenza schiarito: sul fondo scuro il confine pieno si perdeva (icone nere)
+      const C = Phaser.Display.Color, lc = o >= 0 ? C.Interpolate.ColorWithColor(C.ValueToColor(FACTION_INFO[o].fill), C.ValueToColor(0xffffff), 100, 45) : null;
+      const r = 11 * px, col = lc ? C.GetColor(lc.r, lc.g, lc.b) : MAP_INK;
+      g.fillStyle(0x000000, 0.35).fillRoundedRect(x - r + 1.5 * px, y - r + 1.5 * px, 2 * r, 2 * r, 2.5 * px);
+      g.fillStyle(0x0b0d10, 0.96).fillRoundedRect(x - r, y - r, 2 * r, 2 * r, 2.5 * px);
+      g.fillTriangle(x - 3 * px, y + r - 0.5 * px, x + 3 * px, y + r - 0.5 * px, cx, cy);
+      g.lineStyle(1.4 * px, col, 1).strokeRoundedRect(x - r, y - r, 2 * r, 2 * r, 2.5 * px);
+      g.lineStyle(0.8 * px, col, 0.4).strokeRect(x - r + 2.2 * px, y - r + 2.2 * px, 2 * r - 4.4 * px, 2 * r - 4.4 * px);
+      g.fillStyle(col, 1).fillCircle(cx, cy, 1.6 * px);
+      drawWorkIcon(g, WORKS[w], x, y + 0.5 * px, r * 0.58, col, 0x0b0d10);
       const prog = st.workInProgress(p);
       if (prog) squareProgress(g, x, y, r + 2.5 * px, 1 - prog.leftMs / BALANCE.works[prog.work].timeMs, 1.8 * px, PALETTE.allerta); // cantiere: il bordo si riempie
     }
@@ -1282,7 +1553,7 @@ export class RunScene extends Phaser.Scene {
   private drawCities(g: Phaser.GameObjects.Graphics, v: Phaser.Geom.Rectangle, px: number) {
     const MP = PALETTE.mappa, z = 1 / px;
     const inV = (x: number, y: number) => x > v.x - 8 && x < v.right + 8 && y > v.y - 8 && y < v.bottom + 8;
-    if (z >= 5.9) {
+    if (z >= 5.9 && !this.term) { // rovine: non sulla carta da terminale (solo città e capitali)
       g.fillStyle(MP.segno, 0.55);
       for (const i of this.ruinTiles) {
         const { x, y } = center(i);
@@ -1291,20 +1562,25 @@ export class RunScene extends Phaser.Scene {
         g.fillPoints([{ x, y: y - r }, { x: x + r, y }, { x, y: y + r }, { x: x - r, y }], true);
       }
     }
-    for (const p of this.map.provinces) {
-      if (p.city < 0) continue;
+    this.map.provinces.forEach((p, idx) => {
+      if (p.city < 0 || !this.state.isCity(idx)) return; // solo le città che valgono di più (Nico: niente punto in ogni provincia)
       const { x, y } = center(p.city);
-      if (!inV(x, y)) continue;
+      if (!inV(x, y)) return;
       if (this.map.tiles[p.city]!.capital) {
-        if (z < 2.2) continue;
-        const r = 3.4 * px * Phaser.Math.Clamp(z / 4, 0.7, 1); // da lontano più piccole
-        g.fillStyle(MP.fondo, 1).fillRect(x - r - 1.4 * px, y - r - 1.4 * px, 2 * r + 2.8 * px, 2 * r + 2.8 * px);
-        g.lineStyle(1.2 * px, MP.capitale, 1).strokeRect(x - r, y - r, 2 * r, 2 * r);
-        g.fillStyle(MP.capitale, 1).fillRect(x - r * 0.45, y - r * 0.45, r * 0.9, r * 0.9);
-      } else if (z >= 6.5) {
-        g.fillStyle(MP.fondo, 0.9).fillRect(x - 2.8 * px, y - 2.8 * px, 5.6 * px, 5.6 * px).fillStyle(MP.segno, 0.95).fillRect(x - 1.6 * px, y - 1.6 * px, 3.2 * px, 3.2 * px);
+        // capitale: una stella (Nico), azzurra come i nomi della carta
+        if (z < 2.2) return;
+        const r = 5 * px * Phaser.Math.Clamp(z / 4, 0.7, 1), pts: Phaser.Types.Math.Vector2Like[] = []; // da lontano più piccole
+        for (let k = 0; k < 10; k++) {
+          const a = -Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? r * 0.45 : r;
+          pts.push({ x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr });
+        }
+        g.fillStyle(CITY_COL, 1).fillPoints(pts, true).lineStyle(1.4 * px, 0x000000, 1).strokePoints(pts, true);
+      } else if (z >= 2.2) {
+        // città: un quadrato con bordo nero
+        const r = 3.2 * px * Phaser.Math.Clamp(z / 4, 0.7, 1);
+        g.fillStyle(0x000000, 1).fillRect(x - r - 1.3 * px, y - r - 1.3 * px, 2 * r + 2.6 * px, 2 * r + 2.6 * px).fillStyle(CITY_COL, 1).fillRect(x - r, y - r, 2 * r, 2 * r);
       }
-    }
+    });
   }
 
   /** Lampo su tutta la sagoma della provincia. */
@@ -1407,13 +1683,37 @@ export class RunScene extends Phaser.Scene {
       const k = 6 * s; // sciabole incrociate
       g.lineStyle(2 * s, 0xf2efe6, 1).lineBetween(x - k, y - k, x + k, y + k).lineBetween(x + k, y - k, x - k, y + k);
     }
+    // rapporti del radar: freccia rossa dall'armata nemica alla tua provincia
+    for (const a of st.alerts) {
+      const A = center(a.from), B = center(a.to), dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L;
+      const pulse = 0.55 + 0.45 * Math.sin(time / 160), w = 2.5 * s, h = 12 * s;
+      g.lineStyle(w, PALETTE.ko, pulse);
+      for (let t = 0; t < L - h; t += 14 * s) g.lineBetween(A.x + ux * t, A.y + uy * t, A.x + ux * Math.min(t + 8 * s, L - h), A.y + uy * Math.min(t + 8 * s, L - h));
+      g.fillStyle(PALETTE.ko, pulse).fillTriangle(B.x, B.y, B.x - ux * h - uy * h * 0.6, B.y - uy * h + ux * h * 0.6, B.x - ux * h + uy * h * 0.6, B.y - uy * h - ux * h * 0.6);
+    }
+    // capitale di ogni impero (tua compresa): una stella (Nico: non si vedeva la capitale degli altri)
+    const far = Phaser.Math.Clamp(this.cameras.main.zoom / UI() / 6, 0.45, 1);
+    st.capitalProv.forEach((p, f) => {
+      const fac = st.factions[f];
+      if (p < 0 || !fac?.alive || fac.kind === 'bot' || st.provOwner[p] !== f) return;
+      const { x, y } = center(this.map.provinces[p].anchor), R = 10 * s * far, pts: Phaser.Types.Math.Vector2Like[] = [];
+      for (let k = 0; k < 10; k++) {
+        const a = -Math.PI / 2 + (k * Math.PI) / 5, r = k % 2 ? R * 0.45 : R;
+        pts.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r });
+      }
+      g.fillStyle(0xf2f2f2, 1).fillPoints(pts, true).lineStyle(2 * s * far, 0x000000, 1).strokePoints(pts, true); // bianca: si vede su ogni colore
+    });
   }
 
-  /** Pedine, navi e segnalini a grandezza costante sullo schermo (come i contatti su un radar). */
+  /**
+   * Pedine, navi e segnalini a grandezza costante sullo schermo (come i contatti su un radar); allontanando la carta però
+   * rimpiccioliscono, se no coprono tutta la mappa (Nico): piene fino allo zoom 6, poi in proporzione, fino al 35%.
+   */
   private scaleMarkers() {
+    const zv = this.cameras.main.zoom / UI(), far = Phaser.Math.Clamp(zv / 6, 0.35, 1);
     const s = UI() / this.cameras.main.zoom;
-    for (const sp of this.unitSprites.values()) sp.c.setScale(s * sp.pop.k * 1.2); // pedine un po' più grandi: si toccano meglio
-    for (const b of this.boatSprites.values()) b.setScale(s * 0.9);
+    for (const sp of this.unitSprites.values()) sp.c.setScale(s * sp.pop.k * 1.2 * far); // pedine un po' più grandi: si toccano meglio
+    for (const b of this.boatSprites.values()) b.setScale(s * 0.9 * far);
     this.selRing.setScale(s * this.markerPulse.k);
     this.flowMarker.setScale(s * this.markerPulse.k);
   }
@@ -1740,7 +2040,8 @@ export class RunScene extends Phaser.Scene {
     kb?.on('keydown-U', () => this.unitAction('merge'));
     kb?.on('keydown-I', () => this.unitAction('split'));
     kb?.on('keydown-R', () => this.unitAction('retreat'));
-    kb?.on('keydown-B', () => this.hud.setWallOn(this.toggleWall()));
+    kb?.on('keydown-G', () => this.unitAction('line'));
+    kb?.on('keydown-B', () => this.hud.toggleBuildMenu());
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (this.hud.hitUi(p.x / UI(), p.y / UI())) return;
       if (this.activePointers().length === 1) {
@@ -1759,10 +2060,13 @@ export class RunScene extends Phaser.Scene {
         this.dragMode = 'pan'; // trascinare sposta la carta: niente territorio dipinto col dito
         // mouse come in HOI4: trascinare col sinistro = riquadro di selezione delle pedine; col destro (o WASD) si sposta la carta.
         // Sul telefono trascinare sposta la carta.
-        this.box = !p.wasTouch && p.leftButtonDown() && !this.selectedCard && !this.selectedAbility && !this.wallMode ? { x0: p.x, y0: p.y, x1: p.x, y1: p.y } : null;
+        this.box = !p.wasTouch && p.leftButtonDown() && !this.selectedCard && !this.selectedAbility && !this.wallMode && !this.linePick ? { x0: p.x, y0: p.y, x1: p.x, y1: p.y } : null;
         // muro: col dito o col sinistro si trascina sulle province da fortificare (col destro si sposta ancora la carta)
         this.walling = this.wallMode && (p.wasTouch || p.leftButtonDown());
         if (this.walling) this.wallAlong(p.x, p.y, p.x, p.y);
+        // linea d'attacco: col dito o col sinistro si traccia (col destro si sposta ancora la carta)
+        this.lining = this.linePick && (p.wasTouch || p.leftButtonDown());
+        if (this.lining) { this.linePts = []; this.lineAlong(p.x, p.y); }
       }
       this.pinchDist = 0;
       this.lastMid = null;
@@ -1794,6 +2098,8 @@ export class RunScene extends Phaser.Scene {
       if (this.dragging) {
         if (this.walling) {
           this.wallAlong(this.last.x, this.last.y, p.x, p.y);
+        } else if (this.lining) {
+          this.lineAlong(p.x, p.y);
         } else if (this.box) {
           this.box.x1 = p.x;
           this.box.y1 = p.y;
@@ -1816,7 +2122,10 @@ export class RunScene extends Phaser.Scene {
       if (boxed) this.selectInBox(ev?.shiftKey ?? false); // Maiusc: si aggiunge alla selezione
       this.box = null;
       this.boxGfx.clear();
-      if (this.walling) {
+      if (this.lining) {
+        this.lining = false;
+        this.finishLine();
+      } else if (this.walling) {
         this.walling = false;
         this.finishWall(); // muro: bunker sulle province trascinate (anche una sola, con un tocco)
       } else if (boxed) {
@@ -1838,7 +2147,10 @@ export class RunScene extends Phaser.Scene {
     });
 
     this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
-      zoomAt(this, p.x, p.y, this.cameras.main.zoom * (dy > 0 ? 0.88 : 1.14));
+      // proporzionale alla rotella (trackpad: tanti passi piccoli; rotella: scatti da ~100) e più ampio di prima, che era lento
+      // soprattutto ad allontanarsi (Nico): uno scatto di rotella ≈ ×0,75 / ×1,33
+      const k = Math.exp(-Phaser.Math.Clamp(dy, -250, 250) * 0.0029);
+      zoomAt(this, p.x, p.y, this.cameras.main.zoom * k);
     });
   }
 

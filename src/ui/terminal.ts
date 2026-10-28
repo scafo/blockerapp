@@ -5,23 +5,31 @@ import { PALETTE, hex } from '../config/palette';
 import { TERM_FONT } from '../render/TerminalMap';
 import { UI } from './screen';
 
+// Sistema dei colori dell'interfaccia (Nico: troppi colori a caso). Ogni colore ha un solo significato:
+// bianco = valori · grigio = etichette e testo secondario · verde = va bene / guadagno · ambra = avviso, timer, in corso ·
+// rosso = problema, manca qualcosa. Più i colori delle fazioni. Nient'altro.
 export const TCOL = {
   bg: 0x000000, // fondo dei riquadri (come la terra della carta)
   hover: 0x16181c,
-  edge: 0xd8dadc, // filo dei riquadri (come i confini)
-  label: 0x98a1d6, // etichette (blu dei puntini del mare)
-  text: 0xf2f2f2, // valori (bianco della barra di stato)
-  accent: 0xe1e496, // evidenze (giallo dei nomi delle nazioni)
-  alert: 0xe0473a, // allarmi (rosso delle città, più acceso)
-  ok: 0x9fe0a8,
+  edge: 0x8f979e, // filo dei riquadri: grigio, non compete coi valori
+  label: 0x8f979e, // etichette
+  text: 0xf2f2f2, // valori
+  accent: 0xe0b04a, // avvisi, timer, cose in corso
+  alert: 0xe0473a, // problemi
+  ok: 0x7fd18b, // va bene, guadagni
+  dim: 0x5d646b, // spento / non disponibile
 };
+
+/** Corpi del testo: solo quattro (piccolo 11, testo 13, titolo 16, numero grande 28). */
+export const TSIZE = { small: 11, body: 13, title: 16, hero: 28 } as const;
+const snapSize = (size: number) => (size >= 24 ? TSIZE.hero : size >= 15 ? TSIZE.title : size >= 12 ? TSIZE.body : TSIZE.small);
 
 /** Converte i colori della pianta (casa) nei colori del terminale, così i testi esistenti cambiano tono da soli. */
 export function tc(color: number): number {
   switch (color) {
     case PALETTE.carta: return TCOL.text;
-    case PALETTE.ocra: return TCOL.label;
-    case PALETTE.tenue: return 0x8a9096;
+    case PALETTE.ocra: return TCOL.label; // gli "accenti" verde acqua della pianta qui sono etichette grigie
+    case PALETTE.tenue: return TCOL.dim;
     case PALETTE.ko: return TCOL.alert;
     case PALETTE.allerta: return TCOL.accent;
     case PALETTE.radioattivo: return TCOL.ok;
@@ -29,9 +37,9 @@ export function tc(color: number): number {
   }
 }
 
-/** Testo del terminale: monospazio, mai sotto 11 punti. */
+/** Testo del terminale: monospazio, un solo font, corpo agganciato ai quattro della scala. */
 export const termStyle = (size: number, color: number = TCOL.text, _bold = true): Phaser.Types.GameObjects.Text.TextStyle => ({
-  fontFamily: TERM_FONT, fontSize: `${Math.round(Math.max(11, size * 1.05))}px`, color: hex(tc(color)), resolution: UI(),
+  fontFamily: TERM_FONT, fontSize: `${snapSize(size)}px`, color: hex(tc(color)), resolution: UI(),
 });
 
 /** Etichetta (al posto del corsivo della pianta): blu del mare. */

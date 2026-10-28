@@ -69,9 +69,11 @@ export function drawUnitIcon(g: Phaser.GameObjects.Graphics, type: UnitType, x: 
 export function drawAbilityIcon(g: Phaser.GameObjects.Graphics, a: AbilityType, x: number, y: number, r: number, color: number) {
   g.fillStyle(color, 1);
   if (a === 'ricognizione') {
-    g.fillRect(x - r * 0.12, y - r * 0.9, r * 0.24, r * 1.8); // fusoliera
-    g.fillTriangle(x - r, y + r * 0.1, x + r, y + r * 0.1, x, y - r * 0.35); // ali
-    g.fillTriangle(x - r * 0.45, y + r * 0.9, x + r * 0.45, y + r * 0.9, x, y + r * 0.55); // coda
+    // tre triangoli in formazione, come i contatti aerei sui vecchi schermi radar (Nico)
+    const t = (cx: number, cy: number, k: number) => g.fillTriangle(cx, cy - k, cx + k * 0.8, cy + k * 0.7, cx - k * 0.8, cy + k * 0.7);
+    t(x, y - r * 0.45, r * 0.42);
+    t(x - r * 0.62, y + r * 0.45, r * 0.42);
+    t(x + r * 0.62, y + r * 0.45, r * 0.42);
   } else {
     g.lineStyle(r * 0.12, color, 1).strokeCircle(x, y, r * 0.85);
     g.lineBetween(x - r, y, x - r * 0.45, y).lineBetween(x + r * 0.45, y, x + r, y).lineBetween(x, y - r, x, y - r * 0.45).lineBetween(x, y + r * 0.45, x, y + r);

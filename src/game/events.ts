@@ -8,6 +8,10 @@ export interface EventEffects {
   unit?: UnitType; // pedina gratuita
   growth?: { mult: number; durationMs: number }; // crescita truppe temporanea
   timeBonusMs?: number; // tempo in più per la campagna
+  // rapporti del radar (Nico: vantaggi veri)
+  focus?: number; // provincia da inquadrare
+  alert?: { from: number; to: number }; // freccia sulla carta: armata nemica (casella) verso la tua provincia (casella)
+  weak?: number; // provincia nemica sguarnita: per un minuto prenderla costa la metà
 }
 
 export interface EventChoice {
