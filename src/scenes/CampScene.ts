@@ -31,9 +31,10 @@ import { drawPatch } from '../ui/symbols';
 import { drawUnitIcon } from '../ui/unitIcons';
 import { civImage, coverImage, fade } from '../ui/images';
 import { box, dashedBox, note, notch } from '../ui/schematic';
-import { OPS, body, dot, frameMarks, label, panel, value } from '../ui/ops';
+import { OPS, body, dot, frameMarks, label, panel, rule, value } from '../ui/ops';
 import { audioSettings, onAudioChange } from '../audio/engine';
-import { drawRoom, type RoomId, type RoomState } from '../ui/roomArt';
+import { type RoomId, type RoomState } from '../ui/roomArt';
+import { drawBlueprint, type Module } from '../ui/blueprint';
 
 const PAD = 12;
 // pianta della base (riferimento di Nico: planimetria tecnica su ardesia)
@@ -66,6 +67,13 @@ const ROLE: Record<MapSpot, string> = {
 const CAMPAIGNS: CampaignId[] = ['breve', 'standard', 'lunga'];
 const CAMPAIGN_NAME: Record<CampaignId, string> = { breve: 'BREVE', standard: 'STANDARD', lunga: 'LUNGA' };
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+/** Testo di un livello → [nome, effetto]: "Rapporti dal campo: eventi…" → ["Rapporti dal campo", "eventi…"]. */
+const levelParts = (txt: string): [string, string] => {
+  const t = txt.replace(/^Armamenti: /, ''), c = t.indexOf(':'), d = t.indexOf(' · ');
+  if (c > 0) return [t.slice(0, c), t.slice(c + 1).trim()];
+  if (d > 0) return [t.slice(0, d), t.slice(d + 3)];
+  return [t, ''];
+};
 // pagine delle stanze: titolo e pianta da disegnare
 const PAGE: Record<Spot, { name: string; room: RoomId | null }> = {
   comando: { name: 'Centro di Comando', room: 'comando' },
@@ -131,6 +139,7 @@ export class CampScene extends Phaser.Scene {
     this.timerTexts = new Map();
     this.panel = null;
     this.page = null;
+    this.pageKey = ''; // la scena riparte (es. finestra ridimensionata): la pagina va ridisegnata
     this.panelSpot = null;
     const { width, height } = view(this);
     // verticale: edifici su due file (dietro sull'orizzonte, davanti in basso), campo al centro
@@ -537,6 +546,55 @@ export class CampScene extends Phaser.Scene {
     return st;
   }
 
+  /** Stanze della pianta: un livello (o una voce) per stanza, con il suo stato. */
+  private roomModules(spot: Spot): Module[] {
+    const p = this.profile, now = Date.now();
+    const lv = (done: boolean, active: boolean, next: boolean): Module['state'] => (done ? 'done' : active ? 'active' : next ? 'next' : 'todo');
+    if ((BUILDINGS as string[]).includes(spot)) {
+      const id = spot as BuildingId, lvl = p.buildings[id], building = p.construction?.id === id;
+      return buildingText[id].levels.map((txt, i) => {
+        // nella pianta solo nome e stato: gli effetti sono scritti a destra
+        const [name] = levelParts(txt), state = lv(i < lvl, building && i === lvl, i === lvl);
+        return { code: `livello ${i + 1}`, name, state, sub: state === 'active' ? `in cantiere · ${fmtTime(p.construction!.until - now)}` : state === 'next' ? 'prossimo' : state === 'done' ? 'attivo' : 'da costruire' };
+      });
+    }
+    switch (spot) {
+      case 'spedizione': {
+        const e = p.expedition;
+        return EXPEDITIONS.map((k, i) => ({ code: `M${i + 1}`, name: buildingText.spedizione.kinds[k], state: e?.kind === k ? 'active' : 'done',
+          sub: e?.kind === k ? (e.until > now ? `in missione · ${fmtTime(e.until - now)}` : 'di ritorno') : fmtTime(expeditionTimeSec(p, k) * 1000) }));
+      }
+      case 'alloggi': {
+        const n = tents(p);
+        return Array.from({ length: BALANCE.camp.tentsMax }, (_, i) => ({ code: `B${i + 1}`, name: `branda ${i + 1}`, state: lv(i < n, false, i === n), sub: i < n ? 'occupata' : i === n ? 'con la prossima campagna' : '' }));
+      }
+      case 'archivio': {
+        const got = loreFragments(p).length;
+        return Array.from({ length: loreTotal }, (_, i) => ({ code: `F${i + 1}`, name: `frammento ${ROMAN[i] ?? i + 1}`, state: lv(i < got, false, i === got), sub: i < got ? 'decifrato' : 'ramo La Caduta' }));
+      }
+      case 'mercato':
+        return [['Banco scambi', 'risorse 50 → 30'], ['Rifornimenti', 'per la prossima campagna'], ['Lavori rapidi', 'finisci subito in metallo']]
+          .map(([name, sub], i) => ({ code: `S${i + 1}`, name, sub, state: 'done' }));
+      case 'gioca': {
+        const max = p.frontMax ?? 0, sel = activeFront(p);
+        return BALANCE.fronts.map((F, i) => ({ code: ROMAN[i], name: F.name, state: i === sel ? 'active' : lv(i <= max, false, i === max + 1), sub: i === sel ? 'scelto' : `potenza ${F.power}` }));
+      }
+      case 'cantiere':
+        return BUILDINGS.map((b, i) => {
+          const lvl = p.buildings[b], max = maxLvl(b), building = p.construction?.id === b;
+          return { code: `C${i + 1}`, name: buildingText[b].name, state: building ? 'active' : lvl >= max ? 'done' : 'next', sub: building ? `in cantiere · ${fmtTime(p.construction!.until - now)}` : `livello ${lvl}/${max}` };
+        });
+      case 'ricerca':
+        return Object.entries(BRANCHES).map(([b, name], i) => {
+          const ids = TECH_IDS.filter((t) => BALANCE.tech[t].branch === b), done = ids.filter((t) => p.techs.includes(t)).length;
+          const run = p.research && BALANCE.tech[p.research.id as keyof typeof BALANCE.tech]?.branch === b;
+          return { code: `R${i + 1}`, name, state: run ? 'active' : done >= ids.length ? 'done' : done > 0 ? 'next' : 'todo', sub: `${done}/${ids.length} ricerche` };
+        });
+      default:
+        return [];
+    }
+  }
+
   /**
    * Pagina a tutto schermo della stanza: testata (‹ BASE, nome, ala, livello, scorte) e pianta disegnata a sinistra
    * (in verticale sopra). Si ridisegna solo quando cambia la stanza o il suo stato, così le luci animate non ripartono a ogni
@@ -598,9 +656,7 @@ export class CampScene extends Phaser.Scene {
         sx -= Math.max(48, t.width) + 40;
       });
       if (art) {
-        const ag = this.add.graphics();
-        panel(ag, art.x, art.y, art.w, art.h, 0.8);
-        objs.push(ag, ...drawRoom(this, info.room!, art.x, art.y, art.w, art.h, st));
+        objs.push(...drawBlueprint(this, art.x, art.y, art.w, art.h, info.name, info.name, this.roomModules(spot)));
       }
       this.page = this.add.container(0, 0, objs).setDepth(39);
       if (fresh) {
@@ -793,26 +849,35 @@ export class CampScene extends Phaser.Scene {
       const lvl = this.profile.buildings[spot];
       // cosa fa la stanza (una frase), poi i livelli come celle: piena = fatto, ambra = in cantiere, filo = da fare
       const building = this.profile.construction?.id === spot;
-      const desc = this.add.text(x0 + 18, y0 + 18, T.desc, textStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 36).setLineSpacing(3);
+      // a cosa serve (testo di lettura), poi i livelli: numero, nome grande, effetto sotto; il prossimo evidenziato
+      items.push(label(this, x0 + 18, y0 + 16, 'a cosa serve', OPS.label, 9));
+      const desc = body(this, x0 + 18, y0 + 32, T.desc, 13, OPS.text, W - 36);
       items.push(desc);
-      let ty = desc.y + desc.height + 16;
+      let ty = desc.y + desc.height + 14;
       // Laboratorio e Arsenale: all'albero della ricerca; Radar: al registro
       const links: [string, () => void][] = [];
       if (spot === 'radar' && lvl > 0) links.push(['registro ›', () => this.openPanel(spot, '')]);
-      if (spot === 'arsenale') links.push(['armamenti ›', () => this.openTree('armamenti')]);
+      if (spot === 'arsenale') links.push(['albero degli armamenti ›', () => this.openTree('armamenti')]);
       if (spot === 'laboratorio') links.push(['albero della ricerca ›', () => this.openTree('esercito')], [`archivio ${loreFragments(this.profile).length}/${loreTotal} ›`, () => this.openPanel('archivio')]);
       let lx = x0 + 18;
-      for (const [lbl, run] of links) { const t = this.link(lbl, lx, ty, run, 0); items.push(t); lx += t.width + 18; }
-      if (links.length) ty += 30;
-      const tg = this.add.graphics(), step = 30;
+      for (const [lbl, run] of links) { const t = label(this, lx, ty, lbl, OPS.accent, 10).setInteractive({ useHandCursor: true }).on('pointerup', run); items.push(t); lx += t.width + 22; }
+      if (links.length) ty += 26;
+      const tg = this.add.graphics();
       items.push(tg);
+      items.push(label(this, x0 + 18, ty, `livelli · ${lvl}/${T.levels.length}`, OPS.label, 9));
+      rule(tg, x0 + 18, x0 + W - 18, ty + 18);
+      ty += 28;
+      const step = Math.min(48, (y0 + H - 130 - ty) / T.levels.length);
       T.levels.forEach((txt, i) => {
-        const ly = ty + i * step, done = i < lvl, now = i === lvl;
-        if (now) tg.fillStyle(INK, 0.08).fillRect(x0 + 12, ly - 4, W - 24, step - 4);
-        tg.fillStyle(done ? INK : 0x0e1a2e, 1).fillRect(x0 + 18, ly + 2, 16, 14).lineStyle(1.2, now && building ? PALETTE.allerta : INK, done || now ? 1 : 0.4).strokeRect(x0 + 18, ly + 2, 16, 14);
-        items.push(this.add.text(x0 + 26, ly + 9, String(i + 1), textStyle(9, done ? PALETTE.inchiostro : now ? INK : PALETTE.tenue)).setOrigin(0.5),
-          this.add.text(x0 + 46, ly + 9, txt.replace(/^Armamenti: /, ''), textStyle(11, done || now ? INK : PALETTE.tenue, now)).setOrigin(0, 0.5)
-            .setWordWrapWidth(W - 70).setMaxLines(1).setAlpha(done ? 0.75 : 1));
+        const ly = ty + i * step, done = i < lvl, now = i === lvl, [nm, eff] = levelParts(txt);
+        if (now) tg.fillStyle(0x2b333b, 0.7).fillRect(x0 + 12, ly - 4, W - 24, step - 4).fillStyle(building ? PALETTE.allerta : OPS.text, 1).fillRect(x0 + 12, ly - 4, 2, step - 4);
+        // numero: pieno se fatto, filo se prossimo, tenue se da fare
+        tg.fillStyle(OPS.text, done ? 1 : 0).fillRect(x0 + 20, ly + 2, 18, 18).lineStyle(1, OPS.text, done ? 0 : now ? 1 : 0.35).strokeRect(x0 + 20.5, ly + 2.5, 17, 17);
+        items.push(label(this, x0 + 29, ly + 11, String(i + 1), done ? 0x0a0d10 : now ? OPS.text : OPS.label, 9).setOrigin(0.5),
+          value(this, x0 + 48, ly + 1, nm.toUpperCase(), 15, done ? OPS.text : now ? 0xffffff : OPS.label).setAlpha(done ? 0.8 : 1));
+        if (eff && step >= 36) items.push(body(this, x0 + 48, ly + 21, eff, 11, done || now ? OPS.body : OPS.label).setWordWrapWidth(W - 70).setMaxLines(1));
+        if (done) items.push(label(this, x0 + W - 22, ly + 11, 'fatto', OPS.gain, 8).setOrigin(1, 0.5));
+        else if (now) items.push(label(this, x0 + W - 22, ly + 11, building ? 'in cantiere' : 'prossimo', building ? PALETTE.allerta : OPS.text, 8).setOrigin(1, 0.5));
       });
       const c = this.profile.construction;
       const next = nextLevel(this.profile, spot);
@@ -847,7 +912,7 @@ export class CampScene extends Phaser.Scene {
           this.toast(`Cantiere aperto: ${T.name}`, PALETTE.carta);
         }, 16, true));
       } else {
-        items.push(this.add.text(x0 + 16, y0 + H - 44, 'Livello massimo. Il resto lo fa la fantasia.', textStyle(12, PALETTE.ocra)));
+        items.push(label(this, x0 + 18, y0 + H - 36, 'livello massimo raggiunto', OPS.gain, 10));
       }
     }
     this.panel = this.add.container(0, 0, items).setDepth(40);
