@@ -234,7 +234,9 @@ export class WorldMap {
     // terra: media dei soli puntini di terra; mare: dei soli puntini di mare (le coste restano nette)
     const landV = new Float32Array(n), seaV = new Float32Array(n);
     for (let k = 0; k < n; k++) { landV[k] = val[k] * wt[k]; seaV[k] = val[k] * sea[k]; }
-    for (const a of [landV, wt, seaV, sea]) { yield* blur(a, tmp, W, H, rad, true); yield* blur(tmp, a, W, H, rad, false); }
+    // da vicino (Nico: "tornino i tasselli"): ogni provincia di un tono solo, quello del suo terreno; sfumato solo da lontano
+    const flat = d >= 1.4;
+    for (const a of flat ? [seaV, sea] : [landV, wt, seaV, sea]) { yield* blur(a, tmp, W, H, rad, true); yield* blur(tmp, a, W, H, rad, false); }
     const landInt = LAND_SHADES.map((c) => this.rgba(c)), seaInt = SEA_SHADES.map((c) => this.rgba(c));
     const lineInt = this.rgba(PROV_LINE), lines = d >= 1.4; // linee tra province solo da vicino
     // riquadri della base
@@ -253,7 +255,7 @@ export class WorldMap {
           const noise = (((hh ^ (hh >>> 16)) & 1023) / 1023 - 0.5) * 0.6;
           if (p >= 0) {
             if (lines && ((X + 1 < W && prov[k + 1] >= 0 && prov[k + 1] !== p) || (Y + 1 < H && prov[k + W] >= 0 && prov[k + W] !== p))) { buf[y * w + x] = lineInt; continue; }
-            const e = (wt[k] > 0 ? landV[k] / wt[k] : 0) / 2.4 * (LAND_SHADES.length - 1) + noise;
+            const e = flat ? ELEV[Math.min(3, Math.max(0, this.terrain[p] ?? 0))] / 2.4 * (LAND_SHADES.length - 1) : (wt[k] > 0 ? landV[k] / wt[k] : 0) / 2.4 * (LAND_SHADES.length - 1) + noise;
             buf[y * w + x] = landInt[Math.max(0, Math.min(LAND_SHADES.length - 1, Math.round(e)))];
           } else {
             const e = (sea[k] > 0 ? seaV[k] / sea[k] : 2) + noise * 1.4;
@@ -321,7 +323,7 @@ export class WorldMap {
         else { seaV[k] = bcls[by * bw + Math.min(bw - 1, Math.floor(((X + 0.5) / d / WORLD_W) * bw))]; sea[k] = 1; }
       }
     }
-    for (const a of [landV, wt, seaV, sea]) { yield* blur(a, tmp, rw, rh, rad, true); yield* blur(tmp, a, rw, rh, rad, false); }
+    for (const a of [seaV, sea]) { yield* blur(a, tmp, rw, rh, rad, true); yield* blur(tmp, a, rw, rh, rad, false); } // terra: tono del terreno, senza sfumatura
     const landInt = LAND_SHADES.map((c) => this.rgba(c)), seaInt = SEA_SHADES.map((c) => this.rgba(c)), lineInt = this.rgba(PROV_LINE);
     const buf = new Uint32Array(w * h);
     for (let y = 0; y < h; y++) {
@@ -333,7 +335,7 @@ export class WorldMap {
         const noise = (((hh ^ (hh >>> 16)) & 1023) / 1023 - 0.5) * 0.6;
         if (p >= 0) {
           if ((X + 1 < W && prov[k + 1] >= 0 && prov[k + 1] !== p) || (Y + 1 < H && prov[k + W] >= 0 && prov[k + W] !== p)) { buf[y * w + x] = lineInt; continue; }
-          const e = (wt[lk] > 0 ? landV[lk] / wt[lk] : 0) / 2.4 * (LAND_SHADES.length - 1) + noise;
+          const e = ELEV[Math.min(3, Math.max(0, this.terrain[p] ?? 0))] / 2.4 * (LAND_SHADES.length - 1);
           buf[y * w + x] = landInt[Math.max(0, Math.min(LAND_SHADES.length - 1, Math.round(e)))];
         } else {
           const e = (sea[lk] > 0 ? seaV[lk] / sea[lk] : 2) + noise * 1.4;
