@@ -30,6 +30,8 @@ export const TERM = {
 // in toni di blu che salgono con l'altitudine (pianura, deserto, colline, montagne) sfumati tra un terreno e l'altro, più una
 // leggera grana fissa al mondo per variare.
 const ELEV = [0, 1.15, 2.4, 0.55]; // pianura, colline, montagne, deserto
+// mare: dalle acque basse lungo le coste (chiaro) al largo (più scuro), sette toni come quelli del rilievo
+const SEA_SHADES = ['#d6dde5', '#ccd4dd', '#c2cbd5', '#b8c2cd', '#aeb9c5', '#a5b0bd', '#9ca8b6'];
 const LAND_SHADES = ['#1b2331', '#1f283a', '#253046', '#2c3953', '#354463', '#405176', '#4d6089'];
 const FORT = '#f2f2f2'; // muro: seconda fila del confine
 
@@ -154,6 +156,31 @@ export class TerminalMap {
 
   private base: { key: string; x0: number; y0: number; w: number; h: number; land: Uint8Array; ter: Uint8Array; dots: Uint32Array; halo: Uint32Array } | null = null;
   private terrainOf: ArrayLike<number> = [];
+  private basePool: { land: Uint8Array; ter: Uint8Array; dots: Uint32Array; halo: Uint32Array }[] = [];
+  /** Base in preparazione (a pezzi, qualche millisecondo per fotogramma): zona e generatore. */
+  private pending: { key: string; x0: number; y0: number; w: number; h: number; gen: Generator<void, NonNullable<TerminalMap['base']>> } | null = null;
+
+  /**
+   * Avanza la base in preparazione per al più `budgetMs`. Da chiamare a ogni fotogramma: così la base nuova (zoom cambiato,
+   * o vista vicina al bordo) si calcola senza scatti. True = appena finita (la carta va ridisegnata).
+   */
+  work(budgetMs: number): boolean {
+    const P = this.pending;
+    if (!P) return false;
+    const t0 = performance.now();
+    for (;;) {
+      const r = P.gen.next();
+      if (r.done) { this.base = r.value; this.pending = null; return true; }
+      if (performance.now() - t0 >= budgetMs) return false;
+    }
+  }
+
+  /** Prepara (se non lo sta già facendo) la base per questa zona. */
+  private want(key: string, x0: number, y0: number, w: number, h: number, sx: number, sy: number, landDots?: string) {
+    const P = this.pending;
+    if (P && P.key === key && P.x0 === x0 && P.y0 === y0 && P.w === w && P.h === h) return;
+    this.pending = { key, x0, y0, w, h, gen: this.buildBase(key, x0, y0, w, h, sx, sy, landDots) };
+  }
 
   /** Terreno di ogni provincia (0 pianura, 1 colline, 2 montagne, 3 deserto): serve alla base, che copre anche fuori vista. */
   setTerrain(t: ArrayLike<number>) {
@@ -196,15 +223,23 @@ export class TerminalMap {
    * Base fissa della carta per una zona (in puntini del mondo, a questo zoom): terra, terreno, mare a tre fasce di profondità
    * (con l'alone) e rilievo della terra libera, sfumato e sgranato da lontano. Stessi conti di prima, fatti una volta sola.
    */
-  private buildBase(key: string, x0: number, y0: number, w: number, h: number, sx: number, sy: number, landDots?: string) {
+  private *buildBase(key: string, x0: number, y0: number, w: number, h: number, sx: number, sy: number, landDots?: string): Generator<void, NonNullable<TerminalMap['base']>> {
     const n = w * h, gx0 = x0 / sx, gy0 = y0 / sy;
-    const land = new Uint8Array(n), ter = new Uint8Array(n), dots = new Uint32Array(n), halo = new Uint32Array(n);
+    // memoria riusata (due serie, una per la base in uso e una per quella in preparazione): creare ~18 MB di array a ogni base
+    // nuova faceva fermare il browser a ripulire (scatti fino a 200 ms)
+    const set = this.basePool.find((q) => q.land.buffer !== this.base?.land.buffer && q.land.length >= n)
+      ?? (() => { const q = { land: new Uint8Array(Math.ceil(n * 1.25)), ter: new Uint8Array(Math.ceil(n * 1.25)), dots: new Uint32Array(Math.ceil(n * 1.25)), halo: new Uint32Array(Math.ceil(n * 1.25)) }; this.basePool = [...this.basePool.filter((x) => x.land.buffer === this.base?.land.buffer), q]; return q; })();
+    const land = set.land.subarray(0, n).fill(0), ter = set.ter.subarray(0, n).fill(0), dots = set.dots.subarray(0, n).fill(0), halo = set.halo.subarray(0, n).fill(0);
     const v = { x0: gx0, y0: gy0, x1: gx0 + w / sx, y1: gy0 + h / sy };
-    this.shapes.provinces.forEach((sh, id) => {
-      if (!sh?.parts.length || sh.x1 < v.x0 || sh.x0 > v.x1 || sh.y1 < v.y0 || sh.y0 > v.y1) return;
+    const P = this.shapes.provinces;
+    for (let id = 0; id < P.length; id++) {
+      if (id % 1500 === 1499) yield; // a pezzi: un po' per fotogramma
+      const sh = P[id];
+      if (!sh?.parts.length || sh.x1 < v.x0 || sh.x0 > v.x1 || sh.y1 < v.y0 || sh.y0 > v.y1) continue;
       const tv = 1 + (this.terrainOf[id] ?? 0);
       this.raster(id, gx0, gy0, sx, sy, w, h, (Y, xa, xb) => { const a = Y * w + xa, b = Y * w + xb + 1; land.fill(1, a, b); ter.fill(tv, a, b); });
-    });
+    }
+    yield;
     // buchi di un puntino tra due province vicine (gli incroci dei lati condivisi non sempre coincidono al centesimo): si
     // riempiono dal vicino, se no venivano letti come mare e attorno spuntava un bordo blu (Nico: "pixel a caso")
     for (let Y = 0; Y < h; Y++) for (let X = 0; X < w; X++) {
@@ -213,9 +248,9 @@ export class TerminalMap {
       if (X > 0 && X < w - 1 && land[k - 1] && land[k + 1]) { land[k] = 1; ter[k] = ter[k - 1]; continue; }
       if (Y > 0 && Y < h - 1 && land[k - w] && land[k + w]) { land[k] = 1; ter[k] = ter[k - w]; }
     }
+    yield;
     // profondità: distanza dalla terra in puntini (passi dritti e in diagonale √2: fasce tonde attorno alle isole, non a rombo)
-    const dist = new Float32Array(n).fill(1e9);
-    const shallowD = 30 * sx, midD = 110 * sx; // 30 e 110 pixel-mondo dalla costa (le fasce coprono tutto il mare)
+    const dist = this.buf('bDist', Float32Array, n, 1e9);
     for (let k = 0; k < n; k++) if (land[k]) dist[k] = 0;
     for (let y = 0, k = 0; y < h; y++) for (let x = 0; x < w; x++, k++) {
       let d = dist[k];
@@ -226,6 +261,7 @@ export class TerminalMap {
       if (x < w - 1 && y > 0 && dist[k - w + 1] + 1.414 < d) d = dist[k - w + 1] + 1.414;
       dist[k] = d;
     }
+    yield;
     for (let y = h - 1, k = n - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--, k--) {
       let d = dist[k];
       if (!d) continue;
@@ -235,35 +271,68 @@ export class TerminalMap {
       if (x > 0 && y < h - 1 && dist[k + w - 1] + 1.414 < d) d = dist[k + w - 1] + 1.414;
       dist[k] = d;
     }
+    yield;
     // altitudine della terra libera sfumata (media su un quadrato di ~6 pixel-mondo, separabile): niente scalini tra terreni
     const HALO = this.rgba('#1a2430'); // alone del mare: grigio-blu (l'indaco di prima lo faceva sembrare rosa)
-    const seaInt = [this.rgba(TERM.shallow), this.rgba(TERM.water), this.rgba(TERM.deep)];
+    const seaInt = SEA_SHADES.map((c) => this.rgba(c));
     const shadeInt = LAND_SHADES.map((c) => this.rgba(c));
-    const elev = new Float32Array(n), wt = new Float32Array(n);
+    const elev = this.buf('bElev', Float32Array, n), wt = this.buf('bWt', Float32Array, n);
     for (let k = 0; k < n; k++) if (land[k]) { elev[k] = ELEV[Math.min(3, Math.max(0, ter[k] - 1))]; wt[k] = 1; }
     // da vicino (Nico): ogni provincia di un tono solo, quello del suo terreno, niente sfumatura né grana; da lontano sfumato
     const near = sx > 1.5;
     const rad = Math.max(1, Math.min(8, Math.round(6 * sx)));
     const grain = 0.6;
-    const tmp = new Float32Array(n);
+    const tmp = this.buf('bTmp', Float32Array, n);
     const blur = (src: Float32Array, dst: Float32Array, horiz: boolean) => {
-      const len = horiz ? w : h, lines = horiz ? h : w, st = horiz ? 1 : w, ls = horiz ? w : 1;
-      for (let l = 0; l < lines; l++) {
-        const b0 = l * ls;
-        let acc = 0;
-        for (let i = -rad; i <= rad; i++) if (i >= 0 && i < len) acc += src[b0 + i * st];
-        for (let i = 0; i < len; i++) {
-          dst[b0 + i * st] = acc;
-          const out = i - rad, inn = i + rad + 1;
-          if (out >= 0) acc -= src[b0 + out * st];
-          if (inn < len) acc += src[b0 + inn * st];
+      if (horiz) {
+        for (let l = 0; l < h; l++) {
+          const b0 = l * w;
+          let acc = 0;
+          for (let i = 0; i <= rad && i < w; i++) acc += src[b0 + i];
+          for (let i = 0; i < w; i++) {
+            dst[b0 + i] = acc;
+            const out = i - rad, inn = i + rad + 1;
+            if (out >= 0) acc -= src[b0 + out];
+            if (inn < w) acc += src[b0 + inn];
+          }
         }
+        return;
+      }
+      // verticale a righe intere (somme per colonna): la memoria si legge in ordine, molto più veloce che colonna per colonna
+      const acc = new Float32Array(w);
+      for (let i = 0; i <= rad && i < h; i++) { const b0 = i * w; for (let x = 0; x < w; x++) acc[x] += src[b0 + x]; }
+      for (let y = 0; y < h; y++) {
+        const d0 = y * w;
+        for (let x = 0; x < w; x++) dst[d0 + x] = acc[x];
+        const out = y - rad, inn = y + rad + 1;
+        if (out >= 0) { const o = out * w; for (let x = 0; x < w; x++) acc[x] -= src[o + x]; }
+        if (inn < h) { const o = inn * w; for (let x = 0; x < w; x++) acc[x] += src[o + x]; }
       }
     };
-    if (landDots && !near) { blur(elev, tmp, true); blur(tmp, elev, false); blur(wt, tmp, true); blur(tmp, wt, false); }
-    for (let Y = 0; Y < h; Y++) for (let X = 0; X < w; X++) {
+    if (landDots && !near) { blur(elev, tmp, true); yield; blur(tmp, elev, false); yield; blur(wt, tmp, true); yield; blur(tmp, wt, false); yield; }
+    yield;
+    // mare come il rilievo (Nico: "realistico come il terreno, contrasto decente non esagerato"): profondità continua che
+    // cresce allontanandosi dalla costa (piattaforma chiara, poi scende), sfumata e sgranata come la terra. Niente più fasce
+    // ritagliate attorno alle coste
+    // (la distanza è già morbida: niente media come per la terra, costava metà del tempo della base)
+    const L = 70 * sx, EXP = new Float32Array(1025); // 1 − e^(−d/L) in tabella: d fino a 8 L
+    for (let i = 0; i <= 1024; i++) EXP[i] = 1 - Math.exp(-(i / 1024) * 8);
+    for (let Y = 0; Y < h; Y++) {
+      if (Y % 160 === 159) yield;
+      for (let X = 0; X < w; X++) {
       const k = Y * w + X;
-      if (!land[k]) { dots[k] = seaInt[dist[k] <= shallowD ? 0 : dist[k] <= midD ? 1 : 2]; halo[k] = HALO; continue; } // mare
+      if (!land[k]) {
+        let sn = 0;
+        if (!near) { // grana fissa al mondo, come la terra
+          let hs = ((X + x0) * 668265263 + (Y + y0) * 374761393) | 0;
+          hs = Math.imul(hs ^ (hs >>> 13), 1274126177);
+          sn = (((hs ^ (hs >>> 16)) & 1023) / 1023 - 0.5) * grain;
+        }
+        const e = EXP[Math.min(1024, Math.round((dist[k] / L) * 128))] * (SEA_SHADES.length - 1) + sn;
+        dots[k] = seaInt[Math.max(0, Math.min(SEA_SHADES.length - 1, Math.round(e)))];
+        halo[k] = HALO;
+        continue;
+      }
       if (!landDots || wt[k] <= 0) continue;
       if (near) { dots[k] = shadeInt[Math.round((elev[k] / 2.4) * (LAND_SHADES.length - 1))]; continue; }
       // grana: rumore fisso al mondo (non sfarfalla scorrendo), al massimo ±0,3 di gradino
@@ -272,11 +341,13 @@ export class TerminalMap {
       const noise = (((hh ^ (hh >>> 16)) & 1023) / 1023 - 0.5) * grain;
       const e = elev[k] / wt[k] / 2.4 * (LAND_SHADES.length - 1) + noise;
       dots[k] = shadeInt[Math.max(0, Math.min(LAND_SHADES.length - 1, Math.round(e)))];
+      }
     }
     return { key, x0, y0, w, h, land, ter, dots, halo };
   }
 
-  render(frame: TermFrame) {
+  /** Disegna la carta; false = base non ancora pronta (si riprova al prossimo fotogramma, intanto resta la carta di prima). */
+  render(frame: TermFrame): boolean {
     // passo dei puntini secondo lo zoom (Nico: da lontano erano troppo grossi, da vicino sparivano): nuove trame se cambia
     if (frame.pitch && frame.pitch !== this.pitch) {
       this.pitch = frame.pitch;
@@ -291,12 +362,39 @@ export class TerminalMap {
     // la griglia dei caratteri è fissata al mondo: scorre con la carta (si sposta di celle intere, non trema)
     const v0 = frame.view, ppw = cam.zoom; // pixel reali per pixel-mondo
     const W = Math.ceil(v0.width * ppw), H = Math.ceil(v0.height * ppw); // pixel reali della zona da disegnare
-    if (!(v0.width > 0) || !Number.isFinite(ppw) || W < 2 || H < 2) return; // camera non ancora pronta
+    if (!(v0.width > 0) || !Number.isFinite(ppw) || W < 2 || H < 2) return true; // camera non ancora pronta
     const ox = -((((v0.x * ppw) % cwPx) + cwPx) % cwPx), oy = -((((v0.y * ppw) % chPx) + chPx) % chPx);
-    this.cols = Math.ceil((W - ox) / cwPx);
-    this.rows = Math.ceil((H - oy) / chPx);
+    const cols = Math.ceil((W - ox) / cwPx), rows = Math.ceil((H - oy) / chPx);
     const gx0 = v0.x + ox / ppw, gy0 = v0.y + oy / ppw; // angolo in alto a sinistra della griglia, in pixel-mondo
-    const DW = this.cols * 2, DH = this.rows * 4; // griglia dei puntini
+    const DW = cols * 2, DH = rows * 4; // griglia dei puntini
+    const v = frame.view;
+    // mondo → puntini
+    const sx = (2 * ppw) / cwPx, sy = (4 * ppw) / chPx;
+    const toDot = (x: number, y: number): [number, number] => [(x - gx0) * sx, (y - gy0) * sy];
+
+    // 0. base fissa (terra, terreno, mare a fasce, rilievo sfumato): non cambia mai a parità di zoom, si calcola una volta per
+    // una zona ampia attorno alla vista e poi si copia. Prima si rifaceva tutto (≈770.000 puntini) a ogni spostamento: 60–90 ms
+    // per ridisegno da lontano, la carta scattava (Nico: "lentissimo")
+    const gxi = Math.round(gx0 * sx), gyi = Math.round(gy0 * sy); // primo puntino della vista, in puntini del mondo
+    const bkey = `${sx.toFixed(5)}|${sy.toFixed(5)}|${frame.landDots ?? ''}`;
+    // margine attorno alla vista: spostarsi un po' non la ricalcola (fuori dal mondo è mare, costa poco)
+    const mx = Math.ceil(DW * 0.3), my = Math.ceil(DH * 0.3);
+    const fits = (b: { key: string; x0: number; y0: number; w: number; h: number } | null) =>
+      !!b && b.key === bkey && gxi >= b.x0 && gyi >= b.y0 && gxi + DW <= b.x0 + b.w && gyi + DH <= b.y0 + b.h;
+    if (!fits(this.base)) {
+      // base da rifare: la si prepara a pezzi; intanto resta la carta già disegnata (ingrandita se lo zoom è cambiato)
+      if (!fits(this.pending)) this.want(bkey, gxi - mx, gyi - my, DW + 2 * mx, DH + 2 * my, sx, sy, frame.landDots);
+      this.work(10);
+      if (!fits(this.base)) return false;
+    }
+    const B = this.base!;
+    // vicini al bordo della base: la prossima si prepara già (a pezzi), prima di arrivarci
+    const ex = mx / 2, ey = my / 2;
+    if (!this.pending && (gxi - B.x0 < ex || gyi - B.y0 < ey || B.x0 + B.w - (gxi + DW) < ex || B.y0 + B.h - (gyi + DH) < ey)) {
+      this.want(bkey, gxi - mx, gyi - my, DW + 2 * mx, DH + 2 * my, sx, sy, frame.landDots);
+    }
+    this.cols = cols;
+    this.rows = rows;
     if (this.rt.width < W || this.rt.height < H) {
       // nuova texture invece di resize(): in Phaser una RenderTexture ridimensionata smette di ricevere disegni.
       // Solo se serve più grande (prestazioni: crearla costava fino a 90 ms, e con lo zoom la misura cambiava di continuo);
@@ -308,23 +406,6 @@ export class TerminalMap {
       this.rt = this.scene.add.renderTexture(0, 0, nw, nh).setOrigin(0).setDepth(this.depth);
       for (const r of [this.rt, this.rtHalo]) r.texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
       this.smooth = false;
-    }
-    const v = frame.view;
-    // mondo → puntini
-    const sx = (2 * ppw) / cwPx, sy = (4 * ppw) / chPx;
-    const toDot = (x: number, y: number): [number, number] => [(x - gx0) * sx, (y - gy0) * sy];
-
-    // 0. base fissa (terra, terreno, mare a fasce, rilievo sfumato): non cambia mai a parità di zoom, si calcola una volta per
-    // una zona ampia attorno alla vista e poi si copia. Prima si rifaceva tutto (≈770.000 puntini) a ogni spostamento: 60–90 ms
-    // per ridisegno da lontano, la carta scattava (Nico: "lentissimo")
-    const gxi = Math.round(gx0 * sx), gyi = Math.round(gy0 * sy); // primo puntino della vista, in puntini del mondo
-    const bkey = `${sx.toFixed(5)}|${sy.toFixed(5)}|${frame.landDots ?? ''}`;
-    let B = this.base;
-    if (!B || B.key !== bkey || gxi < B.x0 || gyi < B.y0 || gxi + DW > B.x0 + B.w || gyi + DH > B.y0 + B.h) {
-      // margine attorno alla vista: spostarsi un po' non la ricalcola (fuori dal mondo è mare, costa poco)
-      const mx = Math.ceil(DW * 0.4), my = Math.ceil(DH * 0.4);
-      const x0 = gxi - mx, y0 = gyi - my, x1 = gxi + DW + mx, y1 = gyi + DH + my;
-      B = this.base = this.buildBase(bkey, x0, y0, x1 - x0, y1 - y0, sx, sy, frame.landDots);
     }
 
     // 1. territori delle potenze sopra la base: solo le province colorate, riempite a righe (regola del centro del puntino)
@@ -543,6 +624,7 @@ export class TerminalMap {
     this.origin = { x: v.x, y: v.y };
     this.drawnZoom = ppw;
     this.align();
+    return true;
   }
 
   /** Carta sui pixel interi dello schermo (a ogni fotogramma): a metà pixel il filtro saltava o doppiava colonne di puntini. */

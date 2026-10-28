@@ -1015,18 +1015,45 @@ export class RunState {
   // ---------- nebbia ----------
 
   /** Ricalcola cosa vede il giocatore: anelli attorno a territorio, pedine e navi. */
+  private fogVis: Uint8Array | null = null;
+  private fogDist: Int8Array | null = null;
+  private fogQueue: number[] = [];
+  private fogSig = 0;
+
   private updateFog() {
     if (!this.opts.fog) return;
     const F = BALANCE.fog;
-    const vis = new Uint8Array(this.visible.length);
-    const dist = new Int8Array(this.visible.length).fill(-1);
-    const queue: number[] = [];
+    // niente da rifare se non è cambiato niente di quello che fa vedere (territorio, pedine, navi, ricognizioni, radar, alleati):
+    // il calcolo passa tutte le 460.000 caselle, era metà del tempo di ogni tick
+    let sig = this.player.tiles * 7919 + this.recons.length * 31 + this.boats.length * 131;
+    for (const u of this.units) if (u.owner === PLAYER) sig = (sig * 31 + u.tile) | 0;
+    for (const b of this.boats) if (b.owner === PLAYER) sig = (sig * 31 + b.path[b.pos]) | 0;
+    for (const f of this.factions) if (this.relation[f.id] === 'alleanza' && f.alive) sig = (sig * 31 + f.id * 977 + f.provinces) | 0;
+    for (let p = 0; p < this.provOwner.length; p++) {
+      if (this.provOwner[p] !== PLAYER) continue;
+      sig = (sig + p * 2654435761) | 0; // quali province hai (non solo quante)
+      if (this.provWork[p] >= 0) sig = (sig * 31 + p * 13 + this.provWork[p] + (this.provWorkAt[p] === 0 ? 7 : 0)) | 0;
+    }
+    if (sig === this.fogSig && this.fogVis) return;
+    this.fogSig = sig;
+    // memoria riusata a ogni giro (prima due array da 460.000 caselle nuovi a ogni tick)
+    const vis = (this.fogVis ??= new Uint8Array(this.visible.length)).fill(0);
+    const dist = (this.fogDist ??= new Int8Array(this.visible.length)).fill(-1);
+    const queue = this.fogQueue;
+    queue.length = 0;
     const seed = (i: number, r: number) => {
       if (i < 0 || dist[i] >= r) return;
       dist[i] = r;
       queue.push(i);
     };
-    for (let i = 0; i < this.owner.length; i++) if (this.owner[i] === PLAYER) seed(i, F.territory + this.opts.mods.fogBonus);
+    // il tuo territorio si vede tutto; la vista oltre parte solo dalle caselle di confine (stesso risultato: ogni casella
+    // fuori è più vicina al confine che all'interno). Prima la ricerca partiva da tutte le tue caselle: lento con l'impero grande
+    const ownR = F.territory + this.opts.mods.fogBonus;
+    for (let i = 0; i < this.owner.length; i++) {
+      if (this.owner[i] !== PLAYER) continue;
+      vis[i] = 1;
+      if (neighbors(i).some((n) => n >= 0 && this.owner[n] !== PLAYER)) seed(i, ownR);
+    }
     for (const u of this.unitsOf(PLAYER)) seed(u.tile, F.unit);
     for (const b of this.boats) if (b.owner === PLAYER) seed(b.path[b.pos], F.boat);
     for (const r of this.recons) seed(r.tile, BALANCE.abilities.ricognizione.radius);

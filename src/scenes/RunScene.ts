@@ -251,7 +251,14 @@ export class RunScene extends Phaser.Scene {
     this.term.setTerrain(Uint8Array.from(this.map.provinces, (p) => TERRAIN_IDX[p.terrain] ?? 0)); // per la base fissa (terra e rilievo)
     // allineata ai pixel a fine fotogramma, dopo ogni spostamento della camera (anche WASD, che arriva dopo il ridisegno):
     // a metà pixel spariva una colonna di puntini, una linea verticale su tutta la carta (Nico)
-    const align = () => this.term.align();
+    // la camera scorre a pixel interi dello schermo: carta (agganciata ai pixel), confini, pedine e nomi si spostano insieme.
+    // Prima la carta saltava di pixel interi e il resto no: spostando la mappa sembrava tremare tutto (Nico)
+    const align = () => {
+      const c = this.cameras.main, z = c.zoom;
+      c.scrollX = Math.round(c.scrollX * z) / z;
+      c.scrollY = Math.round(c.scrollY * z) / z;
+      this.term.align();
+    };
     this.events.on('postupdate', align);
     this.events.once('shutdown', () => this.events.off('postupdate', align));
     this.termRect = null;
@@ -476,6 +483,7 @@ export class RunScene extends Phaser.Scene {
     const cardP = this.hud.cardProvince;
     if (cardP !== this.workCardP) { this.workCardP = cardP; this.termDirty = true; this.borderKey = ''; } // costruzioni della provincia toccata
     this.redrawBorders(time);
+    this.term.work(4); // base della carta in preparazione (zona accanto alla vista): qualche millisecondo per fotogramma
     this.redrawTerminal();
     const zc = this.cameras.main.zoom / UI();
     const landMode = zc >= 2.2; // da qui in su la carta cotta si vedrebbe sgranata
@@ -913,7 +921,11 @@ export class RunScene extends Phaser.Scene {
     if (!terrain) for (const n of this.termNations) if (n.width * zpx >= n.name.length * 9 * 1.1) frame.labels.push({ x: n.x, y: n.y, text: n.name, color: TERM.country, priority: 0 });
     // niente scritta CAPITALE: il nome della potenza sta dentro il suo territorio, alla HOI4
     if (!terrain) for (const l of this.termPlaces) frame.labels.push({ x: l.x, y: l.y, text: l.name, color: l.kind === 'city' ? TERM.city : TERM.sea, priority: l.kind === 'city' ? 1 : 2, small: l.kind === 'city' });
-    this.term.render(frame);
+    if (!this.term.render(frame)) {
+      // base della carta ancora in preparazione (a pezzi): resta la carta di prima, si riprova al prossimo fotogramma
+      this.termRect = null;
+      this.termDirty = true;
+    }
   }
 
   /** Simbolo + nome di ogni fazione nel punto più interno del suo territorio, più grande se l'impero cresce. */
