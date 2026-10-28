@@ -17,8 +17,11 @@ import { UI } from '../ui/screen';
 const LEVELS = [
   { d: 0.375, upTo: 1.9 },
   { d: 0.75, upTo: 3.75 },
-  { d: 1.45, upTo: Infinity }, // 4021 × 1742 puntini: sotto il limite delle texture (4096)
+  { d: 1.45, upTo: 7 },
+  // da vicino (Nico: "i bordi da vicino sono scrausi"): puntini fitti, preparati a riquadri solo dove si guarda
+  { d: 3.0, upTo: Infinity, sparse: true },
 ];
+const SPARSE_MAX = 96; // riquadri tenuti in memoria nel livello da vicino (i più lontani si buttano)
 const TILE = 512;
 
 const ELEV = [0, 1.15, 2.4, 0.55]; // pianura, colline, montagne, deserto
@@ -30,6 +33,8 @@ const FORT = '#f2f2f2';
 const GAP = 0x05070a; // tra un puntino e l'altro
 
 interface Level {
+  sparse: boolean; // riquadri preparati solo dove si guarda
+  built: Set<number>;
   d: number; W: number; H: number; tx: number; ty: number;
   prov: Int16Array; // provincia di ogni puntino (−1 mare)
   ready: boolean;
@@ -49,6 +54,9 @@ export class WorldMap {
   private cur = -1;
   private colInt = new Map<string, number>();
   private building: Generator<void, void> | null = null;
+  private tileJob: Generator<void, void> | null = null; // riquadro del livello da vicino in preparazione
+  private tileQueue: number[] = [];
+  private shapeBox: Float32Array | null = null;
   private terrain: ArrayLike<number> = [];
   // stato dei territori (dall'ultimo frame)
   private pal: string[] = [];
@@ -97,28 +105,28 @@ export class WorldMap {
     this.provFort = new Uint8Array(n);
     this.provStripe = new Uint8Array(n);
     for (const L of this.levels) this.destroyLevel(L);
-    this.levels = LEVELS.map((s) => this.makeLevel(s.d));
+    this.levels = LEVELS.map((s) => this.makeLevel(s.d, !!(s as { sparse?: boolean }).sparse));
     // il livello da lontano subito (piccolo), gli altri a pezzi durante il gioco
     const g = this.buildLevel(this.levels[0]);
     while (!g.next().done) { /* tutto ora */ }
     this.building = this.buildAll();
   }
 
-  private makeLevel(d: number): Level {
+  private makeLevel(d: number, sparse = false): Level {
     const W = Math.ceil(WORLD_W * d), H = Math.ceil(WORLD_H * d);
     const tx = Math.ceil(W / TILE), ty = Math.ceil(H / TILE);
     const gaps = this.scene.add.tileSprite(0, 0, WORLD_W, WORLD_H, 'wm-gap').setOrigin(0).setDepth(this.depth + 0.02).setVisible(false);
     gaps.setTileScale(1 / (3 * d), 1 / (3 * d)); // un motivo (3 texel) = un puntino
-    return { d, W, H, tx, ty, prov: new Int16Array(W * H).fill(-1), ready: false, base: [], ovl: [], ovlTex: [], ovlBuf: [], dirtyTiles: new Set(), dirtyProv: new Set(), paintTiles: new Set(), full: true, gaps };
+    return { sparse, built: new Set(), d, W, H, tx, ty, prov: new Int16Array(W * H).fill(-1), ready: sparse, base: [], ovl: [], ovlTex: [], ovlBuf: [], dirtyTiles: new Set(), dirtyProv: new Set(), paintTiles: new Set(), full: true, gaps };
   }
 
   private destroyLevel(L: Level) {
-    for (const o of [...L.base, ...L.ovl]) { const k = o.texture.key; o.destroy(); if (this.scene.textures.exists(k)) this.scene.textures.remove(k); }
+    for (const o of [...L.base, ...L.ovl]) { if (!o) continue; const k = o.texture.key; o.destroy(); if (this.scene.textures.exists(k)) this.scene.textures.remove(k); }
     L.gaps.destroy();
   }
 
   private *buildAll(): Generator<void, void> {
-    for (let i = 1; i < this.levels.length; i++) yield* this.buildLevel(this.levels[i]);
+    for (let i = 1; i < this.levels.length; i++) if (!this.levels[i].sparse) yield* this.buildLevel(this.levels[i]);
   }
 
   /** Avanza la preparazione dei livelli per al più `budgetMs` (a ogni fotogramma). */
@@ -126,6 +134,17 @@ export class WorldMap {
     const t0 = performance.now();
     while (this.building) {
       if (this.building.next().done) this.building = null;
+      if (performance.now() - t0 >= budgetMs) return;
+    }
+    // livello da vicino: i riquadri che si guardano, uno alla volta, a pezzi
+    const S = this.levels.find((l) => l.sparse);
+    while (S && (this.tileJob || this.tileQueue.length)) {
+      if (!this.tileJob) {
+        const ti = this.tileQueue.shift()!;
+        if (S.built.has(ti)) continue;
+        this.tileJob = this.buildTile(S, ti);
+      }
+      if (this.tileJob.next().done) this.tileJob = null;
       if (performance.now() - t0 >= budgetMs) return;
     }
     // territori: prima il livello in uso, poi gli altri (così cambiando zoom sono già pronti)
@@ -148,10 +167,10 @@ export class WorldMap {
   }
 
   /** Riempie a righe la sagoma della provincia (regola del centro del puntino), in puntini del livello. */
-  private raster(id: number, d: number, W: number, H: number, span: (Y: number, xa: number, xb: number) => void) {
+  private raster(id: number, d: number, W: number, H: number, span: (Y: number, xa: number, xb: number) => void, yMin = 0, yMax = H - 1) {
     const sh = this.shapes.provinces[id];
     if (!sh?.parts.length) return;
-    const ya = Math.max(0, Math.ceil(sh.y0 * d - 0.5)), yb = Math.min(H - 1, Math.floor(sh.y1 * d - 0.5));
+    const ya = Math.max(yMin, Math.ceil(sh.y0 * d - 0.5)), yb = Math.min(yMax, Math.floor(sh.y1 * d - 0.5));
     if (yb < ya) return;
     const rows: number[][] = [];
     for (let Y = ya; Y <= yb; Y++) rows.push([]);
@@ -260,6 +279,113 @@ export class WorldMap {
   }
 
   /**
+   * Un riquadro del livello da vicino: province, rilievo e fondali della sua zona (con un margine per la media), immagine
+   * della base e strato dei territori. Come il resto della carta, ma solo dove si guarda.
+   */
+  private *buildTile(L: Level, ti: number): Generator<void, void> {
+    const { d, W, H, prov } = L, tx = ti % L.tx, ty = Math.floor(ti / L.tx);
+    const rad = Math.max(1, Math.round(6 * d)), M = rad + 6;
+    const x0 = tx * TILE, y0 = ty * TILE, w = Math.min(TILE, W - x0), h = Math.min(TILE, H - y0);
+    const rx0 = Math.max(0, x0 - M), ry0 = Math.max(0, y0 - M), rx1 = Math.min(W, x0 + w + M), ry1 = Math.min(H, y0 + h + M);
+    const rw = rx1 - rx0, rh = ry1 - ry0, n = rw * rh;
+    // province della zona (righe e colonne ritagliate)
+    const P = this.shapes.provinces;
+    if (!this.shapeBox) {
+      this.shapeBox = new Float32Array(P.length * 4);
+      P.forEach((sh, i) => this.shapeBox!.set(sh?.parts.length ? [sh.x0, sh.y0, sh.x1, sh.y1] : [1e9, 1e9, -1e9, -1e9], i * 4));
+    }
+    const B = this.shapeBox, wx0 = rx0 / d, wy0 = ry0 / d, wx1 = rx1 / d, wy1 = ry1 / d;
+    for (let Y = ry0; Y < ry1; Y++) prov.fill(-1, Y * W + rx0, Y * W + rx1);
+    for (let id = 0; id < P.length; id++) {
+      if (B[id * 4 + 2] < wx0 || B[id * 4] > wx1 || B[id * 4 + 3] < wy0 || B[id * 4 + 1] > wy1) continue;
+      this.raster(id, d, W, H, (Y, xa, xb) => {
+        const a = Math.max(xa, rx0), b = Math.min(xb, rx1 - 1);
+        if (b >= a) prov.fill(id, Y * W + a, Y * W + b + 1);
+      }, ry0, ry1 - 1);
+    }
+    for (let Y = ry0; Y < ry1; Y++) for (let X = Math.max(1, rx0); X < Math.min(W - 1, rx1); X++) {
+      const k = Y * W + X;
+      if (prov[k] >= 0) continue;
+      if (prov[k - 1] >= 0 && prov[k + 1] >= 0) prov[k] = prov[k - 1];
+      else if (Y > 0 && Y < H - 1 && prov[k - W] >= 0 && prov[k + W] >= 0) prov[k] = prov[k - W];
+    }
+    yield;
+    // rilievo e fondali della zona, sfumati
+    const landV = new Float32Array(n), wt = new Float32Array(n), seaV = new Float32Array(n), sea = new Float32Array(n), tmp = new Float32Array(n);
+    const bw = BATHY.w, bh = BATHY.h, bcls = decodeBathy();
+    for (let y = 0, k = 0; y < rh; y++) {
+      const Y = ry0 + y, by = Math.min(bh - 1, Math.floor(((Y + 0.5) / d / WORLD_H) * bh));
+      for (let x = 0; x < rw; x++, k++) {
+        const X = rx0 + x, p = prov[Y * W + X];
+        if (p >= 0) { landV[k] = ELEV[Math.min(3, Math.max(0, this.terrain[p] ?? 0))]; wt[k] = 1; }
+        else { seaV[k] = bcls[by * bw + Math.min(bw - 1, Math.floor(((X + 0.5) / d / WORLD_W) * bw))]; sea[k] = 1; }
+      }
+    }
+    for (const a of [landV, wt, seaV, sea]) { yield* blur(a, tmp, rw, rh, rad, true); yield* blur(tmp, a, rw, rh, rad, false); }
+    const landInt = LAND_SHADES.map((c) => this.rgba(c)), seaInt = SEA_SHADES.map((c) => this.rgba(c)), lineInt = this.rgba(PROV_LINE);
+    const buf = new Uint32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      const Y = y0 + y;
+      for (let x = 0; x < w; x++) {
+        const X = x0 + x, k = Y * W + X, p = prov[k], lk = (Y - ry0) * rw + (X - rx0);
+        let hh = (X * 374761393 + Y * 668265263) | 0;
+        hh = Math.imul(hh ^ (hh >>> 13), 1274126177);
+        const noise = (((hh ^ (hh >>> 16)) & 1023) / 1023 - 0.5) * 0.6;
+        if (p >= 0) {
+          if ((X + 1 < W && prov[k + 1] >= 0 && prov[k + 1] !== p) || (Y + 1 < H && prov[k + W] >= 0 && prov[k + W] !== p)) { buf[y * w + x] = lineInt; continue; }
+          const e = (wt[lk] > 0 ? landV[lk] / wt[lk] : 0) / 2.4 * (LAND_SHADES.length - 1) + noise;
+          buf[y * w + x] = landInt[Math.max(0, Math.min(LAND_SHADES.length - 1, Math.round(e)))];
+        } else {
+          const e = (sea[lk] > 0 ? seaV[lk] / sea[lk] : 2) + noise * 1.4;
+          buf[y * w + x] = seaInt[Math.max(0, Math.min(2, Math.round(e)))];
+        }
+      }
+    }
+    yield;
+    const tm = this.scene.textures, key = `wm-b${d}-${tx}-${ty}`, okey = `wm-o${d}-${tx}-${ty}`;
+    for (const k of [key, okey]) if (tm.exists(k)) tm.remove(k);
+    const ct = tm.createCanvas(key, w, h)!;
+    ct.getContext().putImageData(new ImageData(new Uint8ClampedArray(buf.buffer as ArrayBuffer), w, h), 0, 0);
+    ct.refresh();
+    ct.setFilter(Phaser.Textures.FilterMode.NEAREST);
+    const vis = this.levels[this.cur] === L;
+    L.base[ti] = this.scene.add.image(x0 / d, y0 / d, key).setOrigin(0).setScale(1 / d).setDepth(this.depth + 0.012).setVisible(vis);
+    const ot = tm.createCanvas(okey, w, h)!;
+    ot.setFilter(Phaser.Textures.FilterMode.NEAREST);
+    L.ovlTex[ti] = ot;
+    L.ovlBuf[ti] = new Uint32Array(w * h);
+    L.ovl[ti] = this.scene.add.image(x0 / d, y0 / d, okey).setOrigin(0).setScale(1 / d).setDepth(this.depth + 0.014).setVisible(vis);
+    L.built.add(ti);
+    // territori del riquadro, e i bordi dei riquadri accanto già pronti (i confini a cavallo cambiano)
+    this.paintRect(L, x0 - 4, y0 - 4, x0 + w + 4, y0 + h + 4);
+    this.flushTiles(L);
+    this.evict(L);
+  }
+
+  /** Livello da vicino: troppi riquadri in memoria → via i più lontani dalla vista. */
+  private evict(L: Level) {
+    if (L.built.size <= SPARSE_MAX) return;
+    const cam = this.scene.cameras.main, cx = cam.midPoint.x * L.d / TILE, cy = cam.midPoint.y * L.d / TILE;
+    const far = [...L.built].sort((a, b) => Math.hypot((b % L.tx) - cx, Math.floor(b / L.tx) - cy) - Math.hypot((a % L.tx) - cx, Math.floor(a / L.tx) - cy));
+    for (const ti of far.slice(0, L.built.size - SPARSE_MAX)) {
+      for (const o of [L.base[ti], L.ovl[ti]]) { const k = o.texture.key; o.destroy(); if (this.scene.textures.exists(k)) this.scene.textures.remove(k); }
+      delete L.base[ti]; delete L.ovl[ti]; delete L.ovlTex[ti]; delete L.ovlBuf[ti];
+      L.built.delete(ti);
+    }
+  }
+
+  /** Carica sulla scheda grafica i riquadri dei territori toccati. */
+  private flushTiles(L: Level) {
+    for (const t of L.dirtyTiles) {
+      const tex = L.ovlTex[t], buf = L.ovlBuf[t];
+      if (!tex || !buf) continue;
+      tex.getContext().putImageData(new ImageData(new Uint8ClampedArray(buf.buffer as ArrayBuffer), tex.width, tex.height), 0, 0);
+      tex.refresh();
+    }
+    L.dirtyTiles.clear();
+  }
+
+  /**
    * Territori dal frame (tutte le province: colore o null, muro, righe della vista terreno, confini e fronte). Si
    * ridisegnano solo le province cambiate; se cambia la regola dei confini (guerre, logistica, COSTRUISCI) tutto lo strato.
    */
@@ -314,13 +440,20 @@ export class WorldMap {
       // tutto da rifare (regole cambiate o livello appena pronto): riquadro per riquadro
       L.full = false;
       L.dirtyProv.clear();
-      for (let i = 0; i < L.tx * L.ty; i++) L.paintTiles.add(i);
+      for (let i = 0; i < L.tx * L.ty; i++) if (L.ovlBuf[i]) L.paintTiles.add(i);
     }
     for (const p of L.dirtyProv) {
       if (performance.now() - t0 > budgetMs) break;
       L.dirtyProv.delete(p);
       const sh = this.shapes.provinces[p];
       if (!sh?.parts.length) continue;
+      // da vicino: solo se tocca un riquadro già pronto
+      if (L.sparse) {
+        const ta = Math.floor((sh.x0 * L.d - 4) / TILE), tb = Math.floor((sh.x1 * L.d + 4) / TILE), tc = Math.floor((sh.y0 * L.d - 4) / TILE), td = Math.floor((sh.y1 * L.d + 4) / TILE);
+        let any = false;
+        for (let ty = tc; ty <= td && !any; ty++) for (let tx = ta; tx <= tb; tx++) if (L.built.has(ty * L.tx + tx)) { any = true; break; }
+        if (!any) continue;
+      }
       this.paintRect(L, Math.floor(sh.x0 * L.d) - 3, Math.floor(sh.y0 * L.d) - 3, Math.ceil(sh.x1 * L.d) + 3, Math.ceil(sh.y1 * L.d) + 3);
     }
     for (const t of L.paintTiles) {
@@ -329,13 +462,7 @@ export class WorldMap {
       const tx = t % L.tx, ty = Math.floor(t / L.tx);
       this.paintRect(L, tx * TILE, ty * TILE, (tx + 1) * TILE, (ty + 1) * TILE);
     }
-    // carica sulla scheda grafica solo i riquadri toccati
-    for (const t of L.dirtyTiles) {
-      const tex = L.ovlTex[t], buf = L.ovlBuf[t];
-      tex.getContext().putImageData(new ImageData(new Uint8ClampedArray(buf.buffer as ArrayBuffer), tex.width, tex.height), 0, 0);
-      tex.refresh();
-    }
-    L.dirtyTiles.clear();
+    this.flushTiles(L); // carica sulla scheda grafica solo i riquadri toccati
   }
 
   /** Colore dei territori nei puntini del rettangolo [x0, x1) × [y0, y1) del livello. */
@@ -401,12 +528,12 @@ export class WorldMap {
           }
         }
       }
-      const tx = Math.floor(X / TILE), ty = Math.floor(Y / TILE), ti = ty * L.tx + tx, tw = L.ovlTex[ti].width;
-      L.ovlBuf[ti][(Y - ty * TILE) * tw + (X - tx * TILE)] = out;
+      const tx = Math.floor(X / TILE), ty = Math.floor(Y / TILE), ti = ty * L.tx + tx, ob = L.ovlBuf[ti];
+      if (ob) ob[(Y - ty * TILE) * L.ovlTex[ti].width + (X - tx * TILE)] = out;
     }
     // binari (ferrovie): tratteggio sopra
     for (const r of this.rails) this.line(L, r.pts, this.rgba(r.color), x0, y0, x1, y1);
-    for (let ty = Math.floor(y0 / TILE); ty <= Math.floor((y1 - 1) / TILE); ty++) for (let tx = Math.floor(x0 / TILE); tx <= Math.floor((x1 - 1) / TILE); tx++) L.dirtyTiles.add(ty * L.tx + tx);
+    for (let ty = Math.floor(y0 / TILE); ty <= Math.floor((y1 - 1) / TILE); ty++) for (let tx = Math.floor(x0 / TILE); tx <= Math.floor((x1 - 1) / TILE); tx++) if (L.ovlBuf[ty * L.tx + tx]) L.dirtyTiles.add(ty * L.tx + tx);
   }
 
   private line(L: Level, pts: ArrayLike<number>, c: number, rx0: number, ry0: number, rx1: number, ry1: number) {
@@ -419,7 +546,7 @@ export class WorldMap {
       for (let guard = 0; guard < 4000; guard++) {
         if (step++ % 6 < 3 && ax >= rx0 && ay >= ry0 && ax < rx1 && ay < ry1) {
           const tx = Math.floor(ax / TILE), ty = Math.floor(ay / TILE), ti = ty * L.tx + tx;
-          L.ovlBuf[ti][(ay - ty * TILE) * L.ovlTex[ti].width + (ax - tx * TILE)] = c;
+          if (L.ovlBuf[ti]) L.ovlBuf[ti][(ay - ty * TILE) * L.ovlTex[ti].width + (ax - tx * TILE)] = c;
         }
         if (ax === bx && ay === by) break;
         const e2 = 2 * err;
@@ -436,13 +563,25 @@ export class WorldMap {
     // livello non ancora pronto: il più vicino già pronto
     while (want > 0 && !this.levels[want]?.ready) want--;
     if (want !== this.cur && this.levels[want]?.ready) {
-      const prev = this.levels[this.cur];
-      if (prev) for (const o of [...prev.base, ...prev.ovl, prev.gaps]) o.setVisible(false);
+      for (const L of this.levels) for (const o of [...L.base, ...L.ovl, L.gaps]) o?.setVisible(false);
       this.cur = want;
       const L = this.levels[want];
-      for (const o of [...L.base, ...L.ovl, L.gaps]) o.setVisible(true);
+      for (const o of [...L.base, ...L.ovl, L.gaps]) o?.setVisible(true);
+      // da vicino: sotto resta il livello prima (dove i riquadri fitti non sono ancora pronti), senza la sua trama
+      if (L.sparse) { const F = this.levels[want - 1]; for (const o of [...F.base, ...F.ovl]) o?.setVisible(true); }
       // province cambiate mentre il livello non era in uso: subito
       this.flushOverlay(L, 6);
+    }
+    // da vicino: riquadri fitti per quello che si vede (prima il centro)
+    const L = this.levels[this.cur];
+    if (L?.sparse) {
+      const v = cam.worldView, d = L.d;
+      const tx0 = Math.max(0, Math.floor((v.x * d) / TILE)), ty0 = Math.max(0, Math.floor((v.y * d) / TILE));
+      const tx1 = Math.min(L.tx - 1, Math.floor((v.right * d) / TILE)), ty1 = Math.min(L.ty - 1, Math.floor((v.bottom * d) / TILE));
+      const cx = (v.centerX * d) / TILE, cy = (v.centerY * d) / TILE, need: number[] = [];
+      for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) if (!L.built.has(ty * L.tx + tx)) need.push(ty * L.tx + tx);
+      need.sort((a, b) => Math.hypot((a % L.tx) + 0.5 - cx, Math.floor(a / L.tx) + 0.5 - cy) - Math.hypot((b % L.tx) + 0.5 - cx, Math.floor(b / L.tx) + 0.5 - cy));
+      this.tileQueue = need;
     }
     this.placeLabels(cam);
   }
