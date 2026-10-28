@@ -267,8 +267,25 @@ function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[], count: num
   const ok = pools.find((a) => a.length > 50) ?? all;
   let player = -1;
   let dist: Int32Array = new Int32Array(0);
+  // partenza scelta prima per nazione, poi una casella dentro: pescando tra le caselle la Russia (28% della terra)
+  // usciva quasi sempre (Nico: "perché si spawna sempre in Russia?"). Peso = radice delle caselle: i grandi paesi
+  // escono un po' più spesso, ma non sempre.
+  const byNation = new Map<number, number[]>();
+  for (const i of ok) {
+    const c = provinces[tiles[i]!.province]?.country ?? -1;
+    const a = byNation.get(c);
+    if (a) a.push(i); else byNation.set(c, [i]);
+  }
+  const nationsOk = [...byNation.values()].filter((a) => a.length >= 20);
+  const pickTile = () => {
+    if (!nationsOk.length) return pick(ok);
+    const w = nationsOk.map((a) => Math.sqrt(a.length)), tot = w.reduce((x, y) => x + y, 0);
+    let r = rng() * tot, k = 0;
+    while (k < w.length - 1 && (r -= w[k]) > 0) k++;
+    return pick(nationsOk[k]);
+  };
   for (let tries = 0; tries < 40; tries++) {
-    player = pick(ok);
+    player = pickTile();
     dist = bfs(tiles, player);
     let size = 0;
     for (const d of dist) if (d >= 0) size++;

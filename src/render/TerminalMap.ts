@@ -30,6 +30,16 @@ export const TERM = {
 // in toni di blu che salgono con l'altitudine (pianura, deserto, colline, montagne) sfumati tra un terreno e l'altro, più una
 // leggera grana fissa al mondo per variare.
 const ELEV = [0, 1.15, 2.4, 0.55]; // pianura, colline, montagne, deserto
+// mare: dalle acque basse (chiaro) al profondo, sette gradini tra i colori del terminale
+const SEA_SHADES = (() => {
+  const hx = (c: string) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+  const stops = ['#d3dae2', '#c3ccd6', '#b3bdc9'].map(hx), out: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const t = (i / 6) * 2, a = stops[Math.min(1, Math.floor(t))], b = stops[Math.min(2, Math.floor(t) + 1)], u = t - Math.min(1, Math.floor(t));
+    out.push('#' + a.map((v, j) => Math.round(v + (b[j] - v) * u).toString(16).padStart(2, '0')).join(''));
+  }
+  return out;
+})();
 const LAND_SHADES = ['#1b2331', '#1f283a', '#253046', '#2c3953', '#354463', '#405176', '#4d6089'];
 const FORT = '#f2f2f2'; // muro: seconda fila del confine
 
@@ -133,7 +143,7 @@ export class TerminalMap {
   }
 
   /** Vettore riusato di n elementi (azzerato o riempito con `fill`). */
-  private buf<T extends Uint8Array | Int16Array | Int32Array | Uint32Array | Float32Array>(name: string, C: { new (n: number): T }, n: number, fill = 0): T {
+  private buf<T extends Uint8Array | Int16Array | Int32Array | Uint32Array | Float32Array | Float64Array>(name: string, C: { new (n: number): T }, n: number, fill = 0): T {
     let b = this.bufs.get(name) as T | undefined;
     if (!b || b.length < n) { b = new C(Math.ceil(n * 1.25)); this.bufs.set(name, b); }
     const v = b.subarray(0, n) as T;
@@ -356,24 +366,41 @@ export class TerminalMap {
     // dopo il giro: se no la fila si allargava a tutta la provincia
     for (let i = 0; i < nr; i++) border[ring[i]] = fortC;
 
-    // profondità: distanza dalla terra in pixel-mondo, tre fasce di blu (basso, medio, profondo)
-    // due passate (avanti e indietro) invece della coda: stessa distanza a passi di un puntino, molto più veloce da lontano
-    const dist = this.buf('dist', Float32Array, DW * DH, 1e9);
+    // profondità: distanza vera (euclidea) dalla terra, in puntini. Prima era a passi in croce: attorno alle isole le fasce
+    // venivano a rombi e quadrati, con tre gradini netti (Nico: "a volte è proprio squadrata"). Ora cerchi morbidi, poi la
+    // sfumatura si sgrana come il rilievo della terra.
+    const dist = this.buf('dist', Float32Array, DW * DH, 0);
     const shallowD = 30 * sx, midD = 110 * sx; // in puntini: 30 e 110 pixel-mondo dalla costa (le fasce coprono tutto il mare)
-    for (let k = 0; k < DW * DH; k++) if (land[k]) dist[k] = 0;
-    for (let y = 0, k = 0; y < DH; y++) for (let x = 0; x < DW; x++, k++) {
-      let d = dist[k];
-      if (!d) continue;
-      if (x > 0 && dist[k - 1] + 1 < d) d = dist[k - 1] + 1;
-      if (y > 0 && dist[k - DW] + 1 < d) d = dist[k - DW] + 1;
-      dist[k] = d;
-    }
-    for (let y = DH - 1, k = DW * DH - 1; y >= 0; y--) for (let x = DW - 1; x >= 0; x--, k--) {
-      let d = dist[k];
-      if (!d) continue;
-      if (x < DW - 1 && dist[k + 1] + 1 < d) d = dist[k + 1] + 1;
-      if (y < DH - 1 && dist[k + DW] + 1 < d) d = dist[k + DW] + 1;
-      dist[k] = d;
+    {
+      // trasformata della distanza di Felzenszwalb: righe poi colonne, distanza al quadrato esatta
+      const INF = 1e12, n = Math.max(DW, DH);
+      const f = this.buf('edtF', Float64Array, n), dd = this.buf('edtD', Float64Array, n);
+      const v = this.buf('edtV', Int32Array, n), zb = this.buf('edtZ', Float64Array, n + 1);
+      const pass = (len: number) => {
+        let k = 0;
+        v[0] = 0; zb[0] = -INF; zb[1] = INF;
+        for (let q = 1; q < len; q++) {
+          let sct = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+          while (sct <= zb[k]) { k--; sct = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
+          k++; v[k] = q; zb[k] = sct; zb[k + 1] = INF;
+        }
+        k = 0;
+        for (let q = 0; q < len; q++) {
+          while (zb[k + 1] < q) k++;
+          dd[q] = (q - v[k]) * (q - v[k]) + f[v[k]];
+        }
+      };
+      for (let y = 0; y < DH; y++) {
+        const r = y * DW;
+        for (let x = 0; x < DW; x++) f[x] = land[r + x] ? 0 : INF;
+        pass(DW);
+        for (let x = 0; x < DW; x++) dist[r + x] = dd[x];
+      }
+      for (let x = 0; x < DW; x++) {
+        for (let y = 0; y < DH; y++) f[y] = dist[y * DW + x];
+        pass(DH);
+        for (let y = 0; y < DH; y++) dist[y * DW + x] = Math.sqrt(dd[y]);
+      }
     }
 
     // 3. nomi agganciati alla griglia: prendono il posto dei caratteri (prima i più importanti, niente sovrapposizioni)
@@ -398,7 +425,9 @@ export class TerminalMap {
     const dots = this.buf('dots', Uint32Array, DW * DH), halos = this.buf('halos', Uint32Array, DW * DH);
     const HALO = this.rgba('#1a2430'); // alone del mare: grigio-blu (l'indaco di prima lo faceva sembrare rosa)
     const palInt = palCss.map((c) => this.rgba(c));
-    const seaInt = [this.rgba(TERM.shallow), this.rgba(TERM.water), this.rgba(TERM.deep)];
+    // mare a gradini fitti dalle acque basse al profondo (stessi tre colori di prima, passaggi in mezzo)
+    const seaInt = SEA_SHADES.map((c) => this.rgba(c));
+    const seaT = (d: number) => (d <= shallowD ? (d / shallowD) / 3 : d <= midD ? 1 / 3 + ((d - shallowD) / (midD - shallowD)) / 3 : 2 / 3 + Math.min(1, (d - midD) / midD) / 3);
     const shadeInt = LAND_SHADES.map((c) => this.rgba(c));
     // altitudine della terra libera sfumata (media su un quadrato di ~6 pixel-mondo, separabile): niente scalini tra terreni
     const elev = this.buf('elev', Float32Array, DW * DH), wt = this.buf('wt', Float32Array, DW * DH);
@@ -430,7 +459,15 @@ export class TerminalMap {
         const X = c * 2 + dx, Y = r * 4 + dy, k = Y * DW + X, bc = border[k];
         if (bc) { dots[k] = bc; continue; }
         if (terr[k] >= 0) { dots[k] = palInt[terr[k]]; continue; } // territorio di una potenza
-        if (!land[k]) { dots[k] = seaInt[dist[k] <= shallowD ? 0 : dist[k] <= midD ? 1 : 2]; halos[k] = HALO; continue; } // mare
+        if (!land[k]) {
+          // mare: sfumato e sgranato come la terra (rumore fisso al mondo, non sfarfalla scorrendo)
+          let h = ((X + colBase) * 374761393 + (Y + rowBase) * 668265263) | 0;
+          h = Math.imul(h ^ (h >>> 13), 1274126177);
+          const nz = (((h ^ (h >>> 16)) & 1023) / 1023 - 0.5) * 1.3;
+          dots[k] = seaInt[Math.max(0, Math.min(SEA_SHADES.length - 1, Math.round(seaT(dist[k]) * (SEA_SHADES.length - 1) + nz)))];
+          halos[k] = HALO;
+          continue;
+        }
         if (!frame.landDots || wt[k] <= 0) continue;
         if (near) { dots[k] = shadeInt[Math.round((elev[k] / 2.4) * (LAND_SHADES.length - 1))]; continue; }
         // grana: rumore fisso al mondo (non sfarfalla scorrendo), al massimo ±0,3 di gradino (da vicino molto meno)

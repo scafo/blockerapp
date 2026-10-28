@@ -1624,17 +1624,16 @@ export class RunScene extends Phaser.Scene {
       const { x, y } = center(p.city);
       if (!inV(x, y)) return;
       if (this.map.tiles[p.city]!.capital) {
-        // capitale: una stella (Nico), azzurra come i nomi della carta
-        if (z < 2.2) return;
-        const r = 5 * px * Phaser.Math.Clamp(z / 4, 0.7, 1), pts: Phaser.Types.Math.Vector2Like[] = []; // da lontano più piccole
+        // capitale: una stella (Nico), azzurra come i nomi della carta; si vede a ogni zoom (da lontano più piccola)
+        const r = 5 * px * Phaser.Math.Clamp(z / 4, 0.55, 1), pts: Phaser.Types.Math.Vector2Like[] = []; // da lontano più piccole
         for (let k = 0; k < 10; k++) {
           const a = -Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? r * 0.45 : r;
           pts.push({ x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr });
         }
         g.fillStyle(CITY_COL, 1).fillPoints(pts, true).lineStyle(1.4 * px, 0x000000, 1).strokePoints(pts, true);
-      } else if (z >= 2.2) {
-        // città: un quadrato con bordo nero
-        const r = 3.2 * px * Phaser.Math.Clamp(z / 4, 0.7, 1);
+      } else {
+        // città: un quadrato con bordo nero, a ogni zoom (Nico: "mancano ancora le città", da lontano non si vedevano)
+        const r = 3.2 * px * Phaser.Math.Clamp(z / 4, 0.55, 1);
         g.fillStyle(0x000000, 1).fillRect(x - r - 1.3 * px, y - r - 1.3 * px, 2 * r + 2.6 * px, 2 * r + 2.6 * px).fillStyle(CITY_COL, 1).fillRect(x - r, y - r, 2 * r, 2 * r);
       }
     });
@@ -1705,7 +1704,7 @@ export class RunScene extends Phaser.Scene {
   private conquestFx(x: number, y: number, cost: number, loot: number, lootType: Resource = 'metallo', p = -1) {
     if (p >= 0) this.flashProvince(p, 0xffffff, 0.75, 480);
     this.burstAt(x, y, loot ? 18 : 10, loot ? RESOURCE_INFO[lootType].color : MAP_INK);
-    this.floatText(x, y - 4, `-${cost}`, MAP_INK);
+    if (cost > 0) this.floatText(x, y - 4, `-${cost}`, MAP_INK); // provincia vuota (costo 0): niente "-0" (Nico)
     if (loot) {
       this.floatText(x, y + 8, `+${loot} ${RESOURCE_INFO[lootType].name.toLowerCase()}`, RESOURCE_INFO[lootType].color, 160);
     }

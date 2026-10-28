@@ -272,9 +272,17 @@ export class RunState {
     // si parte con la provincia della propria partenza; le milizie con qualcuna attorno
     map.starts.forEach((s, f) => this.claimProvince(f, this.provOf(s)));
     // impero persistente: riprendi il nucleo della campagna precedente (prima delle milizie, dopo le partenze)
-    for (const p of opts.world?.core ?? []) {
-      if (p >= 0 && p < map.provinces.length && this.provOwner[p] === NEUTRAL && this.provPassable(p)) this.claimProvince(PLAYER, p);
+    // solo la parte del nucleo attaccata alla partenza: se la partenza è cambiata (ora si sceglie per nazione) il vecchio
+    // nucleo resterebbe un'isola lontana
+    const core = new Set((opts.world?.core ?? []).filter((p) => p >= 0 && p < map.provinces.length));
+    const linked: number[] = [], seenCore = new Set<number>([this.provOf(map.starts[PLAYER])]), queue = [this.provOf(map.starts[PLAYER])];
+    for (let h = 0; h < queue.length; h++) for (const q of map.provinces[queue[h]].neighbors) {
+      if (!core.has(q) || seenCore.has(q)) continue;
+      seenCore.add(q);
+      queue.push(q);
+      linked.push(q);
     }
+    for (const p of linked) if (this.provOwner[p] === NEUTRAL && this.provPassable(p)) this.claimProvince(PLAYER, p);
     map.starts.forEach((s, f) => {
       if (map.kinds[f] !== 'bot') return;
       let extra = B.provinces[0] - 1 + Math.floor(this.aiRng() * (B.provinces[1] - B.provinces[0] + 1));
