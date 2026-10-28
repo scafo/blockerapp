@@ -12,8 +12,7 @@ import { profileStore } from '../save/profileStore';
 import { analytics } from '../analytics/analytics';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
-import { textStyle } from '../ui/style';
-import { dots, italic, notch } from '../ui/schematic';
+import { OPS, body, chip, dot, frameMarks, label, panel, rule, value } from '../ui/ops';
 import { uiCamera, view } from '../ui/screen';
 import { civImage, coverImage, fade } from '../ui/images';
 
@@ -43,99 +42,148 @@ export class ResultScene extends Phaser.Scene {
 
     const { width, height, portrait: P } = view(this);
     this.cameras.main.setBackgroundColor(PALETTE.inchiostro);
-    // fondo: la potenza in vittoria, un'immagine dell'archivio della Caduta negli altri casi
+    // fondo cinematografico: la potenza in vittoria, un'immagine dell'archivio della Caduta negli altri casi, scurita
     const bg = sum.outcome === 'victory' ? civImage(sum.civ) : ({ retreat: 'load-nave', eliminated: 'load-croce', timeout: 'load-ghiaccio' } as Record<string, string>)[sum.outcome];
-    const img = coverImage(this, bg, 0, 0, width, height, 0.4).setTint(0x9fb4cc).setAlpha(0.7);
-    this.tweens.add({ targets: img, alpha: 0.5, duration: 4000, yoyo: true, repeat: -1 });
-    this.add.rectangle(0, 0, width, height, PALETTE.inchiostro, 0.45).setOrigin(0);
-    fade(this, 0, height * 0.5, width, height * 0.5, PALETTE.inchiostro, 0, 0.8);
-    // verticale: scheda alta con tutto in colonna; orizzontale: scheda larga
-    const W = Math.min(600, width - 32), H = P ? Math.min(520, height - 24) : Math.min(340, height - 24);
-    const x0 = (width - W) / 2, y0 = (height - H) / 2;
-    this.add.rectangle(x0, y0, W, H, PALETTE.inchiostro, 0.92).setOrigin(0).setStrokeStyle(1.5, PALETTE.carta, 0.9);
-    notch(this, x0, y0, 'Rapporto dal fronte');
-    const cx = width / 2;
-    const ink = PALETTE.carta; // testo chiaro sul pannello scuro
-
-    this.add.text(x0 + 16, y0 + 16, `RAPPORTO N° ${profile.runs} · ${sum.civ.toUpperCase()} · FRONTE ${['I', 'II', 'III', 'IV', 'V', 'VI'][sum.front]} · ${sum.campaign.toUpperCase()}`, textStyle(11, PALETTE.ocra));
-    if (unlocked > 0) {
-      const u = this.add.text(width / 2, y0 + H + 8, `NUOVO FRONTE SBLOCCATO: ${['I', 'II', 'III', 'IV', 'V', 'VI'][unlocked]} · ${BALANCE.fronts[unlocked].name.toUpperCase()} — nemici più forti: potenzia l'HQ`,
-        textStyle(12, PALETTE.ocra)).setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(W);
-      this.tweens.add({ targets: u, alpha: 0.5, duration: 700, yoyo: true, repeat: -1 });
-    }
-    // codice della mappa: in verticale sopra il pannello (accanto al rapporto non ci sta)
-    if (P) this.add.text(x0 + W, y0 - 6, `mappa #${sum.seed}`, textStyle(11, PALETTE.tenue, false)).setOrigin(1, 1);
-    else this.add.text(x0 + W - 16, y0 + 16, `mappa #${sum.seed}`, textStyle(11, PALETTE.tenue, false)).setOrigin(1, 0);
-    const color = sum.outcome === 'victory' ? PALETTE.ocra : sum.outcome === 'retreat' ? ink : PALETTE.ruggine;
-    const title = this.add.text(cx, y0 + 50, TITLES[sum.outcome], textStyle(P ? 26 : 34, color)).setOrigin(0.5)
-      .setAlign('center').setWordWrapWidth(W - 24);
-    this.tweens.add({ targets: title, scale: { from: 1.4, to: 1 }, duration: 300, ease: 'Back.easeOut' });
-    const lines = bulletins[sum.outcome];
-    const line = sum.reason ? `${REASONS[sum.reason]}. ` : '';
-    const bulletin = this.add.text(cx, y0 + (P ? 82 : 80), line + lines[Math.floor(Math.random() * lines.length)], textStyle(13, ink, false))
-      .setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(W - 40);
-
-    const sec = Math.floor(sum.timeMs / 1000);
-    const time = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
-    let y = P ? bulletin.y + bulletin.height + 22 : y0 + 136;
-    this.add.text(cx, y, P ? `PROVINCE MAX ${sum.maxProvinces}\nTEMPO ${time}`
-      : `PROVINCE MAX ${sum.maxProvinces}   ·   TEMPO ${time}`, textStyle(13, ink)).setOrigin(0.5).setAlign('center');
-
-    // bottino: portato a casa (e quanto zaino c'era, se è cambiato: bonus vittoria o perdita, Deposito incluso)
-    const had = bagTotal(sum.backpack), kept = bagTotal(sum.kept);
-    // cosa ha cambiato il bottino: vittoria, tassa d'uscita o eliminazione, puntata (moltiplicatore e perdita)
-    const notes: string[] = [];
-    if (sum.outcome === 'victory') notes.push(`+${Math.round(BALANCE.victory.bonus * 100)}% vittoria`);
-    if (sum.feePct) notes.push(`−${sum.feePct}% ${sum.outcome === 'retreat' ? 'ritirata' : 'eliminato'}`);
-    const gm = Math.round(sum.gainMult * 100) / 100;
-    if (gm !== 1 && RESOURCES.some((r) => sum.backpack[r] > sum.stake[r])) notes.push(`guadagno ×${String(gm).replace('.', ',')}`);
-    if (sum.stakeLossPct) notes.push(`puntata −${sum.stakeLossPct}%`);
-    const delta = had && kept !== had ? notes.join(' · ') : '';
-    y += P ? 46 : 26;
+    const img = coverImage(this, bg, 0, 0, width, height, 0.4).setTint(0x9fb4cc).setAlpha(0.55);
+    this.tweens.add({ targets: img, alpha: 0.4, duration: 4000, yoyo: true, repeat: -1 });
+    this.add.rectangle(0, 0, width, height, 0x05070a, 0.5).setOrigin(0);
+    fade(this, 0, 0, width * 0.6, height, 0x05070a, 0.75, 0, 'h');
     const g = this.add.graphics();
-    dots(g, x0 + 16, y - 12, x0 + W - 16, y - 12);
-    this.add.text(cx, y, `bottino portato a casa${delta ? `  (${delta})` : ''}`, italic(12)).setOrigin(0.5);
-    RESOURCES.forEach((r, k) => {
-      // verticale: una risorsa per riga; orizzontale: tre colonne
-      const x = P ? cx - 70 : cx + (k - 1) * Math.min(150, (W - 40) / 3);
-      const ry = P ? y + 32 + k * 40 : y + 30;
-      drawResourceIcon(g, r, x - 46 + (P ? 30 : 0), ry, 8);
-      this.add.text(x - 32 + (P ? 30 : 0), ry, `${sum.kept[r]}`, textStyle(22, ink)).setOrigin(0, 0.5);
-      const note = sum.kept[r] !== sum.backpack[r] ? ` / ${sum.backpack[r]}` : '';
-      this.add.text(x - 32 + (P ? 30 : 0) + (P ? 60 : 0), ry + (P ? 0 : 18), `${RESOURCE_INFO[r].name.toLowerCase()}${note}`, textStyle(P ? 12 : 10, ink, false))
-        .setOrigin(0, 0.5);
-    });
-    y += P ? 32 + 3 * 40 + 6 : 74;
-    // puntata: quanto avevi messo in gioco e com'è andata
-    const staked = bagTotal(sum.stake);
-    if (staked) {
-      const diff = kept - staked;
-      this.add.text(cx, y, `PUNTATA ${staked} → ${kept}  (${diff >= 0 ? '+' : ''}${diff})`, textStyle(13, diff >= 0 ? PALETTE.ocra : PALETTE.ko)).setOrigin(0.5);
-      y += 22;
-    }
-    const s = profile.stash;
-    this.add.text(cx, y, `Deposito: ${s.metallo} metallo · ${s.benzina} benzina · ${s.cibo} cibo${lostCap ? ` · PIENO: perse ${lostCap} (capienza ${stashCap(profile)})` : ''}`,
-      textStyle(11, ink, false)).setOrigin(0.5).setAlign('center').setWordWrapWidth(W - 32);
 
-    // pulsanti: affiancati in orizzontale, impilati e larghi in verticale (comodi col pollice)
-    const bw1 = P ? W - 32 : 250, bw2 = P ? W - 32 : 170;
-    const again = new Button(this, 'RIVINCITA STESSA MAPPA', bw1, 46, () => {
+    // cornice con i crocini
+    const M = P ? 16 : 28, fx = M, fy = M, fw = width - 2 * M, fh = height - 2 * M;
+    frameMarks(g, fx, fy, fw, fh);
+    const pad = P ? 14 : 26, L = fx + pad, R = fx + fw - pad;
+
+    // intestazione: numero del rapporto a sinistra, codice della mappa a destra; sotto, potenza/fronte/durata in riquadri
+    const roman = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+    label(this, L, fy + pad - 4, `Rapporto dal fronte · N° ${profile.runs}`);
+    label(this, R, fy + pad - 4, `mappa #${sum.seed}`).setOrigin(1, 0);
+    let cx = L;
+    for (const c of [sum.civ, `fronte ${roman[sum.front]}`, sum.campaign]) cx += chip(this, g, cx, fy + pad + 18, c) + 6;
+
+    // colonne: esito a sinistra, bottino a destra (in verticale una sotto l'altra)
+    const colW = P ? R - L : Math.min(440, (R - L) * 0.5);
+    const panW = P ? R - L : Math.min(380, (R - L) - colW - 40);
+    const panX = P ? L : R - panW;
+    let y = fy + pad + 62;
+
+    // esito: puntino del suo colore + parola grande
+    const tone = sum.outcome === 'victory' ? OPS.gain : sum.outcome === 'retreat' ? PALETTE.allerta : sum.outcome === 'eliminated' ? OPS.loss : OPS.label;
+    dot(g, L + 3, y + 7, tone);
+    label(this, L + 14, y, 'esito', tone);
+    y += 20;
+    const title = value(this, L - 2, y, TITLES[sum.outcome], P ? 40 : 64).setWordWrapWidth(colW);
+    this.tweens.add({ targets: title, alpha: { from: 0, to: 1 }, x: { from: L - 14, to: L - 2 }, duration: 380, ease: 'Quad.easeOut' });
+    y += title.height + 6;
+    const lines = bulletins[sum.outcome];
+    const reason = sum.reason ? `${REASONS[sum.reason]}. ` : '';
+    const bul = body(this, L, y, reason + lines[Math.floor(Math.random() * lines.length)], 14, OPS.body, colW);
+    y += bul.height + (P ? 16 : 26);
+
+    // due dati della campagna, separati da un filo verticale
+    const sec = Math.floor(sum.timeMs / 1000);
+    const stats: [string, string][] = [['province max', `${sum.maxProvinces}`], ['durata', `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`]];
+    stats.forEach(([k, v], i) => {
+      const sx = L + i * 140;
+      if (i) g.lineStyle(1, OPS.edge, 0.5).lineBetween(sx - 20, y + 2, sx - 20, y + 50);
+      label(this, sx, y, k);
+      value(this, sx, y + 16, v, 30);
+    });
+    y += 66;
+
+    // fronte nuovo: una riga d'avviso con il suo puntino
+    if (unlocked > 0) {
+      dot(g, L + 3, y + 7, OPS.accent);
+      label(this, L + 14, y, `nuovo fronte sbloccato · ${roman[unlocked]}`, OPS.accent);
+      body(this, L, y + 18, `${BALANCE.fronts[unlocked].name}: nemici più forti, potenzia l'HQ.`, 13, OPS.body, colW);
+      y += 52;
+    }
+    const leftEnd = y;
+
+    // ---------- pannello del bottino ----------
+    const py0 = P ? leftEnd + 4 : fy + pad + 62;
+    const ip = 16, IL = panX + ip, IR = panX + panW - ip;
+    const items: (() => void)[] = []; // si disegna dopo aver misurato l'altezza
+    let py = py0 + ip;
+    const at = (h: number) => { const v = py; py += h; return v; };
+    const ty = at(26);
+    items.push(() => { label(this, IL, ty, 'bottino portato a casa'); });
+    // tre risorse: icona, nome, valore grande a destra; "di N" se è cambiato rispetto allo zaino
+    RESOURCES.forEach((r) => {
+      const ry = at(40);
+      items.push(() => {
+        drawResourceIcon(g, r, IL + 9, ry + 14, 8);
+        body(this, IL + 28, ry + 14, RESOURCE_INFO[r].name, 13, OPS.body).setOrigin(0, 0.5);
+        const v = value(this, IR, ry + 14, `${sum.kept[r]}`, 24).setOrigin(1, 0.5);
+        if (sum.kept[r] !== sum.backpack[r]) label(this, IR - v.width - 8, ry + 14, `di ${sum.backpack[r]}`).setOrigin(1, 0.5);
+      });
+    });
+    // cosa ha cambiato il bottino: una riga per voce, col suo colore
+    const mods: [string, string, number][] = [];
+    if (sum.outcome === 'victory') mods.push(['bonus vittoria', `+${Math.round(BALANCE.victory.bonus * 100)}%`, OPS.gain]);
+    if (sum.feePct) mods.push([sum.outcome === 'retreat' ? 'tassa di ritirata' : 'eliminato', `−${sum.feePct}%`, OPS.loss]);
+    const gm = Math.round(sum.gainMult * 100) / 100;
+    if (gm !== 1 && RESOURCES.some((r) => sum.backpack[r] > sum.stake[r])) mods.push(['guadagno oltre la puntata', `×${String(gm).replace('.', ',')}`, OPS.gain]);
+    if (sum.stakeLossPct) mods.push(['puntata persa', `−${sum.stakeLossPct}%`, OPS.loss]);
+    if (mods.length) {
+      const ry = at(14);
+      items.push(() => rule(g, IL, IR, ry + 6));
+      for (const [k, v, c] of mods) {
+        const my = at(28);
+        items.push(() => {
+          body(this, IL, my + 12, k, 13, OPS.body).setOrigin(0, 0.5);
+          value(this, IR, my + 12, v, 16, c).setOrigin(1, 0.5);
+        });
+      }
+    }
+    // puntata: messa in gioco → portata a casa, differenza in verde o rosso
+    const staked = bagTotal(sum.stake), kept = bagTotal(sum.kept);
+    if (staked) {
+      const ry = at(14);
+      items.push(() => rule(g, IL, IR, ry + 6));
+      const sy = at(34);
+      const diff = kept - staked;
+      items.push(() => {
+        label(this, IL, sy + 2, 'puntata');
+        body(this, IL, sy + 16, `${staked} → ${kept}`, 14, OPS.text);
+        value(this, IR, sy + 16, `${diff >= 0 ? '+' : '−'}${Math.abs(diff)}`, 22, diff >= 0 ? OPS.gain : OPS.loss).setOrigin(1, 0.5);
+      });
+    }
+    py += ip;
+    const ph = py - py0;
+    panel(g, panX, py0, panW, ph);
+    items.forEach((f) => f());
+
+    // Deposito: sotto il pannello, piccolo (è lo stato della base, non il risultato)
+    const s = profile.stash;
+    let dy = py0 + ph + 12;
+    label(this, panX, dy, 'deposito');
+    let dx = panX + 84;
+    for (const r of RESOURCES) {
+      drawResourceIcon(g, r, dx + 6, dy + 7, 6);
+      const t = body(this, dx + 18, dy + 7, `${s[r]}`, 12, OPS.body).setOrigin(0, 0.5);
+      dx += 18 + t.width + 16;
+    }
+    if (lostCap) body(this, panX, dy + 20, `Deposito pieno: perse ${lostCap} (capienza ${stashCap(profile)})`, 12, OPS.loss, panW);
+    dy += lostCap ? 40 : 22;
+
+    // pulsanti: in basso a sinistra (in verticale in fondo, larghi per il pollice)
+    const bh = 48, bw1 = P ? R - L : 240, bw2 = P ? R - L : 190;
+    const by = P ? Math.max(dy + 16, fy + fh - pad - bh * 2 - 10) : fy + fh - pad - bh;
+    const again = new Button(this, 'RIVINCITA', bw1, bh, () => {
       analytics.design(['run', 'rivincita', sum.outcome]); // % rivincita dopo una sconfitta
       this.scene.start('Load', { next: 'Run', data: { seed: sum.seed } });
     }).setPrimary();
-    const fresh = new Button(this, 'ACCAMPAMENTO', bw2, 46, () => this.scene.start('Camp'));
-    if (P) {
-      again.setPosition(x0 + 16, y0 + H - 46 - 16 - 46 - 10);
-      fresh.setPosition(x0 + 16, y0 + H - 46 - 16);
-    } else {
-      const bw = bw1 + 12 + bw2;
-      again.setPosition(cx - bw / 2, y0 + H - 46 - 16);
-      fresh.setPosition(cx - bw / 2 + bw1 + 12, y0 + H - 46 - 16);
-    }
+    const fresh = new Button(this, 'ACCAMPAMENTO', bw2, bh, () => this.scene.start('Camp'));
+    again.setPosition(L, by);
+    fresh.setPosition(P ? L : L + bw1 + 12, P ? by + bh + 10 : by);
+    const cap = label(this, L, by - 18, `rivincita: stessa mappa #${sum.seed}`);
     if (sum.tutorial) {
       // dopo la run guidata si va a scoprire l'accampamento (la rivincita genererebbe un'altra mappa)
       again.destroy();
-      fresh.setPosition(cx - bw2 / 2, y0 + H - 46 - 16).setPrimary();
+      cap.destroy();
+      fresh.setPosition(L, P ? by + bh + 10 : by).setPrimary();
       this.tweens.add({ targets: fresh, scale: 1.06, duration: 600, yoyo: true, repeat: -1 });
     }
   }
