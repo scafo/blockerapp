@@ -56,8 +56,8 @@ const MAP_SEL = 0x8fd6ff;
 const CITY_COL = 0x9fd0f5; // città e capitali: azzurro come i nomi della carta
 
 
-/** Punto della linea sul confine: a metà tra una tua casella e quella straniera accanto; (dx, dy) = verso lo straniero. */
-type BorderPt = { x: number; y: number; dx: number; dy: number; i: number; t: number };
+/** Linea d'attacco: il tratto disegnato, le pedine che la tengono, i nemici che fronteggia e i tratti di confine veri. */
+type AttackLine = { pts: { x: number; y: number }[]; ids: number[]; enemies: Set<number>; chains: number[]; key: string };
 
 export class RunScene extends Phaser.Scene {
   state!: RunState;
@@ -150,7 +150,7 @@ export class RunScene extends Phaser.Scene {
   private offensives: { pts: { x: number; y: number }[]; ids: number[] }[] = [];
   private linePts: { x: number; y: number }[] = [];
   private lineGfx!: Phaser.GameObjects.Graphics;
-  private attackLines: { pts: { x: number; y: number }[]; ids: number[]; border?: BorderPt[]; key?: string }[] = [];
+  private attackLines: AttackLine[] = [];
   /** Anteprima del percorso delle pedine selezionate verso il punto sotto il mouse. */
   private hoverTile = -1;
   private hoverAt = 0;
@@ -1184,53 +1184,98 @@ export class RunScene extends Phaser.Scene {
   }
 
   /**
-   * Confine vicino al tratto disegnato (Nico: la linea va sul bordo, come il fronte di HOI4): per ogni tua casella entro
-   * poche caselle dal tratto che tocca una casella non tua, il punto a metà tra le due. Ordinati lungo il tratto.
+   * Confine vero vicino al tratto (Nico: la linea segue il bordo, come il fronte di HOI4): i tratti di confine della carta
+   * (gli stessi disegnati) tra una tua provincia e una non tua, con almeno un punto entro `radius` dal tratto.
+   * `enemies`: solo il confine con questi padroni (la linea resta sul fronte con chi fronteggiava).
    */
-  private borderNear(pts: { x: number; y: number }[]): BorderPt[] {
-    const st = this.state, seen = new Set<number>(), out: BorderPt[] = [];
-    // lunghezza progressiva del tratto, per ordinare i punti
-    const seg: number[] = [0];
-    for (let k = 1; k < pts.length; k++) seg.push(seg[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y));
-    const along = (x: number, y: number) => {
-      let best = Infinity, bt = 0;
+  private frontChains(pts: { x: number; y: number }[], radius: number, enemies?: Set<number>): number[] {
+    const st = this.state, own = st.provOwner, box = this.chainBox, out: number[] = [];
+    let sx0 = Infinity, sy0 = Infinity, sx1 = -Infinity, sy1 = -Infinity;
+    for (const p of pts) { sx0 = Math.min(sx0, p.x); sy0 = Math.min(sy0, p.y); sx1 = Math.max(sx1, p.x); sy1 = Math.max(sy1, p.y); }
+    const near = (x: number, y: number) => {
       for (let k = 1; k < pts.length; k++) {
         const ax = pts[k - 1].x, ay = pts[k - 1].y, vx = pts[k].x - ax, vy = pts[k].y - ay, l2 = vx * vx + vy * vy || 1;
-        const t = Phaser.Math.Clamp(((x - ax) * vx + (y - ay) * vy) / l2, 0, 1), d = Math.hypot(ax + vx * t - x, ay + vy * t - y);
-        if (d < best) { best = d; bt = seg[k - 1] + t * Math.sqrt(l2); }
+        const t = Phaser.Math.Clamp(((x - ax) * vx + (y - ay) * vy) / l2, 0, 1);
+        if (Math.hypot(ax + vx * t - x, ay + vy * t - y) <= radius) return true;
       }
-      return bt;
+      return false;
     };
-    // caselle attorno al tratto (anelli di 3 caselle)
-    const cand = new Set<number>();
-    const stepPx = HEX_W;
-    for (let k = 1; k < pts.length; k++) {
-      const ax = pts[k - 1].x, ay = pts[k - 1].y, d = Math.hypot(pts[k].x - ax, pts[k].y - ay);
-      for (let t = 0; t <= d; t += stepPx) {
-        let ring = [pixelToIndex(ax + ((pts[k].x - ax) * t) / (d || 1), ay + ((pts[k].y - ay) * t) / (d || 1))];
-        for (let r = 0; r < 3; r++) ring = ring.flatMap((i) => (i >= 0 ? [i, ...neighbors(i)] : []));
-        for (const i of ring) if (i >= 0) cand.add(i);
-      }
-    }
-    for (const i of cand) {
-      if (st.owner[i] !== PLAYER) continue;
-      const ns = neighbors(i);
-      for (let k = 0; k < ns.length; k++) {
-        const n = ns[k];
-        if (n < 0 || !this.map.tiles[n] || st.owner[n] === PLAYER || seen.has(i * 8 + k)) continue;
-        seen.add(i * 8 + k);
-        const a = center(i), b = center(n), L = Math.hypot(b.x - a.x, b.y - a.y) || 1, x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;
-        out.push({ x, y, dx: (b.x - a.x) / L, dy: (b.y - a.y) / L, i, t: along(x, y) });
-      }
-    }
-    return out.sort((p, q) => p.t - q.t);
+    this.shapes.chains.forEach((c, k) => {
+      if (c.b < 0 || c.a < 0) return; // costa: niente fronte sul mare
+      const oa = own[c.a], ob = own[c.b];
+      if ((oa === PLAYER) === (ob === PLAYER)) return; // confine interno (o tra due altri)
+      const other = oa === PLAYER ? ob : oa;
+      if (enemies && !enemies.has(other)) return;
+      if (box[k * 4 + 2] < sx0 - radius || box[k * 4] > sx1 + radius || box[k * 4 + 3] < sy0 - radius || box[k * 4 + 1] > sy1 + radius) return;
+      for (let j = 0; j < c.pts.length; j += 2) if (near(c.pts[j], c.pts[j + 1])) { out.push(k); return; }
+    });
+    return out;
   }
 
-  /** Confine di una linea, ricalcolato solo quando il tuo territorio cambia (il fronte segue il bordo che si sposta). */
-  private lineBorder(l: { pts: { x: number; y: number }[]; border?: BorderPt[]; key?: string }): BorderPt[] {
+  /** Punti di un tratto di confine girati in modo che il lato dei denti (−uy, ux) guardi verso lo straniero. */
+  private chainToward(k: number): { x: number; y: number }[] {
+    const c = this.shapes.chains[k], pts: { x: number; y: number }[] = [];
+    for (let j = 0; j < c.pts.length; j += 2) pts.push({ x: c.pts[j], y: c.pts[j + 1] });
+    const mine = this.state.provOwner[c.a] === PLAYER ? c.a : c.b, sh = this.shapes.provinces[mine];
+    if (!sh || pts.length < 2) return pts;
+    const a = pts[0], b = pts[pts.length - 1], m = pts[pts.length >> 1];
+    const ox = (sh.x0 + sh.x1) / 2 - m.x, oy = (sh.y0 + sh.y1) / 2 - m.y; // verso la tua provincia
+    return ox * -(b.y - a.y) + oy * (b.x - a.x) > 0 ? pts.reverse() : pts;
+  }
+
+  /** Posti per `n` pedine: distribuiti lungo il confine della linea, sulla tua casella appena dietro il bordo. */
+  private linePosts(chains: number[], n: number, dir: { x: number; y: number }): number[] {
+    const st = this.state;
+    // tratti in ordine lungo la direzione del disegno, poi un unico percorso a cui si misura la lunghezza
+    const parts = chains.map((k) => this.chainToward(k)).filter((p) => p.length >= 2);
+    const mid = (p: { x: number; y: number }[]) => p[p.length >> 1];
+    parts.sort((p, q) => mid(p).x * dir.x + mid(p).y * dir.y - (mid(q).x * dir.x + mid(q).y * dir.y));
+    const segs: { ax: number; ay: number; bx: number; by: number; l: number }[] = [];
+    for (const p of parts) for (let k = 1; k < p.length; k++) {
+      const l = Math.hypot(p[k].x - p[k - 1].x, p[k].y - p[k - 1].y);
+      if (l) segs.push({ ax: p[k - 1].x, ay: p[k - 1].y, bx: p[k].x, by: p[k].y, l });
+    }
+    const total = segs.reduce((s0, q) => s0 + q.l, 0), used = new Set<number>(), out: number[] = [];
+    for (let k = 0; k < n; k++) {
+      let d = total * (k + 0.5) / n, q = segs[0];
+      for (const sg of segs) { q = sg; if (d <= sg.l) break; d -= sg.l; }
+      if (!q) { out.push(-1); continue; }
+      const t = Math.min(1, d / q.l), x = q.ax + (q.bx - q.ax) * t, y = q.ay + (q.by - q.ay) * t;
+      const ux = (q.bx - q.ax) / q.l, uy = (q.by - q.ay) / q.l;
+      // un passo verso il tuo lato (opposto ai denti), poi la tua casella libera più vicina
+      let i = pixelToIndex(x + uy * HEX_W * 0.9, y - ux * HEX_W * 0.9);
+      if (i < 0 || st.owner[i] !== PLAYER || used.has(i)) {
+        let ring = i >= 0 ? [i] : [pixelToIndex(x, y)];
+        i = -1;
+        for (let r = 0; r < 3 && i < 0; r++) {
+          ring = ring.flatMap((m) => (m >= 0 ? neighbors(m) : []));
+          i = ring.find((m) => m >= 0 && st.owner[m] === PLAYER && !used.has(m)) ?? -1;
+        }
+      }
+      if (i >= 0) used.add(i);
+      out.push(i);
+    }
+    return out;
+  }
+
+  /**
+   * Il confine si è spostato (conquiste, perdite): la linea si ricalcola sul nuovo bordo con gli stessi nemici e le pedine
+   * si ridistribuiscono sui nuovi posti (HOI4: il fronte segue il confine).
+   */
+  private refreshLine(l: AttackLine) {
     const key = `${this.state.player.tiles}|${this.state.player.provinces}`;
-    if (l.key !== key || !l.border) { l.border = this.borderNear(l.pts); l.key = key; }
-    return l.border;
+    if (l.key === key) return;
+    l.key = key;
+    const chains = this.frontChains(l.pts, HEX_W * 8, l.enemies);
+    if (chains.join() === l.chains.join()) return;
+    l.chains = chains;
+    if (!chains.length) return;
+    const units = l.ids.map((id) => this.state.units.find((u) => u.id === id)).filter((u): u is Unit => !!u && u.post >= 0);
+    const a = l.pts[0], b = l.pts[l.pts.length - 1], L = Math.hypot(b.x - a.x, b.y - a.y) || 1, dir = { x: (b.x - a.x) / L, y: (b.y - a.y) / L };
+    const proj = (u: Unit) => { const c = center(u.tile); return c.x * dir.x + c.y * dir.y; };
+    const sorted = units.sort((u, v) => proj(u) - proj(v)), posts = this.linePosts(chains, sorted.length, dir);
+    const pairs = sorted.map((u, k) => ({ u, i: posts[k] })).filter((x) => x.i >= 0 && x.u.post !== x.i);
+    if (pairs.length) this.state.holdLine(pairs.map((x) => x.u), pairs.map((x) => x.i));
   }
 
   /**
@@ -1256,18 +1301,12 @@ export class RunScene extends Phaser.Scene {
       const t = seg[k] > seg[k - 1] ? (d - seg[k - 1]) / (seg[k] - seg[k - 1]) : 0;
       return { x: pts[k - 1].x + (pts[k].x - pts[k - 1].x) * t, y: pts[k - 1].y + (pts[k].y - pts[k - 1].y) * t };
     };
-    // la linea sta sul confine: i posti sono tue caselle di bordo, distribuite lungo il confine trovato
-    const border = this.borderNear(pts);
-    if (!border.length) { this.drawAttackLines(); return this.failFx(pts[0].x, pts[0].y, 'traccia la linea sul confine'); }
-    const tiles = [...new Set(border.map((q) => q.i))];
-    const used = new Set<number>(), posts: number[] = [];
-    for (let k = 0; k < n; k++) {
-      let j = Math.round(n === 1 ? (tiles.length - 1) / 2 : ((tiles.length - 1) * k) / (n - 1));
-      while (used.has(tiles[j]) && j < tiles.length - 1) j++;
-      const i = used.has(tiles[j]) ? -1 : tiles[j];
-      if (i >= 0) used.add(i);
-      posts.push(i);
-    }
+    // la linea sta sul confine vero: i tratti di confine vicini al tratto disegnato
+    const px = UI() / this.cameras.main.zoom, chains = this.frontChains(pts, Math.max(HEX_W * 2.5, 24 * px));
+    if (!chains.length) { this.drawAttackLines(); return this.failFx(pts[0].x, pts[0].y, 'traccia la linea sul confine'); }
+    const a0 = pts[0], b0 = pts[pts.length - 1], L0 = Math.hypot(b0.x - a0.x, b0.y - a0.y) || 1;
+    const posts = this.linePosts(chains, n, { x: (b0.x - a0.x) / L0, y: (b0.y - a0.y) / L0 });
+    const enemies = new Set(chains.map((k) => { const c = this.shapes.chains[k]; return this.state.provOwner[c.a] === PLAYER ? this.state.provOwner[c.b] : this.state.provOwner[c.a]; }));
     // ordine lungo la linea: proiezione di ogni pedina sulla direzione dal primo all'ultimo punto
     const a = pts[0], b = pts[pts.length - 1], dx = b.x - a.x, dy = b.y - a.y;
     const proj = (u: Unit) => { const c = center(u.tile); return (c.x - a.x) * dx + (c.y - a.y) * dy; };
@@ -1278,7 +1317,7 @@ export class RunScene extends Phaser.Scene {
     const ids = pairs.map((x) => x.u.id);
     // una pedina sta su una linea sola: quelle riassegnate escono dalle linee vecchie
     for (const l of this.attackLines) l.ids = l.ids.filter((id) => !ids.includes(id));
-    this.attackLines.push({ pts, ids });
+    this.attackLines.push({ pts, ids, enemies, chains, key: `${this.state.player.tiles}|${this.state.player.provinces}` });
     const m = at(L / 2);
     this.floatText(m.x, m.y - 6, sent > 1 ? `in linea · ${sent}` : 'in linea', MAP_SEL);
     sfx('order');
@@ -1330,34 +1369,13 @@ export class RunScene extends Phaser.Scene {
         acc = (acc + d) % step;
       }
     };
-    // linea sul confine: i punti del bordo uniti in tratti (si spezza dove il confine salta), un po' ammorbiditi,
-    // girati in modo che i denti guardino verso lo straniero
-    const front = (bp: BorderPt[], alpha: number) => {
-      const gap = HEX_W * 2.2;
-      let piece: BorderPt[] = [];
-      const flush = () => {
-        if (piece.length >= 2) {
-          let pts = piece.map((q, k) => {
-            const a = piece[Math.max(0, k - 1)], c = piece[Math.min(piece.length - 1, k + 1)];
-            return { x: (a.x + q.x * 2 + c.x) / 4, y: (a.y + q.y * 2 + c.y) / 4 };
-          });
-          // lato dei denti = (−uy, ux) del verso del tratto: se lo straniero sta dall'altra parte si inverte
-          const ux = pts[pts.length - 1].x - pts[0].x, uy = pts[pts.length - 1].y - pts[0].y;
-          const side = piece.reduce((s0, q) => s0 + q.dx * -uy + q.dy * ux, 0);
-          if (side < 0) pts = pts.reverse();
-          stroke(pts, alpha);
-        }
-        piece = [];
-      };
-      for (const q of bp) {
-        const last = piece[piece.length - 1];
-        if (last && Math.hypot(q.x - last.x, q.y - last.y) > gap) flush();
-        piece.push(q);
-      }
-      flush();
-    };
-    for (const l of this.attackLines) front(this.lineBorder(l), 0.8);
-    if (this.linePts.length) front(this.borderNear(this.linePts), 1); // mentre si traccia: il confine che verrà preso
+    // linea sul confine vero: ogni tratto di confine col tratto pieno e i denti verso lo straniero
+    for (const l of this.attackLines) {
+      this.refreshLine(l);
+      for (const k of l.chains) stroke(this.chainToward(k), 0.85);
+    }
+    // mentre si traccia: il confine che verrà preso
+    if (this.linePts.length > 1) for (const k of this.frontChains(this.linePts, Math.max(HEX_W * 2.5, 24 * px))) stroke(this.chainToward(k), 1);
     // offensive: freccia larga con la punta, finché qualche pedina è ancora in marcia
     this.offensives = this.offensives.filter((o) => (o.ids = o.ids.filter((id) => this.state.units.some((u) => u.id === id && u.goal >= 0))).length > 0);
     // offensiva: fusto di due file di quadratini e punta a gradini (chevron di quadratini)
