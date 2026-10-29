@@ -51,6 +51,7 @@ export interface TermFrame {
   landDots?: string;
   /** colore di riempimento → colore del confine: la linea va sull'ultimo puntino del territorio */
   edges?: Record<string, string>;
+  coasts?: Record<string, string>; // bordo sulla costa (se manca: come edges)
   /** linea del fronte: il bordo di `front.own` che tocca uno dei colori `front.war` diventa tratteggiato in `front.color` */
   front?: { own: string[]; war: string[]; color: string };
   /** COSTRUISCI: linee tra le tue province */

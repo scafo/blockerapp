@@ -865,11 +865,15 @@ export class RunScene extends Phaser.Scene {
     }
     // confine di ogni territorio: l'ultimo puntino del riempimento, nel colore di confine della potenza (il tuo: blu)
     frame.edges = {};
+    frame.coasts = {};
     // potenze IA: il colore del confine schiarito verso il bianco, se no sul riempimento dello stesso colore non si vedeva (Nico)
     const bright = (c: number) => Phaser.Display.Color.Interpolate.ColorWithColor(Phaser.Display.Color.ValueToColor(c), Phaser.Display.Color.ValueToColor(0xffffff), 100, 55);
     for (let f = 0; f < FACTION_INFO.length; f++) {
       const b = bright(FACTION_INFO[f].border);
       frame.edges[hex(FACTION_INFO[f].fill)] = f === PLAYER ? PLAYER_EDGE : hex(Phaser.Display.Color.GetColor(b.r, b.g, b.b));
+      // costa: il riempimento della potenza scurito (il bordo chiaro sul mare chiaro non si vedeva: Nico, "non accerchia")
+      const dk = Phaser.Display.Color.Interpolate.ColorWithColor(Phaser.Display.Color.ValueToColor(FACTION_INFO[f].fill), Phaser.Display.Color.ValueToColor(0x000000), 100, 50);
+      frame.coasts[hex(FACTION_INFO[f].fill)] = f === PLAYER ? PLAYER_EDGE : hex(Phaser.Display.Color.GetColor(dk.r, dk.g, dk.b)); // riempimento scurito
     }
     if (this.logistics) for (const c of LOGI_COLS) frame.edges[c] = PLAYER_EDGE;
     if (this.logistics) frame.same = LOGI_COLS; // le sfumature del tuo territorio: un confine solo attorno, niente linee dentro

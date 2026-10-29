@@ -67,6 +67,7 @@ export class WorldMap {
   private cfgKey = '';
   private grp: number[] = [];
   private edgeOf: number[] = [];
+  private coastOf: number[] = []; // colore del bordo sulla costa (più scuro del bordo verso terra, si vede sul mare)
   private ownT: boolean[] = [];
   private warT: boolean[] = [];
   private nearFront: boolean[] = [];
@@ -401,6 +402,7 @@ export class WorldMap {
       const pal = this.pal;
       this.fillInt = pal.map((c) => this.rgba(c));
       this.edgeOf = pal.map((c) => { const e = frame.edges?.[c]; return e ? this.rgba(e) : 0; });
+      this.coastOf = pal.map((c) => { const e = frame.coasts?.[c]; return e ? this.rgba(e) : 0; });
       this.ownT = pal.map((c) => !!F?.own.includes(c));
       this.warT = pal.map((c) => !!F?.war.includes(c));
       const rgb = (c: string) => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
@@ -417,7 +419,7 @@ export class WorldMap {
       // colori nuovi (stesse regole): solo gli indici in più
       for (let i = this.fillInt.length; i < this.pal.length; i++) {
         const c = this.pal[i];
-        this.fillInt.push(this.rgba(c)); this.edgeOf.push(frame.edges?.[c] ? this.rgba(frame.edges[c]) : 0);
+        this.fillInt.push(this.rgba(c)); this.edgeOf.push(frame.edges?.[c] ? this.rgba(frame.edges[c]) : 0); this.coastOf.push(frame.coasts?.[c] ? this.rgba(frame.coasts[c]) : 0);
         this.ownT.push(!!F?.own.includes(c)); this.warT.push(!!F?.war.includes(c)); this.nearFront.push(false); this.grp.push(i);
       }
     }
@@ -494,17 +496,10 @@ export class WorldMap {
         if (n !== -2) land = true; // confine con un'altra terra (non solo mare)
         if (n >= 0 && war[n]) front = true;
       }
-      // isole e penisole sottili (1–2 puntini): col solo mare attorno sarebbero tutte bordo, macchie blu senza colore dentro.
-      // Lì niente linea di costa: prendono il colore del territorio
-      if (edge && !land) {
-        // sottile = mare da tutti e due i lati (entro 2 puntini) lungo almeno una direzione
-        const sea = (x: number, y: number) => g(x, y) === -2;
-        for (const [ax, ay] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
-          if ((sea(X - ax, Y - ay) || sea(X - 2 * ax, Y - 2 * ay)) && (sea(X + ax, Y + ay) || sea(X + 2 * ax, Y + 2 * ay))) return 0;
-        }
-        if (same <= 3) return 0;
-      }
-      return !edge ? 0 : front && own[t] ? 2 : 1;
+      // costa (bordo solo verso il mare): 3, disegnata col colore pieno della potenza (il chiaro sul mare chiaro spariva)
+      // isoletta di 1–2 puntini in mezzo al mare: tutta colore (sarebbe un puntino di solo bordo, non interrompe nessuna linea)
+      if (edge && !land && same <= 1) return 0;
+      return !edge ? 0 : front && own[t] ? 2 : land ? 1 : 3;
     };
     for (let Y = y0; Y < y1; Y++) for (let X = x0; X < x1; X++) {
       const k = Y * W + X, p = prov[k];
@@ -523,6 +518,7 @@ export class WorldMap {
           const e = this.edgeOf[c] ? edgeAt(X, Y, t) : 0;
           if (e === 2) out = this.nearFront[c] ? this.frontB : this.frontA;
           else if (e === 1) out = this.edgeOf[c];
+          else if (e === 3) out = this.coastOf[c] || this.edgeOf[c];
           else {
             out = this.fillInt[c];
             // muro: seconda fila bianca dietro il confine
