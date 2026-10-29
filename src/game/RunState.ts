@@ -54,6 +54,7 @@ export type RunEvent =
   | { type: 'encircled'; by: number; from: number; provinces: number[] }
   | { type: 'battle'; phase: 'start' | 'won' | 'lost' | 'off'; battle: Battle }
   | { type: 'capital'; faction: number; p: number }
+  | { type: 'upkeep'; res: Resource }
   | { type: 'hit'; from: number; to: number; fromTile: number; toTile: number; dmg: number; owner: number };
 
 export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'timeout';
@@ -166,6 +167,11 @@ export class RunState {
   private railBy: Int8Array;
   /** Rancio: frazione di cibo mangiata dall'esercito e non ancora tolta dallo zaino. */
   private foodAcc = 0;
+  private upkeepAcc: Bag = { metallo: 0, benzina: 0, cibo: 0 };
+  /** Risorse che mancano per mantenere le pedine (le pedine che le usano si logorano). */
+  unpaid: Record<Resource, boolean> = { metallo: false, benzina: false, cibo: false };
+  private provRich: Float32Array; // ricchezza della provincia (× produzione)
+  private provDeposit: Int8Array; // giacimento: indice della risorsa in RESOURCE_KEYS, −1 = nessuno
   units: Unit[] = [];
   battles: Battle[] = [];
   private nextBattleId = 1;
@@ -259,6 +265,10 @@ export class RunState {
     // economia per provincia: crescita pesata dal terreno, risorsa del terreno prevalente
     const T = BALANCE.terrain;
     this.provGrowthW = Float32Array.from(map.provinces, (p) => p.tiles.reduce((s, i) => s + T[map.tiles[i]!.terrain].growth, 0));
+    // ricchezza e giacimenti: fissi per mappa (stesso seme = stesse province ricche)
+    const PE = BALANCE.provinceEconomy, ecoRng = createRng(map.seed + ':economia');
+    this.provRich = Float32Array.from(map.provinces, () => PE.rich[0] + ecoRng() * (PE.rich[1] - PE.rich[0]));
+    this.provDeposit = Int8Array.from(map.provinces, (p) => (p.tiles.length && ecoRng() < PE.depositShare ? RESOURCE_KEYS.indexOf(T[p.terrain].res) : -1));
     // città: solo quelle della carta (`places.json`, sparse su tutto il mondo), le aggiunge la scena con setCities.
     // Prima valevano anche tutte le capitali delle nazioni: quasi tutte in Europa, che diventava la zona più ricca (Nico)
     this.worksBuilt = map.starts.map(() => 0);
@@ -420,6 +430,24 @@ export class RunState {
     if (whole <= 0) return;
     this.foodAcc -= whole;
     this.player.loot.cibo = Math.max(0, this.player.loot.cibo - whole);
+    this.payUpkeep();
+  }
+
+  /** Le pedine consumano la loro risorsa dallo zaino; se manca, quelle pedine restano senza rifornimento pieno. */
+  private payUpkeep() {
+    const need = this.upkeepPerMin(), dt = BALANCE.tick.ms / 60_000;
+    for (const r of RESOURCE_KEYS) {
+      this.incomeTick[PLAYER][r] -= need[r] * dt; // l'HUD mostra l'entrata netta
+      this.upkeepAcc[r] += need[r] * dt;
+      const whole = Math.floor(this.upkeepAcc[r]);
+      if (whole > 0) {
+        this.upkeepAcc[r] -= whole;
+        const short = this.player.loot[r] < whole;
+        if (short && !this.unpaid[r]) this.events.push({ type: 'upkeep', res: r }); // avviso una volta, quando comincia a mancare
+        this.unpaid[r] = short;
+        this.player.loot[r] = Math.max(0, this.player.loot[r] - whole);
+      } else if (need[r] === 0) this.unpaid[r] = false;
+    }
   }
 
   /** Un tick di crescita: soldati nel pool, lavoratori in risorse nello zaino. */
@@ -503,6 +531,24 @@ export class RunState {
     for (const p of provs) if (p >= 0) this.cityProv.add(p);
   }
 
+  /** Giacimento della provincia (risorsa), null se non ce l'ha. */
+  deposit(p: number): Resource | null {
+    const d = this.provDeposit[p];
+    return d >= 0 ? RESOURCE_KEYS[d] : null;
+  }
+
+  /** Mantenimento al minuto delle pedine del giocatore, per risorsa. */
+  upkeepPerMin(): Bag {
+    const out: Bag = { metallo: 0, benzina: 0, cibo: 0 };
+    if (this.opts.tutorial) return out;
+    for (const u of this.units) {
+      if (u.owner !== PLAYER) continue;
+      const U = BALANCE.units[u.type];
+      out[U.res] += U.resCost * BALANCE.upkeep.perResCost * u.size;
+    }
+    return out;
+  }
+
   /** Città: province con più valore (città vere della carta e capitali delle nazioni): producono di più e premiano di più. */
   isCity(p: number): boolean {
     return this.cityProv.has(p);
@@ -511,9 +557,11 @@ export class RunState {
   /** Produzione al minuto (60% risorsa del terreno, 20% ciascuna le altre; città × cityMult, fabbrica ×, raffineria/fattoria +). */
   private provMade(p: number, ready: WorkDef | null): Bag {
     const E = BALANCE.economy, prov = this.map.provinces[p], T = BALANCE.terrain[prov.terrain];
-    const total = T.perMin * E.totalMult * (this.cityProv.has(p) ? E.cityMult : 1) * (ready?.prodMult ?? 1);
+    const total = T.perMin * E.totalMult * (this.cityProv.has(p) ? E.cityMult : 1) * this.provRich[p] * (ready?.prodMult ?? 1);
     const out: Bag = { metallo: 0, benzina: 0, cibo: 0 };
     for (const r of RESOURCE_KEYS) out[r] = total * (r === T.res ? E.mainShare : (1 - E.mainShare) / 2);
+    const dep = this.provDeposit[p];
+    if (dep >= 0) out[RESOURCE_KEYS[dep]] += BALANCE.provinceEconomy.depositPerMin * (ready?.prodMult ?? 1); // giacimento
     if (ready?.res && ready.prodAdd) out[ready.res] += ready.prodAdd;
     return out;
   }
@@ -1494,6 +1542,11 @@ export class RunState {
 
   /** Rifornimento della pedina: quello della provincia se è tua, poco fuori dal confine cala, lontano finisce. */
   private unitSupply(u: Unit): number {
+    const paid = u.owner === PLAYER && this.unpaid[BALANCE.units[u.type].res] ? BALANCE.upkeep.unpaidSupply : 1; // mantenimento non pagato
+    return this.baseUnitSupply(u) * paid;
+  }
+
+  private baseUnitSupply(u: Unit): number {
     if (isNaval(u.type) || !this.map.tiles[u.tile]) return 1; // le navi si riforniscono in mare
     const O = BALANCE.unitOps, p = this.provOf(u.tile), provs = this.map.provinces;
     if (this.provOwner[p] === u.owner) return this.supply[p];
@@ -1807,9 +1860,24 @@ export class RunState {
 
   /** Bersaglio di una pedina IA: il nemico più vicino; le milizie solo entro un raggio da casa (difendono la loro zona). */
   private unitTarget(f: Faction, from: number): number {
-    const t = this.nearestEnemyTile(f.id, from);
-    if (f.kind !== 'bot' || t < 0) return t;
-    return hexDistance(t, this.map.starts[f.id]) <= BALANCE.bots.unitRadius ? t : -1;
+    if (f.kind !== 'bot') return this.nearestEnemyTile(f.id, from);
+    // milizia: difende la sua zona. Prima le pedine nemiche che ci entrano, poi le tue province vicine a casa sua
+    // (gli imperi non li va a cercare: con le pedine li distruggeva nei primi minuti)
+    const home = this.map.starts[f.id], B = BALANCE.bots;
+    let best = -1, bd = Infinity;
+    for (const v of this.units) {
+      if (v.owner === f.id || !this.atWar(f.id, v.owner) || hexDistance(v.tile, home) > B.unitRadius) continue;
+      const d = hexDistance(v.tile, from);
+      if (d < bd) { bd = d; best = v.tile; }
+    }
+    if (best >= 0) return best;
+    if (this.opts.tutorial || this.gameTimeMs < this.opts.front.graceMs) return -1;
+    for (const p of this.frontier(f.id)) {
+      if (this.provOwner[p] !== PLAYER) continue;
+      const a = this.map.provinces[p].anchor, d = hexDistance(a, home);
+      if (d <= B.homeRadius && d < bd) { bd = d; best = a; }
+    }
+    return best;
   }
 
   /** Centro della provincia nemica (in guerra) più vicina, −1 se nessuna: si cerca tra le province, non tra le caselle. */

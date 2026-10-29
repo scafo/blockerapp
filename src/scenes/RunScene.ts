@@ -334,6 +334,8 @@ export class RunScene extends Phaser.Scene {
           this.lostFx(e.p, e.by);
           sfx('lost');
         }
+      } else if (e.type === 'upkeep') {
+        this.hud.onUpkeep(e.res);
       } else if (e.type === 'unitDied') {
         this.unitDeathFx(e.unit);
       } else if (e.type === 'province') {

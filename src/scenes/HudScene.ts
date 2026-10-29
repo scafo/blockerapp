@@ -926,6 +926,11 @@ export class HudScene extends Phaser.Scene {
   }
 
   /** Bigliettini impilati nell'angolo in alto a destra, sotto le potenze (il più nuovo in cima); in verticale al centro. */
+  /** Mantenimento: manca una risorsa per le pedine. */
+  onUpkeep(res: Resource) {
+    this.toast(`MANCA ${RESOURCE_INFO[res].name.toUpperCase()}: LE PEDINE CHE LO USANO SI LOGORANO`, PALETTE.ko);
+  }
+
   private toast(msg: string, color: number) {
     const { width } = view(this);
     const w = this.portrait ? width - 2 * PAD : Math.min(300, width / 3);
@@ -1263,7 +1268,8 @@ export class HudScene extends Phaser.Scene {
       // assalto in corso nella riga sotto il titolo (niente righe in più: la scheda resta bassa)
       const bt = !own ? st.battleAt(p) : null;
       const battleTxt = bt ? ` · assalto ${Math.max(0, Math.ceil((bt.endMs - st.gameTimeMs) / 1000))} s` : '';
-      title(nation, `${terrainName}${st.isCity(p) ? ' · città' : ''} · ${ownerName}${relTxt}${battleTxt}`); // niente simbolo davanti (Nico): titolo e riga allineati a sinistra
+      const dep = st.deposit(p), depTxt = dep ? ` · giacimento di ${RESOURCE_INFO[dep].name.toLowerCase()}` : ''; // province diverse (Nico)
+      title(nation, `${terrainName}${st.isCity(p) ? ' · città' : ''}${depTxt} · ${ownerName}${relTxt}${battleTxt}`); // niente simbolo davanti (Nico): titolo e riga allineati a sinistra
       // scheda della potenza: link piccolo nell'intestazione, accanto alla ✕
       if (o > PLAYER && seen) {
         const link = this.add.text(W - M - 28, 16, 'scheda ›', termStyle(11, TCOL.label)).setOrigin(1, 0).setInteractive({ useHandCursor: true });

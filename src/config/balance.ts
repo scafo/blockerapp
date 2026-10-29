@@ -139,6 +139,12 @@ export const BALANCE = {
   // (2026-10-28, Nico) ogni provincia dà tutte e tre: 60% la risorsa del terreno, 20% ciascuna le altre; totale = perMin × totalMult
   // (le città valgono cityMult volte una provincia normale)
   economy: { mainShare: 0.6, totalMult: 1.5, cityMult: 2.5, startStock: { metallo: 40, benzina: 30, cibo: 40 }, growthKnee: 100, growthExp: 0.35 },
+  // Province diverse (Nico): ognuna rende un po' di più o di meno (rich, fisso per mappa); alcune hanno un giacimento della
+  // risorsa del loro terreno (miniera, pozzo, granaio) che rende molto di più. Province più ricche = bersagli che valgono.
+  provinceEconomy: { rich: [0.55, 1.6] as [number, number], depositShare: 0.08, depositPerMin: 1.2 },
+  // Mantenimento (Nico: le risorse devono servire): ogni pedina consuma al minuto la sua risorsa (resCost × perResCost × reparti).
+  // Se nello zaino manca, le pedine di quella risorsa hanno il rifornimento dimezzato: si logorano e non si curano.
+  upkeep: { perResCost: 0.06, unpaidSupply: 0.5 },
   // Vittoria: più province di tutti allo scadere, o prima se cadono i tre imperi rivali.
   victory: {
     bonus: 0.5, // +50% dello zaino in caso di vittoria
