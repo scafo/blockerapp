@@ -97,6 +97,9 @@ export class HudScene extends Phaser.Scene {
   private medalPanel: Phaser.GameObjects.Container | null = null;
   private audioBtn!: Button; // impostazioni audio (Nico): accanto alla medaglia
   private audioPanel: Phaser.GameObjects.Container | null = null;
+  private groupBar: Phaser.GameObjects.Container | null = null; // gruppi (armate) alla HOI4, in alto accanto ai tasti
+  private groupBarKey = '';
+  private groupBarRect = { x: 0, y: 0, w: 0, h: 0 };
   private medalAcc = 0;
   private symPos: { x: number; y: number }[] = [];
   private unitPos: ({ x: number; y: number } | null)[] = [];
@@ -629,8 +632,11 @@ export class HudScene extends Phaser.Scene {
     if ((this.incAcc -= delta) <= 0) {
       this.incAcc = 1000;
       const inc = st.incomePerMin();
-      RESOURCES.forEach((r, k) => this.incTexts[k].setText(inc[r] >= 0.05 ? `+${inc[r].toFixed(1).replace('.', ',')}/min` : ''));
+      // entrata netta (mantenimento delle pedine compreso): in rosso se si consuma più di quanto si produce
+      RESOURCES.forEach((r, k) => this.incTexts[k].setText(Math.abs(inc[r]) >= 0.05 ? `${inc[r] > 0 ? '+' : '−'}${Math.abs(inc[r]).toFixed(1).replace('.', ',')}/min` : '')
+        .setColor(hex(inc[r] < 0 ? TCOL.alert : TCOL.ok)));
     }
+    this.drawGroupBar();
     if (!this.buildHint && !st.opts.tutorial && st.gameTimeMs > 40_000) {
       this.buildHint = true; // una volta per campagna, se non hai ancora costruito niente
       const msg = 'Tocca una tua provincia per costruire:\nfabbrica, fortificazione, caserma.';
@@ -1327,6 +1333,48 @@ export class HudScene extends Phaser.Scene {
     this.hint.setVisible(false);
   }
 
+  /**
+   * Barra dei gruppi (armate alla HOI4): una scheda per gruppo (numero, pedine, cosa fanno), si tocca per selezionarlo
+   * (due volte: la carta lo inquadra); + GRUPPO fa un gruppo delle pedine selezionate. Ctrl/Maiusc + numero fa lo stesso.
+   */
+  private drawGroupBar() {
+    if (this.run.state.opts.tutorial) return;
+    const list = this.run.groupList(), sel = this.run.selectedCount;
+    const key = `${list.map((g) => `${g.n}:${g.count}:${g.state}:${g.selected ? 1 : 0}`).join(',')}|${sel > 0 ? 1 : 0}|${this.audioBtn.x}|${this.audioBtn.y}`;
+    if (key === this.groupBarKey) return;
+    this.groupBarKey = key;
+    this.groupBar?.destroy();
+    const { width } = view(this), portrait = view(this).portrait;
+    const x0 = portrait ? PAD : this.audioBtn.x + 50, y0 = portrait ? this.topBottom + 8 : this.audioBtn.y;
+    const H = 44, CW = 70, items: Phaser.GameObjects.GameObject[] = [], g = this.add.graphics();
+    items.push(g);
+    let x = 0;
+    const STATE_COL: Record<string, number> = { offensiva: TCOL.accent, combatte: TCOL.alert, 'in linea': TCOL.ok, fronte: TCOL.ok, 'in marcia': TCOL.text, fermo: TCOL.label };
+    for (const gr of list) {
+      if (x0 + x + CW > width - PAD - 140) break; // non sopra i tasti a destra
+      termBox(g, x, 0, CW, H, 0.92);
+      if (gr.selected) g.lineStyle(2, TCOL.text, 1).strokeRect(x + 1, 1, CW - 2, H - 2);
+      const hit = this.add.rectangle(x, 0, CW, H, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true });
+      const n = gr.n;
+      hit.on('pointerup', () => { sfx('select'); this.run.selectGroup(n); });
+      items.push(hit,
+        this.add.text(x + 8, 5, ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'][n], termStyle(16, TCOL.text)),
+        this.add.text(x + CW - 7, 7, `×${gr.count}`, termStyle(11, TCOL.label)).setOrigin(1, 0),
+        this.add.text(x + 8, H - 6, gr.state, termStyle(11, STATE_COL[gr.state] ?? TCOL.label)).setOrigin(0, 1));
+      x += CW + 6;
+    }
+    // + GRUPPO: acceso se ci sono pedine selezionate
+    const on = sel > 0, PW = 82;
+    termBox(g, x, 0, PW, H, 0.92);
+    const plus = this.add.text(x + PW / 2, H / 2, '+ GRUPPO', termStyle(11, on ? TCOL.text : TCOL.dim)).setOrigin(0.5);
+    const hitP = this.add.rectangle(x, 0, PW, H, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: on });
+    hitP.on('pointerup', () => { if (on) { sfx('order'); this.run.makeGroup(); } else this.notify('seleziona prima le pedine', PALETTE.ko); });
+    items.push(plus, hitP);
+    x += PW;
+    this.groupBar = this.add.container(x0, y0, items).setDepth(20);
+    this.groupBarRect = { x: x0, y: y0, w: x, h: H };
+  }
+
   hitUi(x: number, y: number, layoutOnly = false): boolean {
     if (!layoutOnly && (this.ended || this.eventCard)) return true;
     if (layoutOnly && y > this.hint.y - 4 && y < this.hint.y + 60 && Math.abs(x - this.hint.x) < 200) return true; // etichetta della guida
@@ -1335,6 +1383,8 @@ export class HudScene extends Phaser.Scene {
       return x >= rx && x <= rx + r.width && y >= ry && y <= ry + r.height;
     };
     if (inRect(this.leftPanel) || inRect(this.rightPanel)) return true;
+    const gb = this.groupBarRect;
+    if (this.groupBar && x >= gb.x && x <= gb.x + gb.w && y >= gb.y && y <= gb.y + gb.h) return true; // barra dei gruppi
     if (this.pauseUi && inRect(this.pauseUi.list[0] as Phaser.GameObjects.Rectangle, this.pauseUi.x, this.pauseUi.y)) return true;
     if (this.provCard && inRect(this.provCard.list[0] as Phaser.GameObjects.Rectangle, this.provCard.x, this.provCard.y)) return true;
     if (this.profile && inRect(this.profile.list[0] as Phaser.GameObjects.Rectangle, this.profile.x, this.profile.y)) return true;

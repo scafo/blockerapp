@@ -10,7 +10,7 @@ import { recoverStake, runOptions, settle, type RunOptions } from '../game/camp'
 import { loadProfile, saveProfile } from '../save/storage';
 import { analytics } from '../analytics/analytics';
 import { PALETTE, TERRAIN_VIEW, hex } from '../config/palette';
-import { TERM, type TermFrame } from '../render/TerminalMap';
+import { TERM, TERM_FONT, type TermFrame } from '../render/TerminalMap';
 import { generateMap, type RunMap } from '../map/generate';
 import { neighbors, HEX_W, WORLD_H, WORLD_W, center, pixelToIndex } from '../map/hexGrid';
 import { buildShapes, provinceAtPoint, type MapShapes } from '../map/provinceShapes';
@@ -57,6 +57,7 @@ const CITY_COL = 0x9fd0f5; // città e capitali: azzurro come i nomi della carta
 
 
 /** Linea d'attacco: il tratto disegnato, le pedine che la tengono, i nemici che fronteggia e i tratti di confine veri. */
+const ROMAN_N = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'];
 type AttackLine = { pts: { x: number; y: number }[]; ids: number[]; enemies: Set<number>; chains: number[]; key: string };
 
 export class RunScene extends Phaser.Scene {
@@ -125,9 +126,13 @@ export class RunScene extends Phaser.Scene {
   private selectedUnit: number | null = null;
   /** Selezione alla HOI4: più pedine insieme (riquadro con Maiusc + trascina, Maiusc + clic per aggiungere). */
   private selection = new Set<number>();
+  /** Pedine selezionate (la barra dei gruppi accende + GRUPPO). */
+  get selectedCount(): number {
+    return this.selection.size;
+  }
   private box: { x0: number; y0: number; x1: number; y1: number } | null = null;
   private boxGfx!: Phaser.GameObjects.Graphics;
-  private unitSprites = new Map<number, { c: Phaser.GameObjects.Container; hp: Phaser.GameObjects.Graphics; badge: Phaser.GameObjects.Graphics; badgeKey: string; tile: number; hpShown: number; pop: { k: number } }>();
+  private unitSprites = new Map<number, { c: Phaser.GameObjects.Container; hp: Phaser.GameObjects.Graphics; badge: Phaser.GameObjects.Graphics; badgeKey: string; tile: number; hpShown: number; pop: { k: number }; tag?: Phaser.GameObjects.Text }>();
   /** Gruppi salvati (Ctrl o Maiusc + numero salva, numero richiama), come in HOI4. */
   private groups = new Map<number, number[]>();
   private lastGroupKey = { n: -1, at: 0 };
@@ -151,6 +156,7 @@ export class RunScene extends Phaser.Scene {
   private linePts: { x: number; y: number }[] = [];
   private lineGfx!: Phaser.GameObjects.Graphics;
   private attackLines: AttackLine[] = [];
+  private lineTags: Phaser.GameObjects.Text[] = []; // numero del gruppo su linee e frecce
   /** Anteprima del percorso delle pedine selezionate verso il punto sotto il mouse. */
   private hoverTile = -1;
   private hoverAt = 0;
@@ -307,6 +313,7 @@ export class RunScene extends Phaser.Scene {
     this.arrowPts = [];
     this.offensives = [];
     this.lineGfx = this.add.graphics().setDepth(D.path);
+    this.lineTags = [];
     this.groups = new Map();
     this.hoverTile = -1;
     brackets(this.selRing, 0, 0, 19, 2, MAP_SEL, 1); // mirino sulla pedina scelta
@@ -1365,9 +1372,20 @@ export class RunScene extends Phaser.Scene {
       }
     };
     // linea sul confine vero: ogni tratto di confine col tratto pieno e i denti verso lo straniero
+    // numero del gruppo (armata) accanto a linee e frecce, a grandezza costante sullo schermo
+    let tags = 0;
+    const tag = (x: number, y: number, ids: number[]) => {
+      const n = ids.map((id) => this.groupOf(id)).find((k) => k > 0);
+      if (!n) return;
+      let t = this.lineTags[tags];
+      if (!t) this.lineTags.push((t = this.add.text(0, 0, '', { fontFamily: TERM_FONT, fontSize: '11px', color: '#f2f2f2', backgroundColor: '#000000', padding: { x: 3, y: 1 }, resolution: 4 }).setOrigin(0.5).setDepth(D.path + 0.1)));
+      tags++;
+      t.setText(`${ROMAN_N[n]} ARMATA`).setPosition(x, y).setScale(px).setVisible(true);
+    };
     for (const l of this.attackLines) {
       this.refreshLine(l);
       for (const k of l.chains) stroke(this.chainToward(k), 0.85);
+      if (l.chains.length) { const c = this.chainToward(l.chains[l.chains.length >> 1]), m = c[c.length >> 1]; tag(m.x, m.y - 14 * px, l.ids); }
     }
     // mentre si traccia: il confine che verrà preso
     if (this.linePts.length > 1) for (const k of this.frontChains(this.linePts, Math.max(HEX_W * 2.5, 24 * px))) stroke(this.chainToward(k), 1);
@@ -1426,7 +1444,8 @@ export class RunScene extends Phaser.Scene {
       if (!us.length) return 0;
       return us.reduce((s0, u) => { const c = center(u.tile); return s0 + Phaser.Math.Clamp(((c.x - a.x) * (b.x - a.x) + (c.y - a.y) * (b.y - a.y)) / (L * L), 0, 1); }, 0) / us.length;
     };
-    for (const o of this.offensives) arrow(o.pts, 0.9, progress(o));
+    for (const o of this.offensives) { arrow(o.pts, 0.9, progress(o)); const m = o.pts[o.pts.length >> 1]; tag(m.x, m.y - 18 * px, o.ids); }
+    for (let k = tags; k < this.lineTags.length; k++) this.lineTags[k].setVisible(false);
     if (this.arrowPts.length) arrow(this.arrowPts, 1, 0);
   }
 
@@ -1509,11 +1528,58 @@ export class RunScene extends Phaser.Scene {
     if (e.ctrlKey || e.metaKey || e.shiftKey) {
       e.preventDefault();
       if (!this.selection.size) return this.hud.notify('seleziona le pedine, poi Ctrl (o Maiusc) + numero', PALETTE.ko);
-      this.groups.set(n, [...this.selection]);
-      this.hud.notify(`GRUPPO ${n} · ${this.selection.size} ${this.selection.size === 1 ? 'pedina' : 'pedine'}`, PALETTE.radioattivo);
+      this.setGroup(n, [...this.selection]);
       return;
     }
-    const ids = (this.groups.get(n) ?? []).filter((id) => this.state.units.some((u) => u.id === id));
+    this.selectGroup(n);
+  }
+
+  /** Mette le pedine nel gruppo `n` (una pedina sta in un gruppo solo: esce dagli altri). */
+  private setGroup(n: number, ids: number[]) {
+    for (const [k, v] of this.groups) { const rest = v.filter((id) => !ids.includes(id)); if (rest.length) this.groups.set(k, rest); else this.groups.delete(k); }
+    this.groups.set(n, ids);
+    this.hud.notify(`${ROMAN_N[n]} ARMATA · ${ids.length} ${ids.length === 1 ? 'pedina' : 'pedine'}`, PALETTE.radioattivo);
+    for (const sp of this.unitSprites.values()) sp.badgeKey = ''; // numero del gruppo sulle pedine da ridisegnare
+  }
+
+  /** Nuovo gruppo dalla selezione: il primo numero libero (o quello del gruppo se la selezione è già tutta di uno). */
+  makeGroup() {
+    const ids = [...this.selection].filter((id) => this.state.units.some((u) => u.id === id && u.owner === PLAYER));
+    if (!ids.length) return this.hud.notify('seleziona le pedine, poi + GRUPPO', PALETTE.ko);
+    const same = this.groupOf(ids[0]);
+    let n = same && ids.every((id) => this.groupOf(id) === same) ? same : 0;
+    for (let k = 1; k <= 9 && !n; k++) if (!this.groupIds(k).length) n = k;
+    if (!n) return this.hud.notify('massimo 9 gruppi', PALETTE.ko);
+    this.setGroup(n, ids);
+  }
+
+  /** Pedine vive del gruppo. */
+  groupIds(n: number): number[] {
+    return (this.groups.get(n) ?? []).filter((id) => this.state.units.some((u) => u.id === id));
+  }
+
+  /** Gruppo della pedina (0 = nessuno). */
+  groupOf(id: number): number {
+    for (const [k, v] of this.groups) if (v.includes(id)) return k;
+    return 0;
+  }
+
+  /** Gruppi per la barra in alto: numero, pedine e cosa stanno facendo. */
+  groupList(): { n: number; count: number; state: 'offensiva' | 'in linea' | 'fronte' | 'combatte' | 'in marcia' | 'fermo'; selected: boolean }[] {
+    const out: ReturnType<RunScene['groupList']> = [];
+    for (const n of [...this.groups.keys()].sort((a, b) => a - b)) {
+      const us = this.groupIds(n).map((id) => this.state.units.find((u) => u.id === id)!);
+      if (!us.length) { this.groups.delete(n); continue; }
+      const state = us.some((u) => u.inCombat) ? 'combatte' : us.some((u) => u.goal >= 0) ? 'offensiva' : us.some((u) => u.post >= 0) ? 'in linea'
+        : us.some((u) => u.front >= 0) ? 'fronte' : us.some((u) => u.path.length) ? 'in marcia' : 'fermo';
+      out.push({ n, count: us.length, state, selected: us.every((u) => this.selection.has(u.id)) && this.selection.size === us.length });
+    }
+    return out;
+  }
+
+  /** Seleziona il gruppo; due volte di fila: la carta si centra su di lui. */
+  selectGroup(n: number) {
+    const ids = this.groupIds(n);
     if (!ids.length) return;
     this.selection = new Set(ids);
     this.applySelection();
@@ -1982,7 +2048,8 @@ export class RunScene extends Phaser.Scene {
       }
       // segni sulla pedina: reparti uniti (tacche), attacca da sola (freccia), fronte assegnato, senza rifornimento (rosso)
       const low = u.supply < BALANCE.unitOps.attritionBelow;
-      const key = `${u.size}|${u.owner === PLAYER ? u.stance : ''}|${u.owner === PLAYER && u.front >= 0 ? 1 : 0}|${low ? 1 : 0}`;
+      const grp = u.owner === PLAYER ? this.groupOf(u.id) : 0;
+      const key = `${u.size}|${u.owner === PLAYER ? u.stance : ''}|${u.owner === PLAYER && u.front >= 0 ? 1 : 0}|${low ? 1 : 0}|${grp}`;
       if (key !== sp.badgeKey) {
         sp.badgeKey = key;
         const b = sp.badge.clear(), mine = u.owner === PLAYER, top = mine ? -14 : -19;
@@ -1991,6 +2058,13 @@ export class RunScene extends Phaser.Scene {
         if (mine && u.stance === 'attacca') b.fillStyle(MAP_SEL, 1).fillTriangle(15, -4.5, 15, 4.5, 22, 0); // freccia avanti: attacca da sola
         if (mine && u.front >= 0) b.fillStyle(MAP_SEL, 1).fillRect(-21, -9, 3, 8).fillRect(-21, -9, 7, 3);
         if (low) b.fillStyle(PALETTE.ko, 1).fillRect(-19, mine ? 11 : 16, 4, 4.5);
+        // gruppo (armata): numero romano in un riquadrino nero sotto la pedina
+        sp.tag?.destroy();
+        sp.tag = undefined;
+        if (grp) {
+          sp.tag = this.add.text(0, 17, ROMAN_N[grp], { fontFamily: TERM_FONT, fontSize: '10px', color: '#f2f2f2', backgroundColor: '#000000', padding: { x: 2, y: 0 }, resolution: 4 }).setOrigin(0.5, 0);
+          sp.c.add(sp.tag);
+        }
       }
     }
     for (const [id, sp] of this.unitSprites) {
