@@ -938,6 +938,7 @@ export class RunState {
       if (f.kind === 'bot') {
         // milizie: difendono e si allargano piano, solo su terra libera vicino a casa
         if (this.aiRng() <= BALANCE.bots.actChance) this.botExpand(f);
+        this.aiUnits(f); // anche le milizie schierano pedine (Nico)
         continue;
       }
       const assault = this.offensive?.phase === 'on' && this.offensive.faction === f.id;
@@ -1768,20 +1769,21 @@ export class RunState {
     for (const u of this.unitsOf(f.id)) {
       const idle = this.gameTimeMs - u.lastOrderMs;
       if ((!u.path.length && idle > 1000) || idle > A.repathMs) { // ferma: nuovo bersaglio al massimo una volta al secondo
-        const target = this.nearestEnemyTile(f.id, u.tile);
+        const target = this.unitTarget(f, u.tile);
         if (target >= 0) this.order(u, target);
         else u.lastOrderMs = this.gameTimeMs;
       }
     }
-    if (this.gameTimeMs < this.aiSpawnAt[f.id] || this.unitsOf(f.id).length >= this.opts.front.maxAiUnits) return;
+    const cap = f.kind === 'bot' ? BALANCE.bots.maxUnits : this.opts.front.maxAiUnits;
+    if (this.gameTimeMs < this.aiSpawnAt[f.id] || this.unitsOf(f.id).length >= cap) return;
     this.aiSpawnAt[f.id] = this.gameTimeMs + A.spawnEveryMs + (this.aiRng() * 2 - 1) * A.spawnJitterMs;
     // le armi delle IA dipendono dal fronte: più avanti, armi che tu forse non hai ancora
     const types = this.opts.front.aiUnits;
     const dominant = A.dominant[f.id] as UnitType;
     const type = types.includes(dominant) && this.aiRng() < A.dominantChance ? dominant : types[Math.floor(this.aiRng() * types.length)];
-    if (f.troops < BALANCE.units[type].cost * A.reserve) return;
+    if (f.troops < BALANCE.units[type].cost * (f.kind === 'bot' ? 1.1 : A.reserve)) return; // le milizie spendono quasi tutto per difendersi
     const anchor = this.map.starts[f.id];
-    const found = this.nearestEnemyTile(f.id, anchor);
+    const found = this.unitTarget(f, anchor);
     // nessun nemico in vista: la pedina si schiera lo stesso, ferma sul confine a difendere (Nico: truppe almeno per difendersi)
     const target = found >= 0 ? found : this.map.provinces[this.frontier(f.id)[0] ?? -1]?.anchor ?? -1;
     if (target < 0) return;
@@ -1801,6 +1803,13 @@ export class RunState {
     if (spawn < 0) return;
     const u = this.deploy(f.id, type, spawn);
     if (u && found >= 0) this.order(u, target);
+  }
+
+  /** Bersaglio di una pedina IA: il nemico più vicino; le milizie solo entro un raggio da casa (difendono la loro zona). */
+  private unitTarget(f: Faction, from: number): number {
+    const t = this.nearestEnemyTile(f.id, from);
+    if (f.kind !== 'bot' || t < 0) return t;
+    return hexDistance(t, this.map.starts[f.id]) <= BALANCE.bots.unitRadius ? t : -1;
   }
 
   /** Centro della provincia nemica (in guerra) più vicina, −1 se nessuna: si cerca tra le province, non tra le caselle. */

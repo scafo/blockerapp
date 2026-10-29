@@ -78,7 +78,7 @@ export const BALANCE = {
     strong: 1.75, // moltiplicatore danno contro l'unità che batti
     weak: 0.5, // moltiplicatore danno contro l'unità che ti batte
     cooldownMs: 6000, // ricarica della carta (tempo di gioco)
-    maxPerFaction: 4,
+    maxPerFaction: 12, // pedine per fazione IA (Nico: nemici più forti, tutti schierano truppe)
     healPerTick: 1, // hp recuperati sul proprio territorio, fuori combattimento
     // captureCost: hp persi conquistando = difesa della casella * captureCost
     // res/resCost: come in Call of War ogni reparto costa truppe + una risorsa fissa dallo zaino (solo il giocatore)
@@ -109,7 +109,7 @@ export const BALANCE = {
   aiUnits: {
     dominant: ['', 'ricognitori', 'artiglieria', 'fanteria'], // unità preferita per fazione (indice = fazione)
     dominantChance: 0.7,
-    spawnEveryMs: 15_000,
+    spawnEveryMs: 10_000,
     firstSpawnMs: 15_000, // prima pedina IA dopo pochi secondi, non a fine tregua (Nico: attivi subito)
     spawnJitterMs: 5_000,
     reserve: 1.5, // schiera solo se truppe > costo * reserve
@@ -202,10 +202,12 @@ export const BALANCE = {
     near: [12, 110] as [number, number], // distanza dalla partenza del giocatore (passi esagonali)
     minApart: 14, // tra una partenza e l'altra
     provinces: [2, 4] as [number, number], // province iniziali
-    startTroops: [25, 70] as [number, number],
+    startTroops: [60, 120] as [number, number], // (Nico: nemici più forti) prima 25–70
     growthMult: 0.75,
     actChance: 0.04, // per tick: si allargano su terra libera vicina
     homeRadius: 16, // non si allontanano oltre (passi dalla partenza)
+    maxUnits: 2, // pedine per milizia (Nico: generano tutti truppe): difendono casa e attaccano chi si avvicina
+    unitRadius: 24, // le pedine delle milizie non vanno a cercare nemici oltre questi passi da casa
   },
   // Diplomazia alla HOI4 (rapporti col giocatore): gli imperi partono in pace e possono dichiararti guerra quando vi toccate,
   // le milizie sono ostili. Donazioni = opinione; con l'opinione alta accettano pace e alleanze.
@@ -361,12 +363,12 @@ export const BALANCE = {
   // (2026-10-12, Nico: nemici più aggressivi) azioni ×1,6, tregua iniziale dimezzata, offensive prima e più spesse, +1 pedina IA
   // (2026-10-27, Nico: imperi che si espandono subito e sempre, gioco difficile) azioni ×2,5, crescita ×1,3, truppe iniziali ×1,5, +2 pedine
   fronts: [
-    { name: 'Prima linea', power: 0, lootMult: 1, aiGrowthMult: 1.0, aiStartTroops: 60, aiActChance: 0.168, aiUnits: ['fanteria'], aiUnitHpMult: 0.9, aiDefenseMult: 1, aiBunkers: 0, aiBunkerEveryMs: 0, graceMs: 120_000, offensiveFirstMs: 252_000, offensiveEveryMs: 126_000, maxAiUnits: 4, aiDistance: [34, 60] },
-    { name: 'Valichi del Nord', power: 20, lootMult: 1.3, aiGrowthMult: 1.1, aiStartTroops: 82, aiActChance: 0.205, aiUnits: ['fanteria', 'ricognitori'], aiUnitHpMult: 1, aiDefenseMult: 1.05, aiBunkers: 1, aiBunkerEveryMs: 0, graceMs: 105_000, offensiveFirstMs: 228_000, offensiveEveryMs: 114_000, maxAiUnits: 5, aiDistance: [28, 52] },
-    { name: 'Terre di cenere', power: 45, lootMult: 1.7, aiGrowthMult: 1.56, aiStartTroops: 150, aiActChance: 0.3, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio'], aiUnitHpMult: 1.1, aiDefenseMult: 1.12, aiBunkers: 2, aiBunkerEveryMs: 180_000, graceMs: 90_000, offensiveFirstMs: 198_000, offensiveEveryMs: 99_000, maxAiUnits: 5, aiDistance: [22, 42] },
-    { name: 'Fronte del Lume', power: 75, lootMult: 2.2, aiGrowthMult: 1.66, aiStartTroops: 210, aiActChance: 0.352, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.2, aiDefenseMult: 1.2, aiBunkers: 4, aiBunkerEveryMs: 140_000, graceMs: 75_000, offensiveFirstMs: 168_000, offensiveEveryMs: 87_000, maxAiUnits: 6, aiDistance: [20, 38] },
-    { name: 'Cielo aperto', power: 110, lootMult: 2.8, aiGrowthMult: 1.95, aiStartTroops: 285, aiActChance: 0.4, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.35, aiDefenseMult: 1.3, aiBunkers: 6, aiBunkerEveryMs: 110_000, graceMs: 60_000, offensiveFirstMs: 144_000, offensiveEveryMs: 75_000, maxAiUnits: 6, aiDistance: [18, 34] },
-    { name: "L'Avvento", power: 150, lootMult: 3.5, aiGrowthMult: 2.03, aiStartTroops: 360, aiActChance: 0.448, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.5, aiDefenseMult: 1.4, aiBunkers: 9, aiBunkerEveryMs: 90_000, graceMs: 50_000, offensiveFirstMs: 120_000, offensiveEveryMs: 66_000, maxAiUnits: 7, aiDistance: [16, 30] },
+    { name: 'Prima linea', power: 0, lootMult: 1, aiGrowthMult: 1.25, aiStartTroops: 78, aiActChance: 0.168, aiUnits: ['fanteria'], aiUnitHpMult: 1.03, aiDefenseMult: 1, aiBunkers: 0, aiBunkerEveryMs: 0, graceMs: 120_000, offensiveFirstMs: 252_000, offensiveEveryMs: 126_000, maxAiUnits: 7, aiDistance: [34, 60] },
+    { name: 'Valichi del Nord', power: 20, lootMult: 1.3, aiGrowthMult: 1.38, aiStartTroops: 107, aiActChance: 0.205, aiUnits: ['fanteria', 'ricognitori'], aiUnitHpMult: 1.15, aiDefenseMult: 1.05, aiBunkers: 1, aiBunkerEveryMs: 0, graceMs: 105_000, offensiveFirstMs: 228_000, offensiveEveryMs: 114_000, maxAiUnits: 8, aiDistance: [28, 52] },
+    { name: 'Terre di cenere', power: 45, lootMult: 1.7, aiGrowthMult: 1.95, aiStartTroops: 195, aiActChance: 0.3, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio'], aiUnitHpMult: 1.26, aiDefenseMult: 1.12, aiBunkers: 2, aiBunkerEveryMs: 180_000, graceMs: 90_000, offensiveFirstMs: 198_000, offensiveEveryMs: 99_000, maxAiUnits: 8, aiDistance: [22, 42] },
+    { name: 'Fronte del Lume', power: 75, lootMult: 2.2, aiGrowthMult: 2.07, aiStartTroops: 273, aiActChance: 0.352, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.38, aiDefenseMult: 1.2, aiBunkers: 4, aiBunkerEveryMs: 140_000, graceMs: 75_000, offensiveFirstMs: 168_000, offensiveEveryMs: 87_000, maxAiUnits: 9, aiDistance: [20, 38] },
+    { name: 'Cielo aperto', power: 110, lootMult: 2.8, aiGrowthMult: 2.44, aiStartTroops: 370, aiActChance: 0.4, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.55, aiDefenseMult: 1.3, aiBunkers: 6, aiBunkerEveryMs: 110_000, graceMs: 60_000, offensiveFirstMs: 144_000, offensiveEveryMs: 75_000, maxAiUnits: 9, aiDistance: [18, 34] },
+    { name: "L'Avvento", power: 150, lootMult: 3.5, aiGrowthMult: 2.54, aiStartTroops: 468, aiActChance: 0.448, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.72, aiDefenseMult: 1.4, aiBunkers: 9, aiBunkerEveryMs: 90_000, graceMs: 50_000, offensiveFirstMs: 120_000, offensiveEveryMs: 66_000, maxAiUnits: 10, aiDistance: [16, 30] },
   ] as FrontDef[],
   // Potenza del giocatore: punti per livello di postazione e per ricerca (si confronta con quella consigliata del fronte)
   power: { arsenale: 8, comando: 6, laboratorio: 4, deposito: 3, radar: 2, tech: 3 },
