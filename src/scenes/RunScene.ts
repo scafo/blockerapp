@@ -2031,7 +2031,7 @@ export class RunScene extends Phaser.Scene {
       alive.add(u.id);
       let sp = this.unitSprites.get(u.id);
       if (!sp) this.unitSprites.set(u.id, (sp = this.makeUnitSprite(u)));
-      sp.c.setVisible(u.owner === PLAYER || this.state.sees(u.tile)); // pedine nemiche nascoste nella nebbia
+      sp.c.setVisible(this.state.seesUnit(u)); // pedine nemiche: nascoste nella nebbia e, se ti stimano poco, fuori dal contatto
       if (sp.tile !== u.tile) {
         sp.tile = u.tile;
         const { x, y } = center(u.tile);
@@ -2213,7 +2213,10 @@ export class RunScene extends Phaser.Scene {
 
   /** Scontro tra pedine: traccia del colpo, scintille sul bersaglio, sobbalzo e danno che sale. */
   private hitFx(from: number, to: number, fromTile: number, toTile: number, dmg: number, owner: number) {
-    if (!this.state.sees(fromTile) && !this.state.sees(toTile)) return;
+    // pedine nascoste (nebbia o spionaggio): niente traccia che ne riveli la posizione
+    const shooter = this.state.units.find((u) => u.id === from), target = this.state.units.find((u) => u.id === to);
+    if (!(shooter && this.state.seesUnit(shooter)) || !(target && this.state.seesUnit(target))) return;
+    void fromTile;
     const a = this.unitSprites.get(from), b = this.unitSprites.get(to);
     const p0 = a ? { x: a.c.x, y: a.c.y } : center(fromTile), p1 = b ? { x: b.c.x, y: b.c.y } : center(toTile);
     const s = UI() / this.cameras.main.zoom, col = owner === PLAYER ? MAP_SEL : FACTION_INFO[owner]?.fill ?? PALETTE.ko;
@@ -2243,7 +2246,7 @@ export class RunScene extends Phaser.Scene {
     if (u.owner === PLAYER) {
       this.floatText(x, y - 6, `${unitInfo(u.type).short} caduta`, PALETTE.ko);
       sfx('death', 1, false); // (Nico) niente scossa né vibrazione a ogni morte
-    } else if (this.state.sees(u.tile)) {
+    } else if (this.state.seesUnit(u)) {
       this.floatText(x, y - 6, `${unitInfo(u.type).short} distrutta`, MAP_SEL);
       sfx('death', 0.7, false);
     }

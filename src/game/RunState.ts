@@ -183,6 +183,7 @@ export class RunState {
   readonly cooldowns: Record<UnitType, number>[];
   private nextUnitId = 1;
   private aiSpawnAt: number[];
+  private absorbAt: number[] = [];
   /** Eventi da mostrare; la scena li consuma con drainEvents(). */
   private events: RunEvent[] = [];
   private tickAcc = 0;
@@ -1003,6 +1004,7 @@ export class RunState {
     this.battlesTick();
     this.diploTick();
     this.encircleTick();
+    this.absorbTick();
     this.offensiveTick();
     this.timerTick();
     this.checkVictory();
@@ -1143,6 +1145,15 @@ export class RunState {
   /** La casella è visibile al giocatore? (senza nebbia: sempre) */
   sees(i: number): boolean {
     return !this.opts.fog || this.visible[i] === 1;
+  }
+
+  /** Pedina visibile? Nella zona che vedi, e se è di chi ha un'opinione bassa di te solo a contatto (spionaggio). */
+  seesUnit(u: Unit): boolean {
+    if (u.owner === PLAYER) return true;
+    if (!this.sees(u.tile)) return false;
+    if (this.relation[u.owner] === 'alleanza' || this.opinion[u.owner] >= BALANCE.intel.opinion) return true;
+    if (this.owner[u.tile] === PLAYER || neighbors(u.tile).some((n) => n >= 0 && this.owner[n] === PLAYER)) return true; // sul tuo confine
+    return this.units.some((v) => v.owner === PLAYER && hexDistance(v.tile, u.tile) <= BALANCE.intel.contact);
   }
 
   seesProv(p: number): boolean {
@@ -1631,7 +1642,7 @@ export class RunState {
       // attacca da sola: prima le pedine nemiche vicine, poi le province in guerra più vicine
       let target = -1, bd = O.autoRadius + 1;
       for (const v of this.units) {
-        if (v.owner === PLAYER || !this.atWar(PLAYER, v.owner) || (!this.sees(v.tile))) continue;
+        if (v.owner === PLAYER || !this.atWar(PLAYER, v.owner) || !this.seesUnit(v)) continue;
         const d = hexDistance(u.tile, v.tile);
         if (d < bd) { bd = d; target = v.tile; }
       }
@@ -2280,6 +2291,45 @@ export class RunState {
     // ogni Sala Radar avvisa 6 secondi prima (Nico: più radar, avvisi utili)
     this.offensive = { faction: f.id, phase: 'warn', until: this.gameTimeMs + O.warnMs + this.worksOf(PLAYER, 'radar') * 6000, lostAtStart: 0 };
     this.events.push({ type: 'offensive', faction: f.id, phase: 'warn' });
+  }
+
+  /** Forza di una fazione per l'assorbimento: truppe in cassa più la vita delle sue pedine. */
+  private might(f: number): number {
+    let m = this.factions[f].troops;
+    for (const u of this.units) if (u.owner === f) m += u.hp;
+    return m;
+  }
+
+  /**
+   * Gli imperi forti mangiano i deboli (Nico): dopo i primi minuti, ogni tanto ogni impero prende una provincia di confine
+   * al vicino più debole se è molto più forte (milizie e imperi, mai il giocatore); un vicino ridotto a poche province lo
+   * annette tutto. Più la campagna va avanti, più spesso succede.
+   */
+  private absorbTick() {
+    const A = BALANCE.absorb;
+    if (this.opts.tutorial || this.gameTimeMs < A.fromMs) return;
+    for (const f of this.factions) {
+      if (f.kind !== 'empire' || !f.alive || this.gameTimeMs < (this.absorbAt[f.id] ?? 0)) continue;
+      const mins = (this.gameTimeMs - A.fromMs) / 60_000;
+      this.absorbAt[f.id] = this.gameTimeMs + Math.max(A.minEveryMs, A.everyMs - mins * A.speedupPerMin) * (0.8 + this.aiRng() * 0.4);
+      const mine = this.might(f.id);
+      // vicini (non il giocatore, non alleati di coalizione) e la loro forza
+      let prey = -1, preyMight = Infinity;
+      for (const p of this.frontier(f.id)) {
+        const o = this.provOwner[p];
+        if (o === NEUTRAL || o === PLAYER || o === prey || !this.atWar(f.id, o)) continue;
+        const m = this.might(o);
+        if (m < preyMight) { preyMight = m; prey = o; }
+      }
+      if (prey < 0 || mine < A.ratio * Math.max(1, preyMight)) continue;
+      const theirs = this.map.provinces.map((_, p) => p).filter((p) => this.provOwner[p] === prey);
+      if (theirs.length <= A.annexBelow && mine >= A.annexRatio * Math.max(1, preyMight)) {
+        for (const p of theirs) if (this.factions[prey].alive) this.transferProvince(f.id, p, 0); // annessione
+        continue;
+      }
+      const border = this.frontier(f.id).filter((p) => this.provOwner[p] === prey && !this.battleAt(p));
+      if (border.length) this.transferProvince(f.id, border[Math.floor(this.aiRng() * border.length)], 0);
+    }
   }
 
   private lootFor(by: number, n: number): number {

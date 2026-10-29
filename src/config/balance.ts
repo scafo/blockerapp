@@ -217,6 +217,13 @@ export const BALANCE = {
   },
   // Diplomazia alla HOI4 (rapporti col giocatore): gli imperi partono in pace e possono dichiararti guerra quando vi toccate,
   // le milizie sono ostili. Donazioni = opinione; con l'opinione alta accettano pace e alleanze.
+  // Gli imperi forti mangiano i deboli (Nico): col passare del tempo un impero molto più forte di un vicino (milizia o impero,
+  // mai il giocatore) gli prende una provincia di confine alla volta senza battaglia; sotto poche province lo annette tutto.
+  // L'intervallo si accorcia man mano che la campagna va avanti.
+  absorb: { fromMs: 180_000, everyMs: 26_000, minEveryMs: 8_000, speedupPerMin: 1_500, ratio: 2.5, annexBelow: 2, annexRatio: 4 },
+  // Spionaggio (Nico): le pedine di chi ha un'opinione bassa di te non si vedono, se non a contatto (sul tuo confine o vicino
+  // alle tue pedine). Alleati e chi ti stima le vedi sempre (nella zona che vedi).
+  intel: { opinion: 25, contact: 3 },
   diplomacy: {
     checkMs: 5000,
     warChance: 0.1, // per controllo: impero confinante in pace, dopo la tregua del fronte
