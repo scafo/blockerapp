@@ -1331,8 +1331,7 @@ export class RunScene extends Phaser.Scene {
     const g = this.lineGfx.clear(), px = UI() / this.cameras.main.zoom;
     // via le linee senza più pedine che le tengono
     this.attackLines = this.attackLines.filter((l) => (l.ids = l.ids.filter((id) => this.state.units.some((u) => u.id === id && u.post >= 0))).length > 0);
-    // Stile della carta (Nico: la linea deve rispettare la grafica del gioco): niente tratti lisci, quadratini in fila come i
-    // puntini della mappa, con un fondino nero sotto per staccare da ogni colore.
+    // cammina lungo un tracciato a passi regolari (ricampionamento della freccia)
     const walk = (pts: { x: number; y: number }[], step: number, at: (x: number, y: number, ux: number, uy: number, d: number) => void) => {
       let acc = 0, dist = 0;
       for (let k = 1; k < pts.length; k++) {
@@ -1343,10 +1342,6 @@ export class RunScene extends Phaser.Scene {
         acc = (acc + Math.ceil((d - acc) / step) * step) - d;
         dist += d;
       }
-    };
-    const dot = (x: number, y: number, z: number, col: number, alpha: number) => {
-      g.fillStyle(0x000000, 0.55 * alpha).fillRect(x - z / 2 - px, y - z / 2 - px, z + 2 * px, z + 2 * px);
-      g.fillStyle(col, alpha).fillRect(x - z / 2, y - z / 2, z, z);
     };
     // linea d'attacco: la grafica di prima (Nico): tratto pieno con ombra e denti sul lato d'attacco, come il fronte di HOI4
     const stroke = (pts: { x: number; y: number }[], alpha: number) => {
@@ -1378,18 +1373,61 @@ export class RunScene extends Phaser.Scene {
     if (this.linePts.length > 1) for (const k of this.frontChains(this.linePts, Math.max(HEX_W * 2.5, 24 * px))) stroke(this.chainToward(k), 1);
     // offensive: freccia larga con la punta, finché qualche pedina è ancora in marcia
     this.offensives = this.offensives.filter((o) => (o.ids = o.ids.filter((id) => this.state.units.some((u) => u.id === id && u.goal >= 0))).length > 0);
-    // offensiva: fusto di due file di quadratini e punta a gradini (chevron di quadratini)
-    const arrow = (pts: { x: number; y: number }[], alpha: number) => {
-      if (pts.length < 2) return;
-      walk(pts, 5 * px, (x, y, ux, uy) => { for (const o of [-2.4, 2.4]) dot(x - uy * o * px, y + ux * o * px, 3.4 * px, MAP_SEL, alpha); });
-      const b = pts[pts.length - 1], p0 = pts[Math.max(0, pts.length - 4)], d = Math.hypot(b.x - p0.x, b.y - p0.y) || 1;
-      const ux = (b.x - p0.x) / d, uy = (b.y - p0.y) / d;
-      for (let k = 0; k <= 4; k++) for (const side of k ? [-1, 1] : [0]) {
-        dot(b.x - ux * k * 4.4 * px - uy * side * k * 4.4 * px, b.y - uy * k * 4.4 * px + ux * side * k * 4.4 * px, 3.8 * px, MAP_SEL, alpha);
+    // offensiva alla HOI4: freccia liscia che si allarga verso la punta, ombra scura e contorno come la linea d'attacco;
+    // dentro si riempie man mano che le pedine avanzano (vuota = appena ordinata, piena = arrivate)
+    const arrow = (raw: { x: number; y: number }[], alpha: number, done: number) => {
+      if (raw.length < 2) return;
+      // ricampiona ogni pochi pixel e ammorbidisce il tratto del dito
+      const step = 6 * px, rs: { x: number; y: number }[] = [raw[0]];
+      walk(raw, step, (x, y) => rs.push({ x, y }));
+      rs.push(raw[raw.length - 1]);
+      let pts = rs;
+      for (let it = 0; it < 3; it++) pts = pts.map((p, k) => (k === 0 || k === pts.length - 1 ? p : { x: (pts[k - 1].x + p.x * 2 + pts[k + 1].x) / 4, y: (pts[k - 1].y + p.y * 2 + pts[k + 1].y) / 4 }));
+      const len: number[] = [0];
+      for (let k = 1; k < pts.length; k++) len.push(len[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y));
+      const L = len[len.length - 1];
+      if (L < 4 * px) return;
+      const head = Math.min(26 * px, L * 0.45), headW = 17 * px, body = L - head;
+      // bordi del corpo (si allarga da 5 a 9 px per lato) fino alla base della punta
+      const left: { x: number; y: number }[] = [], right: { x: number; y: number }[] = [];
+      let base = { x: 0, y: 0, ux: 1, uy: 0 };
+      for (let k = 0; k < pts.length; k++) {
+        const p = pts[k], q = pts[Math.min(pts.length - 1, k + 1)], o = pts[Math.max(0, k - 1)];
+        const dx = q.x - o.x, dy = q.y - o.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+        if (len[k] > body) {
+          const t = (body - len[k - 1]) / Math.max(1e-6, len[k] - len[k - 1]), pp = pts[k - 1];
+          base = { x: pp.x + (p.x - pp.x) * t, y: pp.y + (p.y - pp.y) * t, ux, uy };
+          const w = 9 * px;
+          left.push({ x: base.x - uy * w, y: base.y + ux * w });
+          right.push({ x: base.x + uy * w, y: base.y - ux * w });
+          break;
+        }
+        const w = (5 + 4 * (len[k] / Math.max(1, body))) * px;
+        left.push({ x: p.x - uy * w, y: p.y + ux * w });
+        right.push({ x: p.x + uy * w, y: p.y - ux * w });
       }
+      const tip = pts[pts.length - 1];
+      const outline = [...left, { x: base.x - base.uy * headW, y: base.y + base.ux * headW }, tip,
+        { x: base.x + base.uy * headW, y: base.y - base.ux * headW }, ...right.reverse()];
+      g.fillStyle(0x000000, 0.35 * alpha).fillPoints(outline.map((p) => ({ x: p.x + 1.5 * px, y: p.y + 1.5 * px })), true);
+      g.fillStyle(MAP_SEL, 0.22 * alpha).fillPoints(outline, true);
+      // parte già percorsa: piena
+      if (done > 0) {
+        const n = Math.max(2, Math.round(left.length * Math.min(1, done)));
+        const filled = done >= 0.999 ? outline : [...left.slice(0, n), ...right.slice(right.length - n)];
+        g.fillStyle(MAP_SEL, 0.85 * alpha).fillPoints(filled, true);
+      }
+      g.lineStyle(1.6 * px, MAP_SEL, alpha).strokePoints(outline, true);
     };
-    for (const o of this.offensives) arrow(o.pts, 0.75);
-    if (this.arrowPts.length) arrow(this.arrowPts, 1);
+    // avanzamento di un'offensiva: quanto le sue pedine hanno percorso della freccia, in media
+    const progress = (o: { pts: { x: number; y: number }[]; ids: number[] }) => {
+      const a = o.pts[0], b = o.pts[o.pts.length - 1], L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      const us = o.ids.map((id) => this.state.units.find((u) => u.id === id)).filter((u): u is Unit => !!u);
+      if (!us.length) return 0;
+      return us.reduce((s0, u) => { const c = center(u.tile); return s0 + Phaser.Math.Clamp(((c.x - a.x) * (b.x - a.x) + (c.y - a.y) * (b.y - a.y)) / (L * L), 0, 1); }, 0) / us.length;
+    };
+    for (const o of this.offensives) arrow(o.pts, 0.9, progress(o));
+    if (this.arrowPts.length) arrow(this.arrowPts, 1, 0);
   }
 
   /** Fronte scelto: le pedine selezionate vanno sul confine con il padrone della provincia toccata. */
