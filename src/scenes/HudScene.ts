@@ -1248,17 +1248,12 @@ export class HudScene extends Phaser.Scene {
       rule();
       if (!mine) note('Pedina nemica: schiera un reparto che la batte.');
       else {
-        // comandi: comportamento, fronte, unisci, dividi, ritirata (valgono per tutte le pedine selezionate)
-        const att = group.length ? group.every((u) => u.stance === 'attacca') : unit.stance === 'attacca';
-        const acts: [string, 'stance' | 'front' | 'merge' | 'split' | 'retreat' | 'line' | 'push', boolean][] = [
-          [att ? 'Attacca' : 'Difende', 'stance', true], ['Linea', 'line', true], ['Offensiva', 'push', true], ['Fronte', 'front', true], ['Unisci', 'merge', true],
-          ['Dividi', 'split', unit.size > 1], ['Ritirata', 'retreat', true],
-        ];
-        const per = (inner - 6 * GAP) / 7 >= 56 ? 7 : 4, bw = (inner - (per - 1) * GAP) / per;
-        acts.forEach(([label, kind, on], k) => button(label, M + (k % per) * (bw + GAP), bw, y + Math.floor(k / per) * (BH + GAP),
-          () => this.run.unitAction(kind), on ? 'line' : 'off'));
-        y += Math.ceil(acts.length / per) * (BH + GAP);
-        items.push(this.add.text(M, y, 'T  G  O  F  U  I  R  da tastiera', termStyle(11, TCOL.dim)));
+        // comandi (Nico: solo linea e offensiva, il resto era inutile)
+        const acts: [string, 'line' | 'push'][] = [['Linea', 'line'], ['Offensiva', 'push']];
+        const bw = (inner - GAP) / 2;
+        acts.forEach(([label, kind], k) => button(label, M + k * (bw + GAP), bw, y, () => this.run.unitAction(kind), 'line'));
+        y += BH + GAP;
+        items.push(this.add.text(M, y, 'G  O  da tastiera · prima la linea, poi la freccia', termStyle(11, TCOL.dim)));
         y += 18;
       }
     } else {

@@ -58,7 +58,7 @@ const CITY_COL = 0x9fd0f5; // città e capitali: azzurro come i nomi della carta
 
 /** Linea d'attacco: il tratto disegnato, le pedine che la tengono, i nemici che fronteggia e i tratti di confine veri. */
 const ROMAN_N = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'];
-type AttackLine = { pts: { x: number; y: number }[]; ids: number[]; enemies: Set<number>; chains: number[]; key: string };
+type AttackLine = { pts: { x: number; y: number }[]; ids: number[]; enemies: Set<number>; chains: number[]; key: string; pushing?: boolean };
 
 export class RunScene extends Phaser.Scene {
   state!: RunState;
@@ -1164,6 +1164,37 @@ export class RunScene extends Phaser.Scene {
     if (!units.length) return this.failFx(pts[0].x, pts[0].y, 'seleziona prima le pedine');
     const a = pts[0], b = pts[pts.length - 1], len = Math.hypot(b.x - a.x, b.y - a.y);
     if (pts.length < 2 || len < 1) return this.failFx(a.x, a.y, 'trascina una freccia');
+    // offensiva che segue la linea (Nico): le pedine di una linea avanzano tutte insieme nella direzione della freccia,
+    // in formazione (ognuna dal suo posto sul bordo, spostata di quanto è lunga la freccia); arrivate, la linea si
+    // rimette sul nuovo confine e le ridistribuisce.
+    const lines = this.attackLines.filter((l) => l.ids.some((id) => units.some((u) => u.id === id)));
+    if (lines.length) {
+      const vx = b.x - a.x, vy = b.y - a.y, inLine = units.filter((u) => lines.some((l) => l.ids.includes(u.id)));
+      const used = new Set<number>(), goals = inLine.map((u) => {
+        const c = center(u.post >= 0 ? u.post : u.tile);
+        let i = pixelToIndex(c.x + vx, c.y + vy);
+        if (i < 0 || !this.map.tiles[i] || used.has(i)) {
+          const ring = i >= 0 ? [...neighbors(i), ...neighbors(i).flatMap((m) => (m >= 0 ? neighbors(m) : []))] : [];
+          i = ring.find((m) => m >= 0 && this.map.tiles[m] && !used.has(m)) ?? -1;
+        }
+        if (i >= 0) used.add(i);
+        return i;
+      });
+      const sent = this.state.pushOffensive(inLine, goals);
+      if (!sent) return this.failFx(b.x, b.y, 'irraggiungibile');
+      for (const l of lines) {
+        l.pts = l.pts.map((p) => ({ x: p.x + vx, y: p.y + vy })); // la linea si sposta col fronte
+        l.pushing = true;
+      }
+      const ids = inLine.map((u) => u.id);
+      for (const o of this.offensives) o.ids = o.ids.filter((id) => !ids.includes(id));
+      this.offensives.push({ pts, ids });
+      this.floatText(b.x, b.y - 6, sent > 1 ? `il fronte avanza · ${sent}` : 'il fronte avanza', MAP_SEL);
+      sfx('order');
+      buzz(12);
+      this.selectUnit(null);
+      return;
+    }
     const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len, nx = -uy, ny = ux; // direzione e lato
     const c0 = center(units[0].tile), nb = center(neighbors(units[0].tile).find((m) => m >= 0) ?? units[0].tile);
     const step = Math.hypot(nb.x - c0.x, nb.y - c0.y) * 2.2 || 12; // due caselle e poco più tra una pedina e l'altra
@@ -1270,6 +1301,17 @@ export class RunScene extends Phaser.Scene {
    * si ridistribuiscono sui nuovi posti (HOI4: il fronte segue il confine).
    */
   private refreshLine(l: AttackLine) {
+    if (l.pushing) {
+      // offensiva in corso: il fronte si muove, niente ridistribuzione finché le pedine non arrivano
+      if (l.ids.some((id) => this.state.units.some((u) => u.id === id && u.goal >= 0))) {
+        const k = `${this.state.player.tiles}|${this.state.player.provinces}`;
+        if (l.key !== k) { l.key = k; l.chains = this.frontChains(l.pts, HEX_W * 8, l.enemies); } // il bordo si sposta con le conquiste
+        return;
+      }
+      l.pushing = false;
+      l.key = '';
+      l.chains = [];
+    }
     const key = `${this.state.player.tiles}|${this.state.player.provinces}`;
     if (l.key === key) return;
     l.key = key;
@@ -1337,7 +1379,7 @@ export class RunScene extends Phaser.Scene {
   private drawAttackLines() {
     const g = this.lineGfx.clear(), px = UI() / this.cameras.main.zoom;
     // via le linee senza più pedine che le tengono
-    this.attackLines = this.attackLines.filter((l) => (l.ids = l.ids.filter((id) => this.state.units.some((u) => u.id === id && u.post >= 0))).length > 0);
+    this.attackLines = this.attackLines.filter((l) => (l.ids = l.ids.filter((id) => this.state.units.some((u) => u.id === id && (u.post >= 0 || u.goal >= 0)))).length > 0);
     // cammina lungo un tracciato a passi regolari (ricampionamento della freccia)
     const walk = (pts: { x: number; y: number }[], step: number, at: (x: number, y: number, ux: number, uy: number, d: number) => void) => {
       let acc = 0, dist = 0;
@@ -2352,11 +2394,6 @@ export class RunScene extends Phaser.Scene {
     // tastiera: gruppi (Ctrl/Maiusc + numero), comandi delle pedine, muro
     const kb = this.input.keyboard;
     kb?.on('keydown', (e: KeyboardEvent) => this.groupKey(e));
-    kb?.on('keydown-T', () => this.unitAction('stance'));
-    kb?.on('keydown-F', () => this.unitAction('front'));
-    kb?.on('keydown-U', () => this.unitAction('merge'));
-    kb?.on('keydown-I', () => this.unitAction('split'));
-    kb?.on('keydown-R', () => this.unitAction('retreat'));
     kb?.on('keydown-G', () => this.unitAction('line'));
     kb?.on('keydown-O', () => this.unitAction('push'));
     kb?.on('keydown-B', () => this.hud.toggleBuildMenu());
