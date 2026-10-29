@@ -483,15 +483,26 @@ export class WorldMap {
     const own = this.ownT, war = this.warT;
     const edgeAt = (X: number, Y: number, t: number): number => {
       // 0 = interno, 1 = confine, 2 = confine sul fronte
-      let edge = false, front = false;
+      let edge = false, front = false, land = false, same = 0;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
         const n = g(X + dx, Y + dy);
-        if (n === t) continue;
+        if (n === t) { same++; continue; }
         // due potenze che si toccano: la linea la fa una sola (la tua, se no la prima)
         if (n >= 0 && (own[n] ? !own[t] : !own[t] && n < t)) continue;
         edge = true;
+        if (n !== -2) land = true; // confine con un'altra terra (non solo mare)
         if (n >= 0 && war[n]) front = true;
+      }
+      // isole e penisole sottili (1–2 puntini): col solo mare attorno sarebbero tutte bordo, macchie blu senza colore dentro.
+      // Lì niente linea di costa: prendono il colore del territorio
+      if (edge && !land) {
+        // sottile = mare da tutti e due i lati (entro 2 puntini) lungo almeno una direzione
+        const sea = (x: number, y: number) => g(x, y) === -2;
+        for (const [ax, ay] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
+          if ((sea(X - ax, Y - ay) || sea(X - 2 * ax, Y - 2 * ay)) && (sea(X + ax, Y + ay) || sea(X + 2 * ax, Y + 2 * ay))) return 0;
+        }
+        if (same <= 3) return 0;
       }
       return !edge ? 0 : front && own[t] ? 2 : 1;
     };
