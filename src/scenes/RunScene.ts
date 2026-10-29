@@ -1309,22 +1309,55 @@ export class RunScene extends Phaser.Scene {
       g.fillStyle(0x000000, 0.55 * alpha).fillRect(x - z / 2 - px, y - z / 2 - px, z + 2 * px, z + 2 * px);
       g.fillStyle(col, alpha).fillRect(x - z / 2, y - z / 2, z, z);
     };
-    // linea d'attacco: fila di quadratini; ogni tanto un dente di due quadratini verso il lato d'attacco (come in HOI4)
+    // linea d'attacco: la grafica di prima (Nico): tratto pieno con ombra e denti sul lato d'attacco, come il fronte di HOI4
     const stroke = (pts: { x: number; y: number }[], alpha: number) => {
       if (pts.length < 2) return;
-      walk(pts, 5 * px, (x, y, ux, uy, d) => {
-        dot(x, y, 3.4 * px, MAP_SEL, alpha);
-        if (Math.round(d / (5 * px)) % 3 === 1) for (const o of [5, 9.5]) dot(x - uy * o * px, y + ux * o * px, 3 * px, MAP_SEL, alpha);
-      });
+      g.lineStyle(5 * px, 0x000000, 0.35 * alpha).beginPath().moveTo(pts[0].x, pts[0].y);
+      for (const p of pts) g.lineTo(p.x, p.y);
+      g.strokePath();
+      g.lineStyle(2.4 * px, MAP_SEL, alpha).beginPath().moveTo(pts[0].x, pts[0].y);
+      for (const p of pts) g.lineTo(p.x, p.y);
+      g.strokePath();
+      let acc = 0;
+      for (let k = 1; k < pts.length; k++) {
+        const ax = pts[k - 1].x, ay = pts[k - 1].y, bx = pts[k].x, by = pts[k].y, d = Math.hypot(bx - ax, by - ay);
+        if (!d) continue;
+        const ux = (bx - ax) / d, uy = (by - ay) / d, step = 14 * px;
+        for (let t = step - acc; t < d; t += step) {
+          const cx = ax + ux * t, cy = ay + uy * t, h = 4 * px;
+          g.fillStyle(MAP_SEL, alpha).fillTriangle(cx - ux * h, cy - uy * h, cx + ux * h, cy + uy * h, cx - uy * h * 1.3, cy + ux * h * 1.3);
+        }
+        acc = (acc + d) % step;
+      }
     };
-    // linea sul confine: un quadratino per tratto di bordo, i denti verso lo straniero
-    const front = (bp: BorderPt[], alpha: number) => bp.forEach((q, k) => {
-      dot(q.x, q.y, 3.4 * px, MAP_SEL, alpha);
-      if (k % 3 === 1) for (const o of [5, 9.5]) dot(q.x + q.dx * o * px, q.y + q.dy * o * px, 3 * px, MAP_SEL, alpha);
-    });
-    for (const l of this.attackLines) front(this.lineBorder(l), 0.85);
-    // mentre si traccia: il dito a puntini tenui e, sotto, il confine che verrà preso
-    if (this.linePts.length) { stroke(this.linePts, 0.35); front(this.borderNear(this.linePts), 1); }
+    // linea sul confine: i punti del bordo uniti in tratti (si spezza dove il confine salta), un po' ammorbiditi,
+    // girati in modo che i denti guardino verso lo straniero
+    const front = (bp: BorderPt[], alpha: number) => {
+      const gap = HEX_W * 2.2;
+      let piece: BorderPt[] = [];
+      const flush = () => {
+        if (piece.length >= 2) {
+          let pts = piece.map((q, k) => {
+            const a = piece[Math.max(0, k - 1)], c = piece[Math.min(piece.length - 1, k + 1)];
+            return { x: (a.x + q.x * 2 + c.x) / 4, y: (a.y + q.y * 2 + c.y) / 4 };
+          });
+          // lato dei denti = (−uy, ux) del verso del tratto: se lo straniero sta dall'altra parte si inverte
+          const ux = pts[pts.length - 1].x - pts[0].x, uy = pts[pts.length - 1].y - pts[0].y;
+          const side = piece.reduce((s0, q) => s0 + q.dx * -uy + q.dy * ux, 0);
+          if (side < 0) pts = pts.reverse();
+          stroke(pts, alpha);
+        }
+        piece = [];
+      };
+      for (const q of bp) {
+        const last = piece[piece.length - 1];
+        if (last && Math.hypot(q.x - last.x, q.y - last.y) > gap) flush();
+        piece.push(q);
+      }
+      flush();
+    };
+    for (const l of this.attackLines) front(this.lineBorder(l), 0.8);
+    if (this.linePts.length) front(this.borderNear(this.linePts), 1); // mentre si traccia: il confine che verrà preso
     // offensive: freccia larga con la punta, finché qualche pedina è ancora in marcia
     this.offensives = this.offensives.filter((o) => (o.ids = o.ids.filter((id) => this.state.units.some((u) => u.id === id && u.goal >= 0))).length > 0);
     // offensiva: fusto di due file di quadratini e punta a gradini (chevron di quadratini)
