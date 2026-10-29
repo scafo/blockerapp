@@ -141,6 +141,10 @@ export class RunScene extends Phaser.Scene {
   /** Linea d'attacco alla HOI4: tasto Linea (o G), poi si trascina sulla carta; le pedine si dispongono lungo il tratto. */
   linePick = false;
   private lining = false;
+  arrowPick = false; // offensiva (freccia alla HOI4): si traccia dalle pedine verso la meta
+  private arrowing = false;
+  private arrowPts: { x: number; y: number }[] = [];
+  private offensives: { pts: { x: number; y: number }[]; ids: number[] }[] = [];
   private linePts: { x: number; y: number }[] = [];
   private lineGfx!: Phaser.GameObjects.Graphics;
   private attackLines: { pts: { x: number; y: number }[]; ids: number[] }[] = [];
@@ -295,6 +299,10 @@ export class RunScene extends Phaser.Scene {
     this.lining = false;
     this.linePts = [];
     this.attackLines = [];
+    this.arrowPick = false;
+    this.arrowing = false;
+    this.arrowPts = [];
+    this.offensives = [];
     this.lineGfx = this.add.graphics().setDepth(D.path);
     this.groups = new Map();
     this.hoverTile = -1;
@@ -1014,6 +1022,7 @@ export class RunScene extends Phaser.Scene {
     else if (ids.length === 1) this.hud.setHint('Tocca una casella (o clic destro): la pedina ci va conquistando la strada.');
     else {
       this.linePick = false; // niente pedine: niente linea da tracciare
+      this.arrowPick = false;
       this.hud.hideUnit(); // nessuna pedina scelta: via la sua scheda
       if (!this.selectedCard) this.hud.setHint(null);
     }
@@ -1061,7 +1070,7 @@ export class RunScene extends Phaser.Scene {
   }
 
   /** Comandi delle pedine dalla scheda in basso o da tastiera: comportamento, fronte, unisci, dividi, ritirata. */
-  unitAction(kind: 'stance' | 'front' | 'merge' | 'split' | 'retreat' | 'line') {
+  unitAction(kind: 'stance' | 'front' | 'merge' | 'split' | 'retreat' | 'line' | 'push') {
     const units = this.selectedUnits(), st = this.state, main = units[units.length - 1];
     if (!main) return this.hud.notify('seleziona prima una pedina', PALETTE.ko);
     const { x, y } = center(main.tile);
@@ -1069,8 +1078,15 @@ export class RunScene extends Phaser.Scene {
       const next = units.every((u) => u.stance === 'attacca') ? 'tieni' : 'attacca';
       st.setStance(units, next);
       this.floatText(x, y - 8, next === 'attacca' ? 'attacca da sola' : 'tiene la posizione', MAP_SEL);
+    } else if (kind === 'push') {
+      this.arrowPick = true;
+      this.linePick = false;
+      this.frontPick = false;
+      this.hud.setHint('OFFENSIVA · trascina una freccia dalle pedine verso la meta.\nAvanzano insieme in fila, assediano le province nemiche che incontrano e tengono la nuova linea.');
+      return;
     } else if (kind === 'line') {
       this.linePick = true;
+      this.arrowPick = false;
       this.frontPick = false;
       this.hud.setHint('LINEA D\'ATTACCO · trascina sulla carta dove schierarle.\nLe pedine si dispongono lungo la linea, ci vanno conquistando la strada e la tengono.');
       return;
@@ -1115,6 +1131,55 @@ export class RunScene extends Phaser.Scene {
     if (last && Math.hypot((q.x - last.x) * z, (q.y - last.y) * z) < 6) return;
     this.linePts.push(q);
     this.drawAttackLines();
+  }
+
+  /** Freccia d'offensiva tracciata col dito: un punto ogni pochi pixel sullo schermo. */
+  private arrowAlong(sx: number, sy: number) {
+    const q = this.worldAt(sx, sy), last = this.arrowPts[this.arrowPts.length - 1], z = this.cameras.main.zoom;
+    if (last && Math.hypot((q.x - last.x) * z, (q.y - last.y) * z) < 6) return;
+    this.arrowPts.push(q);
+    this.drawAttackLines();
+  }
+
+  /**
+   * Freccia finita: le pedine si mettono in fila attorno alla punta (perpendicolari alla freccia, nell'ordine in cui stanno,
+   * così non si incrociano) e ci avanzano assediando quello che incontrano.
+   */
+  private finishArrow() {
+    const pts = this.arrowPts;
+    this.arrowPts = [];
+    this.arrowPick = false;
+    this.hud.setHint(null);
+    const units = this.selectedUnits().filter((u) => !isNaval(u.type));
+    this.drawAttackLines();
+    if (!pts.length) return;
+    if (!units.length) return this.failFx(pts[0].x, pts[0].y, 'seleziona prima le pedine');
+    const a = pts[0], b = pts[pts.length - 1], len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (pts.length < 2 || len < 1) return this.failFx(a.x, a.y, 'trascina una freccia');
+    const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len, nx = -uy, ny = ux; // direzione e lato
+    const c0 = center(units[0].tile), nb = center(neighbors(units[0].tile).find((m) => m >= 0) ?? units[0].tile);
+    const step = Math.hypot(nb.x - c0.x, nb.y - c0.y) * 2.2 || 12; // due caselle e poco più tra una pedina e l'altra
+    const sorted = [...units].sort((u, v) => { const p = center(u.tile), q = center(v.tile); return (p.x - a.x) * nx + (p.y - a.y) * ny - ((q.x - a.x) * nx + (q.y - a.y) * ny); });
+    const used = new Set<number>(), goals = sorted.map((_, k) => {
+      const off = (k - (sorted.length - 1) / 2) * step;
+      let i = pixelToIndex(b.x + nx * off, b.y + ny * off);
+      if (i < 0 || !this.map.tiles[i] || used.has(i)) {
+        const ring = i >= 0 ? [...neighbors(i), ...neighbors(i).flatMap((m) => (m >= 0 ? neighbors(m) : []))] : [];
+        i = ring.find((m) => m >= 0 && this.map.tiles[m] && !used.has(m)) ?? -1;
+      }
+      if (i >= 0) used.add(i);
+      return i;
+    });
+    const sent = this.state.pushOffensive(sorted, goals);
+    if (!sent) return this.failFx(b.x, b.y, 'irraggiungibile');
+    const ids = sorted.map((u) => u.id);
+    for (const l of this.attackLines) l.ids = l.ids.filter((id) => !ids.includes(id)); // escono dalle linee vecchie
+    for (const o of this.offensives) o.ids = o.ids.filter((id) => !ids.includes(id));
+    this.offensives.push({ pts, ids });
+    this.floatText(b.x, b.y - 6, sent > 1 ? `offensiva · ${sent}` : 'offensiva', MAP_SEL);
+    sfx('order');
+    buzz(12);
+    this.selectUnit(null);
   }
 
   /**
@@ -1199,6 +1264,21 @@ export class RunScene extends Phaser.Scene {
     };
     for (const l of this.attackLines) stroke(l.pts, 0.8);
     if (this.linePts.length) stroke(this.linePts, 1);
+    // offensive: freccia larga con la punta, finché qualche pedina è ancora in marcia
+    this.offensives = this.offensives.filter((o) => (o.ids = o.ids.filter((id) => this.state.units.some((u) => u.id === id && u.goal >= 0))).length > 0);
+    const arrow = (pts: { x: number; y: number }[], alpha: number) => {
+      if (pts.length < 2) return;
+      const b = pts[pts.length - 1], p0 = pts[Math.max(0, pts.length - 4)], d = Math.hypot(b.x - p0.x, b.y - p0.y) || 1;
+      const ux = (b.x - p0.x) / d, uy = (b.y - p0.y) / d, hl = 16 * px, hw = 11 * px;
+      for (const [w, c, al] of [[9 * px, 0x000000, 0.35], [5 * px, MAP_SEL, 0.85]] as [number, number, number][]) {
+        g.lineStyle(w, c, al * alpha).beginPath().moveTo(pts[0].x, pts[0].y);
+        for (const p of pts) g.lineTo(p.x, p.y);
+        g.strokePath();
+      }
+      g.fillStyle(MAP_SEL, alpha).fillTriangle(b.x + ux * hl * 0.6, b.y + uy * hl * 0.6, b.x - ux * hl * 0.6 - uy * hw, b.y - uy * hl * 0.6 + ux * hw, b.x - ux * hl * 0.6 + uy * hw, b.y - uy * hl * 0.6 - ux * hw);
+    };
+    for (const o of this.offensives) arrow(o.pts, 0.75);
+    if (this.arrowPts.length) arrow(this.arrowPts, 1);
   }
 
   /** Fronte scelto: le pedine selezionate vanno sul confine con il padrone della provincia toccata. */
@@ -2056,6 +2136,7 @@ export class RunScene extends Phaser.Scene {
     kb?.on('keydown-I', () => this.unitAction('split'));
     kb?.on('keydown-R', () => this.unitAction('retreat'));
     kb?.on('keydown-G', () => this.unitAction('line'));
+    kb?.on('keydown-O', () => this.unitAction('push'));
     kb?.on('keydown-B', () => this.hud.toggleBuildMenu());
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (this.hud.hitUi(p.x / UI(), p.y / UI())) return;
@@ -2075,13 +2156,16 @@ export class RunScene extends Phaser.Scene {
         this.dragMode = 'pan'; // trascinare sposta la carta: niente territorio dipinto col dito
         // mouse come in HOI4: trascinare col sinistro = riquadro di selezione delle pedine; col destro (o WASD) si sposta la carta.
         // Sul telefono trascinare sposta la carta.
-        this.box = !p.wasTouch && p.leftButtonDown() && !this.selectedCard && !this.selectedAbility && !this.wallMode && !this.linePick ? { x0: p.x, y0: p.y, x1: p.x, y1: p.y } : null;
+        this.box = !p.wasTouch && p.leftButtonDown() && !this.selectedCard && !this.selectedAbility && !this.wallMode && !this.linePick && !this.arrowPick ? { x0: p.x, y0: p.y, x1: p.x, y1: p.y } : null;
         // muro: col dito o col sinistro si trascina sulle province da fortificare (col destro si sposta ancora la carta)
         this.walling = this.wallMode && (p.wasTouch || p.leftButtonDown());
         if (this.walling) this.wallAlong(p.x, p.y, p.x, p.y);
         // linea d'attacco: col dito o col sinistro si traccia (col destro si sposta ancora la carta)
         this.lining = this.linePick && (p.wasTouch || p.leftButtonDown());
         if (this.lining) { this.linePts = []; this.lineAlong(p.x, p.y); }
+        // offensiva: stessa cosa, ma si traccia una freccia
+        this.arrowing = this.arrowPick && (p.wasTouch || p.leftButtonDown());
+        if (this.arrowing) { this.arrowPts = []; this.arrowAlong(p.x, p.y); }
       }
       this.pinchDist = 0;
       this.lastMid = null;
@@ -2115,6 +2199,8 @@ export class RunScene extends Phaser.Scene {
           this.wallAlong(this.last.x, this.last.y, p.x, p.y);
         } else if (this.lining) {
           this.lineAlong(p.x, p.y);
+        } else if (this.arrowing) {
+          this.arrowAlong(p.x, p.y);
         } else if (this.box) {
           this.box.x1 = p.x;
           this.box.y1 = p.y;
@@ -2137,7 +2223,10 @@ export class RunScene extends Phaser.Scene {
       if (boxed) this.selectInBox(ev?.shiftKey ?? false); // Maiusc: si aggiunge alla selezione
       this.box = null;
       this.boxGfx.clear();
-      if (this.lining) {
+      if (this.arrowing) {
+        this.arrowing = false;
+        this.finishArrow();
+      } else if (this.lining) {
         this.lining = false;
         this.finishLine();
       } else if (this.walling) {

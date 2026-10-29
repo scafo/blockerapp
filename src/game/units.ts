@@ -34,6 +34,7 @@ export interface Unit {
   front: number; // fazione del fronte assegnato (−1 = nessuno): la pedina tiene (o spinge) quel confine
   supply: number; // rifornimento attuale (0–1): sotto la soglia si logora
   post: number; // casella sulla linea d'attacco disegnata (−1 = nessuna): la pedina ci va e la tiene
+  goal: number; // offensiva (freccia alla HOI4): casella d'arrivo, la pedina avanza assediando ciò che incontra (−1 = nessuna)
 }
 
 export type Stance = 'tieni' | 'attacca';

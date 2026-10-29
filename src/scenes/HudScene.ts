@@ -1244,15 +1244,15 @@ export class HudScene extends Phaser.Scene {
       else {
         // comandi: comportamento, fronte, unisci, dividi, ritirata (valgono per tutte le pedine selezionate)
         const att = group.length ? group.every((u) => u.stance === 'attacca') : unit.stance === 'attacca';
-        const acts: [string, 'stance' | 'front' | 'merge' | 'split' | 'retreat' | 'line', boolean][] = [
-          [att ? 'Attacca' : 'Difende', 'stance', true], ['Linea', 'line', true], ['Fronte', 'front', true], ['Unisci', 'merge', true],
+        const acts: [string, 'stance' | 'front' | 'merge' | 'split' | 'retreat' | 'line' | 'push', boolean][] = [
+          [att ? 'Attacca' : 'Difende', 'stance', true], ['Linea', 'line', true], ['Offensiva', 'push', true], ['Fronte', 'front', true], ['Unisci', 'merge', true],
           ['Dividi', 'split', unit.size > 1], ['Ritirata', 'retreat', true],
         ];
-        const per = (inner - 5 * GAP) / 6 >= 62 ? 6 : 3, bw = (inner - (per - 1) * GAP) / per;
+        const per = (inner - 6 * GAP) / 7 >= 56 ? 7 : 4, bw = (inner - (per - 1) * GAP) / per;
         acts.forEach(([label, kind, on], k) => button(label, M + (k % per) * (bw + GAP), bw, y + Math.floor(k / per) * (BH + GAP),
           () => this.run.unitAction(kind), on ? 'line' : 'off'));
         y += Math.ceil(acts.length / per) * (BH + GAP);
-        items.push(this.add.text(M, y, 'T  G  F  U  I  R  da tastiera', termStyle(11, TCOL.dim)));
+        items.push(this.add.text(M, y, 'T  G  O  F  U  I  R  da tastiera', termStyle(11, TCOL.dim)));
         y += 18;
       }
     } else {

@@ -1399,7 +1399,7 @@ export class RunState {
     const u: Unit = {
       id: this.nextUnitId++, type, owner: f, tile, hp: maxHp, maxHp,
       path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs,
-      size: 1, stance: 'tieni', front: -1, supply: 1, post: -1,
+      size: 1, stance: 'tieni', front: -1, supply: 1, post: -1, goal: -1,
     };
     this.units.push(u);
     return u;
@@ -1435,6 +1435,7 @@ export class RunState {
   command(u: Unit, to: number): boolean {
     u.front = -1;
     u.post = -1;
+    u.goal = -1;
     return this.order(u, to);
   }
 
@@ -1453,7 +1454,7 @@ export class RunState {
   assignFront(units: Unit[], faction: number): boolean {
     if (faction < 0 || faction === PLAYER || !this.factions[faction]?.alive) return false;
     if (!this.frontLine(PLAYER, faction).length) return false;
-    for (const u of units) if (!isNaval(u.type)) { u.front = faction; u.post = -1; u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs; }
+    for (const u of units) if (!isNaval(u.type)) { u.front = faction; u.post = -1; u.goal = -1; u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs; }
     return true;
   }
 
@@ -1466,8 +1467,26 @@ export class RunState {
     units.forEach((u, k) => {
       if (isNaval(u.type) || k >= posts.length) return;
       u.front = -1;
+      u.goal = -1;
       u.post = posts[k];
       if (u.tile === u.post || this.order(u, u.post)) n++;
+    });
+    return n;
+  }
+
+  /**
+   * Offensiva alla HOI4 (freccia): ogni pedina riceve la sua casella d'arrivo e ci avanza insieme alle altre, fermandosi ad
+   * assediare le province nemiche che incontra; arrivata, tiene la nuova posizione. Ritorna quante sono partite.
+   */
+  pushOffensive(units: Unit[], goals: number[]): number {
+    let n = 0;
+    units.forEach((u, k) => {
+      if (isNaval(u.type) || k >= goals.length || goals[k] < 0) return;
+      u.front = -1;
+      u.post = -1;
+      u.goal = goals[k];
+      if (this.order(u, u.goal)) n++;
+      else u.goal = -1;
     });
     return n;
   }
@@ -1510,7 +1529,7 @@ export class RunState {
     const k = Math.floor(u.size / 2), share = k / u.size;
     const v: Unit = {
       id: this.nextUnitId++, type: u.type, owner: u.owner, tile: free, hp: u.hp * share, maxHp: u.maxHp * share,
-      path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs, size: k, stance: u.stance, front: u.front, supply: u.supply, post: u.post,
+      path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs, size: k, stance: u.stance, front: u.front, supply: u.supply, post: u.post, goal: u.goal,
     };
     u.size -= k;
     u.hp -= v.hp;
@@ -1534,6 +1553,7 @@ export class RunState {
       taken.add(tile);
       u.front = -1;
       u.post = -1;
+      u.goal = -1;
       u.stance = 'tieni';
       if (tile === u.tile || this.order(u, tile)) n++;
     }
@@ -1569,6 +1589,12 @@ export class RunState {
       if (isNaval(u.type) || u.path.length || this.gameTimeMs - u.lastOrderMs < O.autoEveryMs || this.battles.some((b) => b.unit === u.id)) continue;
       u.lastOrderMs = this.gameTimeMs;
       const attack = u.stance === 'attacca';
+      if (u.goal >= 0) {
+        // offensiva: arrivata, tiene la nuova posizione; altrimenti riprende la marcia (dopo un assedio o se bloccata)
+        if (u.tile === u.goal || hexDistance(u.tile, u.goal) <= 1) { u.post = u.tile; u.goal = -1; }
+        else if (!this.order(u, u.goal)) { u.post = u.tile; u.goal = -1; }
+        continue;
+      }
       if (u.post >= 0) {
         // linea d'attacco: torna al suo posto se ne è uscita (o se la strada si è aperta solo ora)
         if (u.tile !== u.post) this.order(u, u.post);
