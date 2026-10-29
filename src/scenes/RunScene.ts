@@ -412,8 +412,6 @@ export class RunScene extends Phaser.Scene {
           if (time - this.lastDefendToast > 8000) { this.lastDefendToast = time; this.hud.onDefending(b.by); }
         } else if (e.phase === 'lost' && b.by === PLAYER) {
           this.failFx(x, y, 'respinti!');
-          this.cameras.main.shake(140, 0.002);
-          buzz(30);
           sfx('repelled');
         } else if (e.phase === 'lost' && b.from === PLAYER) {
           this.floatText(x, y - 4, 'tenuta!', MAP_SEL);
@@ -1241,41 +1239,44 @@ export class RunScene extends Phaser.Scene {
     const g = this.lineGfx.clear(), px = UI() / this.cameras.main.zoom;
     // via le linee senza più pedine che le tengono
     this.attackLines = this.attackLines.filter((l) => (l.ids = l.ids.filter((id) => this.state.units.some((u) => u.id === id && u.post >= 0))).length > 0);
+    // Stile della carta (Nico: la linea deve rispettare la grafica del gioco): niente tratti lisci, quadratini in fila come i
+    // puntini della mappa, con un fondino nero sotto per staccare da ogni colore.
+    const walk = (pts: { x: number; y: number }[], step: number, at: (x: number, y: number, ux: number, uy: number, d: number) => void) => {
+      let acc = 0, dist = 0;
+      for (let k = 1; k < pts.length; k++) {
+        const ax = pts[k - 1].x, ay = pts[k - 1].y, d = Math.hypot(pts[k].x - ax, pts[k].y - ay);
+        if (!d) continue;
+        const ux = (pts[k].x - ax) / d, uy = (pts[k].y - ay) / d;
+        for (let t = acc; t < d; t += step) at(ax + ux * t, ay + uy * t, ux, uy, dist + t);
+        acc = (acc + Math.ceil((d - acc) / step) * step) - d;
+        dist += d;
+      }
+    };
+    const dot = (x: number, y: number, z: number, col: number, alpha: number) => {
+      g.fillStyle(0x000000, 0.55 * alpha).fillRect(x - z / 2 - px, y - z / 2 - px, z + 2 * px, z + 2 * px);
+      g.fillStyle(col, alpha).fillRect(x - z / 2, y - z / 2, z, z);
+    };
+    // linea d'attacco: fila di quadratini; ogni tanto un dente di due quadratini verso il lato d'attacco (come in HOI4)
     const stroke = (pts: { x: number; y: number }[], alpha: number) => {
       if (pts.length < 2) return;
-      g.lineStyle(5 * px, 0x000000, 0.35 * alpha).beginPath().moveTo(pts[0].x, pts[0].y);
-      for (const p of pts) g.lineTo(p.x, p.y);
-      g.strokePath();
-      g.lineStyle(2.4 * px, MAP_SEL, alpha).beginPath().moveTo(pts[0].x, pts[0].y);
-      for (const p of pts) g.lineTo(p.x, p.y);
-      g.strokePath();
-      // denti sul lato d'attacco (a destra del verso di tracciamento), come la linea del fronte di HOI4
-      let acc = 0;
-      for (let k = 1; k < pts.length; k++) {
-        const ax = pts[k - 1].x, ay = pts[k - 1].y, bx = pts[k].x, by = pts[k].y, d = Math.hypot(bx - ax, by - ay);
-        if (!d) continue;
-        const ux = (bx - ax) / d, uy = (by - ay) / d, step = 14 * px;
-        for (let t = step - acc; t < d; t += step) {
-          const cx = ax + ux * t, cy = ay + uy * t, h = 4 * px;
-          g.fillStyle(MAP_SEL, alpha).fillTriangle(cx - ux * h, cy - uy * h, cx + ux * h, cy + uy * h, cx - uy * h * 1.3, cy + ux * h * 1.3);
-        }
-        acc = (acc + d) % step;
-      }
+      walk(pts, 5 * px, (x, y, ux, uy, d) => {
+        dot(x, y, 3.4 * px, MAP_SEL, alpha);
+        if (Math.round(d / (5 * px)) % 3 === 1) for (const o of [5, 9.5]) dot(x - uy * o * px, y + ux * o * px, 3 * px, MAP_SEL, alpha);
+      });
     };
     for (const l of this.attackLines) stroke(l.pts, 0.8);
     if (this.linePts.length) stroke(this.linePts, 1);
     // offensive: freccia larga con la punta, finché qualche pedina è ancora in marcia
     this.offensives = this.offensives.filter((o) => (o.ids = o.ids.filter((id) => this.state.units.some((u) => u.id === id && u.goal >= 0))).length > 0);
+    // offensiva: fusto di due file di quadratini e punta a gradini (chevron di quadratini)
     const arrow = (pts: { x: number; y: number }[], alpha: number) => {
       if (pts.length < 2) return;
+      walk(pts, 5 * px, (x, y, ux, uy) => { for (const o of [-2.4, 2.4]) dot(x - uy * o * px, y + ux * o * px, 3.4 * px, MAP_SEL, alpha); });
       const b = pts[pts.length - 1], p0 = pts[Math.max(0, pts.length - 4)], d = Math.hypot(b.x - p0.x, b.y - p0.y) || 1;
-      const ux = (b.x - p0.x) / d, uy = (b.y - p0.y) / d, hl = 16 * px, hw = 11 * px;
-      for (const [w, c, al] of [[9 * px, 0x000000, 0.35], [5 * px, MAP_SEL, 0.85]] as [number, number, number][]) {
-        g.lineStyle(w, c, al * alpha).beginPath().moveTo(pts[0].x, pts[0].y);
-        for (const p of pts) g.lineTo(p.x, p.y);
-        g.strokePath();
+      const ux = (b.x - p0.x) / d, uy = (b.y - p0.y) / d;
+      for (let k = 0; k <= 4; k++) for (const side of k ? [-1, 1] : [0]) {
+        dot(b.x - ux * k * 4.4 * px - uy * side * k * 4.4 * px, b.y - uy * k * 4.4 * px + ux * side * k * 4.4 * px, 3.8 * px, MAP_SEL, alpha);
       }
-      g.fillStyle(MAP_SEL, alpha).fillTriangle(b.x + ux * hl * 0.6, b.y + uy * hl * 0.6, b.x - ux * hl * 0.6 - uy * hw, b.y - uy * hl * 0.6 + ux * hw, b.x - ux * hl * 0.6 + uy * hw, b.y - uy * hl * 0.6 - ux * hw);
     };
     for (const o of this.offensives) arrow(o.pts, 0.75);
     if (this.arrowPts.length) arrow(this.arrowPts, 1);
@@ -1502,7 +1503,6 @@ export class RunScene extends Phaser.Scene {
       this.hud.onConquest(0);
     } else if (res.ok) {
       this.usage.tocchi++;
-      buzz(res.loot ? 25 : 8);
       this.tapFxTile = p;
       this.redrawOwned();
       this.redrawFrontier(true);
@@ -1983,7 +1983,6 @@ export class RunScene extends Phaser.Scene {
     if (phase === 'landed') {
       this.conquestFx(x, y, 0, 0);
       this.floatText(x, y - 8, 'sbarco!', MAP_INK);
-      buzz(30);
     } else {
       this.failFx(x, y, 'sbarco respinto');
       buzz([20, 40, 20]);
@@ -1997,7 +1996,12 @@ export class RunScene extends Phaser.Scene {
     const p0 = a ? { x: a.c.x, y: a.c.y } : center(fromTile), p1 = b ? { x: b.c.x, y: b.c.y } : center(toTile);
     const s = UI() / this.cameras.main.zoom, col = owner === PLAYER ? MAP_SEL : FACTION_INFO[owner]?.fill ?? PALETTE.ko;
     const g = this.add.graphics().setDepth(D.fx);
-    g.lineStyle(2.2 * s, col, 0.95).lineBetween(p0.x, p0.y, p1.x, p1.y);
+    // traccia del colpo a quadratini (come la carta), vampa quadrata alla partenza
+    const L = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1, z = 2.4 * s;
+    for (let t = 0; t <= L; t += 5 * s) {
+      const x = p0.x + ((p1.x - p0.x) * t) / L, y = p0.y + ((p1.y - p0.y) * t) / L;
+      g.fillStyle(0x000000, 0.5).fillRect(x - z / 2 - s, y - z / 2 - s, z + 2 * s, z + 2 * s).fillStyle(col, 0.95).fillRect(x - z / 2, y - z / 2, z, z);
+    }
     g.fillStyle(0xfff3c4, 1).fillRect(p0.x - 3 * s, p0.y - 3 * s, 6 * s, 6 * s); // vampa alla partenza
     this.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() });
     this.burstAt(p1.x, p1.y, 4, 0xffd9a0);
@@ -2007,7 +2011,6 @@ export class RunScene extends Phaser.Scene {
     }
     const mineHit = this.state.units.find((u) => u.id === to)?.owner === PLAYER;
     if (owner === PLAYER || mineHit) this.floatText(p1.x, p1.y - 8 * s, `−${Math.round(dmg)}`, mineHit ? PALETTE.ko : 0xffe2a8);
-    if (mineHit && dmg >= 8) this.cameras.main.shake(90, 0.0015);
   }
 
   private unitDeathFx(u: Unit) {
@@ -2017,12 +2020,9 @@ export class RunScene extends Phaser.Scene {
     this.burstAt(x, y, 10, 0xffd9a0);
     if (u.owner === PLAYER) {
       this.floatText(x, y - 6, `${unitInfo(u.type).short} caduta`, PALETTE.ko);
-      this.cameras.main.shake(160, 0.003);
-      buzz(40);
-      sfx('death', 1, false);
+      sfx('death', 1, false); // (Nico) niente scossa né vibrazione a ogni morte
     } else if (this.state.sees(u.tile)) {
       this.floatText(x, y - 6, `${unitInfo(u.type).short} distrutta`, MAP_SEL);
-      buzz(20);
       sfx('death', 0.7, false);
     }
   }
@@ -2045,11 +2045,8 @@ export class RunScene extends Phaser.Scene {
 
   /** Una nostra provincia è caduta: lampo rosso. */
   private lostFx(p: number, by: number) {
-    const { x, y } = center(this.map.provinces[p].anchor);
-    this.flashProvince(p, PALETTE.ko, 0.7, 600);
+    this.flashProvince(p, PALETTE.ko, 0.7, 600); // (Nico) niente scossa a ogni provincia persa
     void by;
-    const v = this.cameras.main.worldView;
-    if (v.contains(x, y)) this.cameras.main.shake(90, 0.002);
   }
 
   private failFx(x: number, y: number, msg: string) {

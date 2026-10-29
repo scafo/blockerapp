@@ -13,7 +13,7 @@ const last = new Map<Sfx, number>();
 
 /** Vibrazione legata al suono (solo i momenti importanti; spenta dalle impostazioni). */
 const VIB: Partial<Record<Sfx, number | number[]>> = {
-  lost: [30, 40, 30], war: [60, 40, 60], alert: [20, 60, 20], event: 15, victory: [40, 60, 40, 60, 120], defeat: 150, boom: 40,
+  war: [60, 40, 60], alert: [20, 60, 20], event: 15, victory: [40, 60, 40, 60, 120], defeat: 150, boom: 40,
 };
 
 function env(g: GainNode, t: number, peak: number, a: number, d: number) {
