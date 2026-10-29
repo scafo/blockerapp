@@ -511,13 +511,10 @@ export class WorldMap {
       let out = 0;
       let t = p >= 0 && col[p] >= 0 ? grp[col[p]] : -1;
       if (p < 0) {
-        // fessura di mare tra due puntini dello stesso territorio (fino a 3): riempita
-        for (const [ax, ay] of [[1, 0], [0, 1]]) {
-          let a = -1, b = -1;
-          for (let s = 1; s <= 3 && a === -1; s++) { const v = g(X - ax * s, Y - ay * s); if (v !== -2) a = v; }
-          for (let s = 1; s <= 3 && b === -1; s++) { const v = g(X + ax * s, Y + ay * s); if (v !== -2) b = v; }
-          if (a >= 0 && a === b) { t = a; break; }
-        }
+        // buco di un puntino di mare dentro un territorio (lo stesso territorio ai quattro lati): riempito. Prima si
+        // riempivano fessure fino a 3 puntini su un solo asse e da lontano interi mari tra le isole (Egeo) diventavano territorio
+        const l = g(X - 1, Y), rr = g(X + 1, Y), u = g(X, Y - 1), d = g(X, Y + 1);
+        if (l >= 0 && l === rr && l === u && l === d) t = l;
         if (t >= 0) out = this.fillInt[t];
       } else if (t >= 0) {
         const c = col[p], s = stripe[p];

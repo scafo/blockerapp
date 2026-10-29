@@ -58,7 +58,9 @@ const CITY_COL = 0x9fd0f5; // città e capitali: azzurro come i nomi della carta
 
 /** Linea d'attacco: il tratto disegnato, le pedine che la tengono, i nemici che fronteggia e i tratti di confine veri. */
 const ROMAN_N = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'];
-type AttackLine = { pts: { x: number; y: number }[]; ids: number[]; enemies: Set<number>; chains: number[]; key: string; pushing?: boolean };
+/** Offensiva di una linea: direzione (u) e lato (n), fascia laterale e fin dove spingere, posto in fila di ogni pedina. */
+type FrontPush = { ux: number; uy: number; nx: number; ny: number; lat0: number; lat1: number; start: number; end: number; slot: Map<number, number>; at: number };
+type AttackLine = { pts: { x: number; y: number }[]; ids: number[]; enemies: Set<number>; chains: number[]; key: string; push?: FrontPush };
 
 export class RunScene extends Phaser.Scene {
   state!: RunState;
@@ -1169,27 +1171,26 @@ export class RunScene extends Phaser.Scene {
     // rimette sul nuovo confine e le ridistribuisce.
     const lines = this.attackLines.filter((l) => l.ids.some((id) => units.some((u) => u.id === id)));
     if (lines.length) {
-      const vx = b.x - a.x, vy = b.y - a.y, inLine = units.filter((u) => lines.some((l) => l.ids.includes(u.id)));
-      const used = new Set<number>(), goals = inLine.map((u) => {
-        const c = center(u.post >= 0 ? u.post : u.tile);
-        let i = pixelToIndex(c.x + vx, c.y + vy);
-        if (i < 0 || !this.map.tiles[i] || used.has(i)) {
-          const ring = i >= 0 ? [...neighbors(i), ...neighbors(i).flatMap((m) => (m >= 0 ? neighbors(m) : []))] : [];
-          i = ring.find((m) => m >= 0 && this.map.tiles[m] && !used.has(m)) ?? -1;
-        }
-        if (i >= 0) used.add(i);
-        return i;
-      });
-      const sent = this.state.pushOffensive(inLine, goals);
-      if (!sent) return this.failFx(b.x, b.y, 'irraggiungibile');
+      // il fronte avanza a passi (HOI4): ogni pedina tiene il suo posto nella fila e prende la provincia di confine davanti
+      // a sé dentro la fascia della linea; quando la fascia è presa fino alla lunghezza della freccia, la linea si riaggancia
+      const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len, nx = -uy, ny = ux;
       for (const l of lines) {
-        l.pts = l.pts.map((p) => ({ x: p.x + vx, y: p.y + vy })); // la linea si sposta col fronte
-        l.pushing = true;
+        const pts = l.chains.flatMap((k) => this.chainToward(k));
+        if (!pts.length) continue;
+        const lats = pts.map((p) => p.x * nx + p.y * ny), alongs = pts.map((p) => p.x * ux + p.y * uy);
+        const lat0 = Math.min(...lats) - HEX_W, lat1 = Math.max(...lats) + HEX_W;
+        const front = alongs.reduce((s0, v) => s0 + v, 0) / alongs.length;
+        const us = l.ids.map((id) => this.state.units.find((u) => u.id === id)).filter((u): u is Unit => !!u && !isNaval(u.type));
+        const lat = (u: Unit) => { const c = center(u.tile); return c.x * nx + c.y * ny; };
+        us.sort((p, q) => lat(p) - lat(q));
+        const slot = new Map(us.map((u, k) => [u.id, lat0 + ((lat1 - lat0) * (k + 0.5)) / us.length]));
+        l.push = { ux, uy, nx, ny, lat0, lat1, start: Math.min(...alongs) - HEX_W * 2, end: front + len, slot, at: 0 };
+        for (const u of us) { u.post = -1; u.goal = -1; u.front = -1; }
       }
-      const ids = inLine.map((u) => u.id);
+      const ids = lines.flatMap((l) => l.ids);
       for (const o of this.offensives) o.ids = o.ids.filter((id) => !ids.includes(id));
       this.offensives.push({ pts, ids });
-      this.floatText(b.x, b.y - 6, sent > 1 ? `il fronte avanza · ${sent}` : 'il fronte avanza', MAP_SEL);
+      this.floatText(b.x, b.y - 6, 'il fronte avanza', MAP_SEL);
       sfx('order');
       buzz(12);
       this.selectUnit(null);
@@ -1297,18 +1298,69 @@ export class RunScene extends Phaser.Scene {
   }
 
   /**
+   * Un passo dell'offensiva di una linea (ogni mezzo secondo): le pedine libere prendono ognuna la provincia non tua sul
+   * confine più vicina al loro posto nella fila, dentro la fascia e non oltre la punta della freccia. Così il confine avanza
+   * intero, senza corridoi. False quando non resta niente da prendere (o nessuna pedina).
+   */
+  private pushTick(l: AttackLine): boolean {
+    const P = l.push!, st = this.state, now = this.time.now;
+    const us = l.ids.map((id) => st.units.find((u) => u.id === id)).filter((u): u is Unit => !!u);
+    if (!us.length) return false;
+    // bordo da disegnare: i tuoi confini dentro la fascia
+    const key = `${st.player.tiles}|${st.player.provinces}`;
+    if (l.key !== key) {
+      l.key = key;
+      const own = st.provOwner, out: number[] = [];
+      this.shapes.chains.forEach((c, k) => {
+        if (c.a < 0 || c.b < 0 || (own[c.a] === PLAYER) === (own[c.b] === PLAYER)) return;
+        const m = c.pts.length >> 2 << 1, lat = c.pts[m] * P.nx + c.pts[m + 1] * P.ny;
+        const al = c.pts[m] * P.ux + c.pts[m + 1] * P.uy;
+        if (lat >= P.lat0 && lat <= P.lat1 && al <= P.end + HEX_W * 3 && al >= P.start) out.push(k);
+      });
+      l.chains = out;
+    }
+    if (now < P.at) return true;
+    P.at = now + 500;
+    const provs = this.map.provinces, mid = (p: number) => { const sh = this.shapes.provinces[p]; return sh ? { x: (sh.x0 + sh.x1) / 2, y: (sh.y0 + sh.y1) / 2 } : center(provs[p].anchor); };
+    // province da prendere: confinano col tuo territorio, sono nella fascia, prima della punta, contro chi si può combattere
+    const cand: { p: number; lat: number; along: number }[] = [];
+    for (const p of st.frontier(PLAYER)) {
+      const c = mid(p), lat = c.x * P.nx + c.y * P.ny, along = c.x * P.ux + c.y * P.uy;
+      if (lat < P.lat0 || lat > P.lat1 || along > P.end || along < P.start) continue; // solo davanti alla linea di partenza
+      const o = st.provOwner[p];
+      if (o !== NEUTRAL && !l.enemies.has(o)) continue; // solo contro chi fronteggia la linea (e la terra libera)
+      cand.push({ p, lat, along });
+    }
+    if (!cand.length && us.every((u) => u.goal < 0 && !u.path.length)) return false;
+    const taken = new Set<number>();
+    for (const u of us) if (u.goal >= 0) taken.add(st.provOf(u.goal));
+    for (const u of us) {
+      if (u.goal >= 0 || u.path.length || st.battles.some((b) => b.unit === u.id)) continue;
+      const slot = P.slot.get(u.id) ?? (P.lat0 + P.lat1) / 2;
+      let best = -1, bs = Infinity;
+      for (const c of cand) {
+        if (taken.has(c.p)) continue;
+        const score = Math.abs(c.lat - slot) + Math.max(0, c.along - Math.min(...cand.map((q) => q.along))) * 0.6; // il proprio tratto, prima le più indietro
+        if (score < bs) { bs = score; best = c.p; }
+      }
+      if (best < 0) continue;
+      taken.add(best);
+      if (!st.pushOffensive([u], [provs[best].anchor])) taken.delete(best);
+    }
+    return true;
+  }
+
+  /**
    * Il confine si è spostato (conquiste, perdite): la linea si ricalcola sul nuovo bordo con gli stessi nemici e le pedine
    * si ridistribuiscono sui nuovi posti (HOI4: il fronte segue il confine).
    */
   private refreshLine(l: AttackLine) {
-    if (l.pushing) {
-      // offensiva in corso: il fronte si muove, niente ridistribuzione finché le pedine non arrivano
-      if (l.ids.some((id) => this.state.units.some((u) => u.id === id && u.goal >= 0))) {
-        const k = `${this.state.player.tiles}|${this.state.player.provinces}`;
-        if (l.key !== k) { l.key = k; l.chains = this.frontChains(l.pts, HEX_W * 8, l.enemies); } // il bordo si sposta con le conquiste
-        return;
-      }
-      l.pushing = false;
+    if (l.push) {
+      if (this.pushTick(l)) return;
+      // spinta finita: la linea si riaggancia sul nuovo confine (tratto spostato fin dove è arrivato il fronte)
+      const P = l.push, d = Math.max(0, P.end - (l.pts.reduce((s0, p) => s0 + p.x * P.ux + p.y * P.uy, 0) / l.pts.length));
+      l.pts = l.pts.map((p) => ({ x: p.x + P.ux * d, y: p.y + P.uy * d }));
+      l.push = undefined;
       l.key = '';
       l.chains = [];
     }
@@ -1379,7 +1431,7 @@ export class RunScene extends Phaser.Scene {
   private drawAttackLines() {
     const g = this.lineGfx.clear(), px = UI() / this.cameras.main.zoom;
     // via le linee senza più pedine che le tengono
-    this.attackLines = this.attackLines.filter((l) => (l.ids = l.ids.filter((id) => this.state.units.some((u) => u.id === id && (u.post >= 0 || u.goal >= 0)))).length > 0);
+    this.attackLines = this.attackLines.filter((l) => (l.ids = l.ids.filter((id) => this.state.units.some((u) => u.id === id && (l.push || u.post >= 0 || u.goal >= 0)))).length > 0);
     // cammina lungo un tracciato a passi regolari (ricampionamento della freccia)
     const walk = (pts: { x: number; y: number }[], step: number, at: (x: number, y: number, ux: number, uy: number, d: number) => void) => {
       let acc = 0, dist = 0;
@@ -1432,7 +1484,7 @@ export class RunScene extends Phaser.Scene {
     // mentre si traccia: il confine che verrà preso
     if (this.linePts.length > 1) for (const k of this.frontChains(this.linePts, Math.max(HEX_W * 2.5, 24 * px))) stroke(this.chainToward(k), 1);
     // offensive: freccia larga con la punta, finché qualche pedina è ancora in marcia
-    this.offensives = this.offensives.filter((o) => (o.ids = o.ids.filter((id) => this.state.units.some((u) => u.id === id && u.goal >= 0))).length > 0);
+    this.offensives = this.offensives.filter((o) => (o.ids = o.ids.filter((id) => this.state.units.some((u) => u.id === id && (u.goal >= 0 || this.attackLines.some((l) => l.push && l.ids.includes(id)))))).length > 0);
     // offensiva alla HOI4: freccia liscia che si allarga verso la punta, ombra scura e contorno come la linea d'attacco;
     // dentro si riempie man mano che le pedine avanzano (vuota = appena ordinata, piena = arrivate)
     const arrow = (raw: { x: number; y: number }[], alpha: number, done: number) => {
