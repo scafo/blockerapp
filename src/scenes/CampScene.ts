@@ -31,7 +31,7 @@ import { drawPatch } from '../ui/symbols';
 import { drawUnitIcon } from '../ui/unitIcons';
 import { civImage, coverImage, fade } from '../ui/images';
 import { dashedBox, note } from '../ui/schematic';
-import { OPS, body, dot, frameMarks, label, panel, rule, value } from '../ui/ops';
+import { OPS, backBox, body, dot, glass, label, panel, rule, value } from '../ui/ops';
 import { audioSettings, onAudioChange } from '../audio/engine';
 import { type RoomId, type RoomState } from '../ui/roomArt';
 import { drawBlueprint, type Module } from '../ui/blueprint';
@@ -108,6 +108,7 @@ export class CampScene extends Phaser.Scene {
   private panel: Phaser.GameObjects.Container | null = null;
   private page: Phaser.GameObjects.Container | null = null; // pagina a tutto schermo della stanza (testata e pianta)
   private pageKey = '';
+  private expKind: ExpeditionKind = 'breve'; // missione scelta nell'Estrazione
   private panelSpot: Spot | null = null;
   private panelMode = ''; // laboratorio: '' ricerche · 'archivio' · 'build'; radar: '' registro · 'build'
   private refreshAcc = 0;
@@ -271,8 +272,8 @@ export class CampScene extends Phaser.Scene {
   private drawBackdrop() {
     const { width, height } = view(this);
     this.cameras.main.setBackgroundColor(0x07090c);
-    coverImage(this, 'load-ghiaccio', 0, 0, width, height, 0.55).setTint(0x9fb0c4).setAlpha(0.6);
-    this.add.rectangle(0, 0, width, height, 0x05070a, 0.45).setOrigin(0);
+    coverImage(this, 'load-ghiaccio', 0, 0, width, height, 0.55).setTint(0x9dbcdf).setAlpha(0.75);
+    this.add.rectangle(0, 0, width, height, 0x05080d, 0.32).setOrigin(0);
     fade(this, 0, 0, width * 0.55, height, 0x05070a, 0.7, 0, 'h');
     fade(this, 0, height * 0.6, width, height * 0.4, 0x05070a, 0, 0.75);
   }
@@ -280,7 +281,7 @@ export class CampScene extends Phaser.Scene {
   /** Riga di una voce: barra traslucida, nome in mono maiuscolo, a cosa serve sotto, stato a destra. */
   private makeSpot(id: MapSpot, x: number, y: number, w: number, h: number) {
     const g = this.add.graphics();
-    const name = label(this, x + 14, y + 8, SHORT[id], OPS.text, 12).setDepth(6);
+    const name = label(this, x + 14, y + 5, SHORT[id].charAt(0) + SHORT[id].slice(1).toLowerCase(), OPS.text, 12).setDepth(6);
     this.spots.set(id, { x: x + w / 2, y: y + h / 2, g, deco: [], label: name, w, h, left: x, top: y });
     const timer = label(this, x + w - 14, y + h / 2, '', PALETTE.allerta, 10).setOrigin(1, 0.5).setDepth(6);
     this.timerTexts.set(id, timer);
@@ -300,8 +301,8 @@ export class CampScene extends Phaser.Scene {
     const r = this.spots.get(id);
     if (!r) return;
     const isB = (BUILDINGS as string[]).includes(id), built = !isB || this.profile.buildings[id as BuildingId] > 0;
-    r.g.clear().fillStyle(0x2b333b, hover ? 0.85 : built ? 0.55 : 0.3).fillRect(r.left, r.top, r.w, r.h);
-    if (hover) r.g.fillStyle(OPS.text, 1).fillRect(r.left, r.top, 2, r.h);
+    r.g.clear().fillStyle(OPS.row, hover ? 0.92 : built ? 0.62 : 0.34).fillRect(r.left, r.top, r.w, r.h);
+    r.g.lineStyle(1, OPS.edge, hover ? 0.6 : 0.32).strokeRect(r.left + 0.5, r.top + 0.5, r.w - 1, r.h - 1);
   }
 
   /** Stato della voce: livello a tacche, migliorabile, da costruire; i timer li scrive update(). */
@@ -315,7 +316,7 @@ export class CampScene extends Phaser.Scene {
     const isB = (BUILDINGS as string[]).includes(id), lvl = isB ? this.profile.buildings[id as BuildingId] : 1, max = isB ? maxLvl(id as BuildingId) : 0;
     const building = isB && this.profile.construction?.id === id, built = lvl > 0;
     spot.label.setColor(hex(built ? OPS.text : OPS.label));
-    spot.deco.push(label(this, x + 14, y + h - 9, built ? ROLE[id] : 'da costruire', OPS.label, 9).setOrigin(0, 1).setDepth(6));
+    spot.deco.push(label(this, x + 14, y + h - 5, built ? ROLE[id] : 'da costruire', OPS.label, 9).setOrigin(0, 1).setDepth(6));
     // tacche del livello a destra (piene = fatte); il timer del cantiere le sostituisce
     if (max && !building) {
       const tw = 7, gap = 3, tx = x + w - 14 - max * (tw + gap) + gap, g = this.add.graphics().setDepth(6);
@@ -326,7 +327,7 @@ export class CampScene extends Phaser.Scene {
       spot.deco.push(g);
       // migliorabile adesso: puntino verde accanto al nome
       if (lvl < max && !buildBlock(this.profile, id as BuildingId)) {
-        const d = this.add.rectangle(x + 14 + spot.label.width + 10, y + 8 + spot.label.height / 2, 6, 6, OPS.gain).setDepth(6);
+        const d = this.add.rectangle(x + 14 + spot.label.width + 10, y + 5 + spot.label.height / 2, 6, 6, OPS.gain).setDepth(6);
         this.tweens.add({ targets: d, alpha: 0.3, duration: 700, yoyo: true, repeat: -1 });
         spot.deco.push(d);
       }
@@ -334,7 +335,7 @@ export class CampScene extends Phaser.Scene {
     if (id === 'spedizione') {
       const e = this.profile.expedition;
       if (e && e.until <= Date.now()) {
-        const d = this.add.rectangle(x + 14 + spot.label.width + 10, y + 8 + spot.label.height / 2, 6, 6, PALETTE.allerta).setDepth(6);
+        const d = this.add.rectangle(x + 14 + spot.label.width + 10, y + 5 + spot.label.height / 2, 6, 6, PALETTE.allerta).setDepth(6);
         this.tweens.add({ targets: d, alpha: 0.2, duration: 400, yoyo: true, repeat: -1 });
         spot.deco.push(d);
       }
@@ -350,12 +351,11 @@ export class CampScene extends Phaser.Scene {
     const M = P ? 14 : 26, T = M + this.safe.top, B = M + this.safe.bottom;
     const fx = M, fy = T, fw = width - 2 * M, fh = height - T - B;
     const g = this.add.graphics();
-    frameMarks(g, fx, fy, fw, fh);
     const pad = P ? 10 : 22, L = fx + pad, R = fx + fw - pad;
 
     // barra in alto: nome del gioco, comandante (si tocca per cambiarlo), scorte
     const barH = P ? 76 : 52, barY = fy + pad;
-    g.fillStyle(0x2b333b, 0.55).fillRect(L, barY, R - L, barH);
+    glass(g, L, barY, R - L, barH);
     const title = value(this, L + 16, barY + (P ? 8 : barH / 2), 'ARCHEON', P ? 24 : 28).setOrigin(0, P ? 0 : 0.5);
     // 5 tocchi sul titolo = contatore FPS nelle run (test sui telefoni)
     let taps = 0;
@@ -390,7 +390,7 @@ export class CampScene extends Phaser.Scene {
 
     // barra di stato in fondo: cantiere e ricerca (si toccano per aprire la pagina), audio a destra
     const stH = 40, stY = fy + fh - pad - stH;
-    g.fillStyle(0x2b333b, 0.55).fillRect(L, stY, R - L, stH);
+    glass(g, L, stY, R - L, stH);
     const part = (x: number, key: 'cantiere' | 'ricerca', run: () => void) => {
       const t = label(this, x, stY + stH / 2, '', OPS.label, 11).setOrigin(0, 0.5).setInteractive({ useHandCursor: true }).on('pointerup', run);
       this.stripTexts[key] = t;
@@ -421,7 +421,7 @@ export class CampScene extends Phaser.Scene {
     const fi = activeFront(p), F = BALANCE.fronts[fi], yours = playerPower(p), weak = yours < F.power;
     dot(g, L + 3, opY + 7, OPS.accent);
     label(this, L + 14, opY, 'prossima operazione', OPS.accent);
-    const big = value(this, L - 2, opY + 18, `FRONTE ${ROMAN[fi]}`, P ? 36 : 60);
+    const big = value(this, L - 2, opY + 18, `Fronte ${ROMAN[fi]}`, P ? 36 : 60);
     const fname = body(this, L, big.y + big.height + 2, F.name, 15, OPS.text);
     // potenza: tua contro consigliata, con il colore che dice se basta
     const pw = fname.y + fname.height + 14;
@@ -603,7 +603,8 @@ export class CampScene extends Phaser.Scene {
     const P = this.portrait, T = PAD + this.safe.top, Bm = PAD + this.safe.bottom, head = P ? 110 : 92, info = PAGE[spot], p = this.profile;
     const top = T + head;
     let art: { x: number; y: number; w: number; h: number } | null = null, x0: number, y0: number, W: number, H: number;
-    if (!info.room) { x0 = PAD; y0 = top; W = width - 2 * PAD; H = height - top - Bm; }
+    if (spot === 'spedizione') { x0 = 0; y0 = 0; W = width; H = height; }
+    else if (!info.room) { x0 = PAD; y0 = top; W = width - 2 * PAD; H = height - top - Bm; }
     else if (P) {
       const ah = Math.min(height * 0.32, width * 0.9);
       art = { x: PAD, y: top, w: width - 2 * PAD, h: ah };
@@ -619,25 +620,24 @@ export class CampScene extends Phaser.Scene {
       const fresh = !this.page;
       this.page?.destroy();
       this.pageKey = key;
-      // fondo: la stessa foto della base (la parabola per la Sala Radar), scurita come la home
+      // fondo: foto fredda a tutto schermo (la parabola per la Sala Radar, l'elicottero per l'Estrazione), senza velo sull'Estrazione
+      const ext = spot === 'spedizione';
       const objs: Phaser.GameObjects.GameObject[] = [
         this.add.rectangle(0, 0, width, height, 0x07090c, 1).setOrigin(0).setInteractive(), // la base sotto non riceve i tocchi
-        coverImage(this, spot === 'radar' ? 'load-radar' : 'load-ghiaccio', 0, 0, width, height, 0.5).setTint(0x9fb0c4).setAlpha(0.45),
-        this.add.rectangle(0, 0, width, height, 0x05070a, 0.55).setOrigin(0),
+        ext ? coverImage(this, 'bg-estrazione', 0, 0, width, height, 0.5)
+          : coverImage(this, spot === 'radar' ? 'load-radar' : 'load-ghiaccio', 0, 0, width, height, 0.5).setTint(0x9dbcdf).setAlpha(0.7),
       ];
-      // testata: barra traslucida con ‹ BASE, nome della pagina, livello a tacche e scorte
+      if (!ext) objs.push(this.add.rectangle(0, 0, width, height, 0x05080d, 0.42).setOrigin(0));
+      // testata: titolo grande a sinistra, Back a destra (Figma di Nico)
       const hg = this.add.graphics();
-      const barY = T - 4, barH = P ? 84 : 52;
-      hg.fillStyle(0x2b333b, 0.55).fillRect(PAD, barY, width - 2 * PAD, barH);
-      const back = label(this, PAD + 14, barY + (P ? 16 : barH / 2), '‹ base', OPS.text, 11).setOrigin(0, 0.5).setInteractive({ useHandCursor: true })
-        .on('pointerup', () => this.closePanel());
+      const barY = T - 4, barH = P ? 84 : 52, titleY = barY + (P ? 16 : barH / 2);
       const isB = (BUILDINGS as string[]).includes(spot), lvl = isB ? p.buildings[spot as BuildingId] : 0, max = isB ? maxLvl(spot as BuildingId) : 0;
-      hg.lineStyle(1, OPS.edge, 0.6).lineBetween(back.x + back.width + 14, barY + 12, back.x + back.width + 14, barY + (P ? 30 : barH - 12));
-      const title = value(this, back.x + back.width + 28, barY + (P ? 16 : barH / 2), info.name.toUpperCase(), P ? 20 : 24).setOrigin(0, 0.5);
-      objs.push(hg, back, title); // la barra sotto le scritte
+      const em = ext && !P ? width * 0.05 : PAD, ty = ext && !P ? Math.max(titleY, height * 0.1) : titleY; // l'Estrazione ha i margini larghi del Figma
+      const title = value(this, em + (ext ? 0 : 4), ty, ext ? 'Extraction squads' : info.name, Phaser.Math.Clamp(width * 0.032, P ? 24 : 28, 56)).setOrigin(0, 0.5);
+      objs.push(hg, title, ...backBox(this, width - em, ty - 18, () => this.closePanel()));
       if (isB) { // livello: tacche dopo il titolo (piena = fatto, ambra = in cantiere)
-        const tw = 9, gap = 3, tx = title.x + title.width + 16;
-        objs.push(label(this, tx, barY + (P ? 16 : barH / 2) - 14, `liv ${lvl}/${max}`, OPS.label, 8));
+        const tw = 9, gap = 3, tx = title.x + title.width + 18;
+        objs.push(label(this, tx, barY + (P ? 16 : barH / 2) - 16, `Liv ${lvl}/${max}`, OPS.label, 8));
         for (let i = 0; i < max; i++) {
           const bx = tx + i * (tw + gap), done = i < lvl, now = st.building && i === lvl;
           hg.fillStyle(now ? PALETTE.allerta : OPS.text, done || now ? 0.9 : 0).fillRect(bx, barY + (P ? 16 : barH / 2) + 2, tw, 8);
@@ -645,9 +645,9 @@ export class CampScene extends Phaser.Scene {
         }
       }
       // scorte: icona e numero in mono, a destra della barra (in verticale sotto il titolo)
-      let sx = width - PAD - 16;
+      let sx = P ? width - PAD - 16 : width - PAD - 104 - 24;
       const sy = barY + (P ? barH - 18 : barH / 2);
-      [...RESOURCES].reverse().forEach((r) => {
+      if (!ext) [...RESOURCES].reverse().forEach((r) => {
         const t = label(this, sx, sy, String(p.stash[r]), OPS.text, 12).setOrigin(1, 0.5);
         drawResourceIcon(hg, r, sx - Math.max(48, t.width) - 12, sy, 6);
         objs.push(t);
@@ -694,9 +694,9 @@ export class CampScene extends Phaser.Scene {
 
   /** Riga traslucida come nella home; si schiarisce sotto il mouse se si tocca; barretta a sinistra se evidenziata. */
   private rowBox(items: Phaser.GameObjects.GameObject[], x: number, y: number, w: number, h: number, onClick?: () => void, accent?: number, dim = false) {
-    const r = this.add.rectangle(x, y, w, h, 0x2b333b, 0.55).setOrigin(0).setAlpha(dim ? 0.5 : 1);
+    const r = this.add.rectangle(x, y, w, h, OPS.row, 0.62).setOrigin(0).setStrokeStyle(1, OPS.edge, 0.32).setAlpha(dim ? 0.5 : 1);
     if (onClick) r.setInteractive({ useHandCursor: true }).on('pointerup', onClick)
-      .on('pointerover', () => r.setFillStyle(0x2b333b, 0.85)).on('pointerout', () => r.setFillStyle(0x2b333b, 0.55));
+      .on('pointerover', () => r.setFillStyle(OPS.row, 0.92)).on('pointerout', () => r.setFillStyle(OPS.row, 0.62));
     items.push(r);
     if (accent !== undefined) items.push(this.add.rectangle(x, y, 2, h, accent).setOrigin(0));
     return r;
@@ -728,7 +728,7 @@ export class CampScene extends Phaser.Scene {
         g.lineStyle(1, OPS.text, done || cur ? 0 : 0.35).strokeRect(bx + 0.5, ry + 32.5, 7, 6);
       }
       const state = here ? `in cantiere · ${fmtTime(c!.until - now)}` : lvl >= max ? 'livello massimo' : block ? why[block] : `migliorabile · ${fmtTime((nextLevel(p, id)?.timeSec ?? 0) * 1000)}`;
-      items.push(g, value(this, L + 14, ry + 7, buildingText[id].name.toUpperCase(), 15),
+      items.push(g, value(this, L + 14, ry + 7, buildingText[id].name, 15),
         label(this, L + w - 30, ry + rowH / 2, state, here ? PALETTE.allerta : !block && lvl < max ? OPS.gain : OPS.label, 9).setOrigin(1, 0.5),
         label(this, L + w - 12, ry + rowH / 2, '›', OPS.text, 14).setOrigin(1, 0.5));
     });
@@ -759,7 +759,7 @@ export class CampScene extends Phaser.Scene {
     if (r) {
       const t = techInfo(r.id), total = (BALANCE.tech[r.id]?.timeSec ?? 1) * 1000;
       this.rowBox(items, L, y, w, 70, undefined, PALETTE.allerta);
-      items.push(value(this, L + 14, y + 8, t.name.toUpperCase(), 17), body(this, L + 14, y + 32, t.desc, 11, OPS.body).setWordWrapWidth(w - 28).setMaxLines(1));
+      items.push(value(this, L + 14, y + 8, t.name, 17), body(this, L + 14, y + 32, t.desc, 11, OPS.body).setWordWrapWidth(w - 28).setMaxLines(1));
       this.bar(items, L + 14, y + 56, w - 28, 1 - (r.until - now) / total, PALETTE.allerta);
       y += 82;
     } else {
@@ -772,7 +772,7 @@ export class CampScene extends Phaser.Scene {
     Object.entries(BRANCHES).forEach(([k, name], i) => {
       const ids = TECH_IDS.filter((id) => BALANCE.tech[id].branch === k), done = ids.filter((id) => p.techs.includes(id)).length, ry = y + i * 40, full = done === ids.length;
       this.rowBox(items, L, ry, w, 34, () => this.openTree(k));
-      items.push(value(this, L + 14, ry + 17, name.toUpperCase(), 14).setOrigin(0, 0.5),
+      items.push(value(this, L + 14, ry + 17, name, 14).setOrigin(0, 0.5),
         label(this, L + w - 12, ry + 17, `${done}/${ids.length}`, full ? OPS.gain : OPS.label, 10).setOrigin(1, 0.5));
       this.bar(items, L + w * 0.45, ry + 15, w * 0.4, ids.length ? done / ids.length : 0, full ? OPS.gain : OPS.text);
     });
@@ -793,7 +793,7 @@ export class CampScene extends Phaser.Scene {
     const items: Phaser.GameObjects.GameObject[] = [];
     // fascicolo: riquadro scuro velato sulla foto, filo sottile (niente etichette: il titolo è in testata)
     const fg = this.add.graphics();
-    panel(fg, x0, y0, W, H, 0.86);
+    if (spot !== 'spedizione') panel(fg, x0, y0, W, H);
     items.push(fg);
     const now = Date.now();
 
@@ -814,54 +814,7 @@ export class CampScene extends Phaser.Scene {
     } else if (spot === 'radar' && this.panelMode !== 'build' && this.profile.buildings.radar > 0) {
       this.fillRadar(items, x0, y0 - 28, W, H + 28);
     } else if (spot === 'spedizione') {
-      const T = buildingText.spedizione, L = x0 + 18, w = W - 36;
-      let y = this.head(items, L, y0 + 16, w, 'a cosa serve');
-      const d = body(this, L, y, T.desc, 13, OPS.text, w);
-      items.push(d);
-      y = d.y + d.height + 18;
-      const e = this.profile.expedition;
-      if (e && e.until > now) {
-        y = this.head(items, L, y, w, 'in missione', `torna tra ${fmtTime(e.until - now)}`, PALETTE.allerta);
-        this.rowBox(items, L, y, w, 46, undefined, PALETTE.allerta);
-        items.push(value(this, L + 14, y + 23, T.kinds[e.kind].toUpperCase(), 16).setOrigin(0, 0.5));
-      } else if (e) {
-        y = this.head(items, L, y, w, 'squadre rientrate', 'bottino pronto', OPS.gain);
-        items.push(this.bagRow(e.reward, L, y + 4));
-        items.push(this.btn('RITIRA IL BOTTINO', L, y0 + H - 60, w, true, () => {
-          const kind = this.profile.expedition?.kind ?? 'breve';
-          const got = collectExpedition(this.profile, Date.now());
-          if (!got) return;
-          analytics.design(['spedizione', 'ritira', kind]); // % che torna a ritirare
-          analytics.resources('source', got, 'spedizione', kind);
-          saveProfile(this.profile);
-          this.closePanel();
-          this.redrawSpot('spedizione');
-          this.updateStash();
-          const s = this.spots.get('spedizione')!;
-          this.burst.setParticleTint(PALETTE.ocra);
-          this.burst.explode(30, s.x, s.y);
-          this.toast(`+${got.metallo} metallo · +${got.benzina} benzina · +${got.cibo} cibo`, PALETTE.radioattivo);
-        }, 16, true));
-      } else {
-        // missioni: nome grande, durata e costo sotto, bottino atteso a destra; si tocca la riga per partire
-        y = this.head(items, L, y, w, 'missioni', 'tocca per partire');
-        EXPEDITIONS.forEach((kind: ExpeditionKind, i) => {
-          const E = BALANCE.camp.expeditions[kind], cost = expeditionCost(kind), ok = this.profile.stash.cibo >= cost, ry = y + i * 62;
-          this.rowBox(items, L, ry, w, 56, ok ? () => {
-            if (!startExpedition(this.profile, kind, Date.now())) return;
-            analytics.design(['spedizione', 'parti', kind]);
-            saveProfile(this.profile);
-            this.closePanel();
-            this.redrawSpot('spedizione');
-            this.updateStash();
-            this.toast('Le squadre partono. Torneranno con quello che trovano.', PALETTE.carta);
-          } : undefined, undefined, !ok);
-          items.push(value(this, L + 14, ry + 8, T.kinds[kind].toUpperCase(), 15),
-            label(this, L + 14, ry + 36, `${fmtTime(expeditionTimeSec(this.profile, kind) * 1000)} · ${cost ? `${cost} cibo` : 'gratis'}`, ok ? OPS.text : OPS.loss, 9),
-            label(this, L + w - 12, ry + 14, 'bottino atteso', OPS.label, 8).setOrigin(1, 0),
-            label(this, L + w - 12, ry + 30, `${E.metallo[0]}–${E.metallo[1]} met · ${E.benzina[0]}–${E.benzina[1]} benz · ${E.cibo[0]}–${E.cibo[1]} cibo`, OPS.body, 8).setOrigin(1, 0));
-        });
-      }
+      this.fillExtraction(items, W, H);
     } else {
       const T = buildingText[spot];
       const lvl = this.profile.buildings[spot];
@@ -892,7 +845,7 @@ export class CampScene extends Phaser.Scene {
         // numero: pieno se fatto, filo se prossimo, tenue se da fare
         tg.fillStyle(OPS.text, done ? 1 : 0).fillRect(x0 + 20, ly + 2, 18, 18).lineStyle(1, OPS.text, done ? 0 : now ? 1 : 0.35).strokeRect(x0 + 20.5, ly + 2.5, 17, 17);
         items.push(label(this, x0 + 29, ly + 11, String(i + 1), done ? 0x0a0d10 : now ? OPS.text : OPS.label, 9).setOrigin(0.5),
-          value(this, x0 + 48, ly + 1, nm.toUpperCase(), 15, done ? OPS.text : now ? 0xffffff : OPS.label).setAlpha(done ? 0.8 : 1));
+          value(this, x0 + 48, ly + 1, nm, 15, done ? OPS.text : now ? 0xffffff : OPS.label).setAlpha(done ? 0.8 : 1));
         if (eff && step >= 36) items.push(body(this, x0 + 48, ly + 21, eff, 11, done || now ? OPS.body : OPS.label).setWordWrapWidth(W - 70).setMaxLines(1));
         if (done) items.push(label(this, x0 + W - 22, ly + 11, 'fatto', OPS.gain, 8).setOrigin(1, 0.5));
         else if (now) items.push(label(this, x0 + W - 22, ly + 11, building ? 'in cantiere' : 'prossimo', building ? PALETTE.allerta : OPS.text, 8).setOrigin(1, 0.5));
@@ -940,6 +893,71 @@ export class CampScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Squadre di Estrazione (Figma di Nico): le missioni in righe di vetro a destra, nome e durata; la riga toccata è la scelta,
+   * SEND SQUAD in basso la fa partire. Costo e bottino atteso della scelta stanno sopra il tasto.
+   */
+  private fillExtraction(items: Phaser.GameObjects.GameObject[], W: number, H: number) {
+    const p = this.profile, now = Date.now(), T = buildingText.spedizione, e = p.expedition, P = this.portrait;
+    const away = !!e && e.until > now, back = !!e && !away;
+    const kindNow: ExpeditionKind = e?.kind ?? this.expKind;
+    const m = P ? PAD : W * 0.05, rw = P ? W - 2 * m : Math.max(280, W * 0.268), rx = W - m - rw;
+    const rh = Math.max(50, H * 0.092), gap = P ? 10 : Math.max(10, H * 0.035), ctaH = Math.max(52, H * 0.092), ctaY = H - Math.max(H * 0.092, PAD + this.safe.bottom) - ctaH;
+    const y0 = P ? ctaY - 76 - 3 * rh - 2 * gap : Math.max(H * 0.216, 110); // in verticale le righe stanno appena sopra costo e tasto
+    const px = Phaser.Math.Clamp(W * 0.0078, 10.5, 15); // misura per label(), che la riporta in punti
+    const dur = (s: number) => (s >= 3600 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 60)} min`);
+    const g = this.add.graphics();
+    items.push(g);
+    EXPEDITIONS.forEach((kind: ExpeditionKind, i) => {
+      const y = y0 + i * (rh + gap), on = kind === kindNow, dim = (away || back) && !on;
+      glass(g, rx, y, rw, rh, on);
+      const right = on && away ? fmtTime(e!.until - now) : on && back ? 'di ritorno' : dur(expeditionTimeSec(p, kind));
+      items.push(label(this, rx + 18, y + rh / 2, T.kinds[kind], OPS.text, px).setOrigin(0, 0.5).setAlpha(dim ? 0.45 : 1),
+        label(this, rx + rw - 18, y + rh / 2, right, on && away ? PALETTE.allerta : OPS.label, px).setOrigin(1, 0.5).setAlpha(dim ? 0.45 : 1));
+      if (!away && !back) items.push(this.add.rectangle(rx, y, rw, rh, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true }).on('pointerup', () => {
+        this.expKind = kind;
+        this.openPanel('spedizione');
+      }));
+    });
+    // azione: in basso a destra, ruggine
+    const bw = P ? rw : Math.max(220, W * 0.193), bh = ctaH, bx = W - m - bw, by = ctaY;
+    const E = BALANCE.camp.expeditions[kindNow], cost = expeditionCost(kindNow), ok = p.stash.cibo >= cost;
+    const go = () => {
+      if (back) {
+        const got = collectExpedition(p, Date.now());
+        if (!got) return;
+        analytics.design(['spedizione', 'ritira', kindNow]); // % che torna a ritirare
+        analytics.resources('source', got, 'spedizione', kindNow);
+        saveProfile(p);
+        this.closePanel();
+        this.redrawSpot('spedizione');
+        this.updateStash();
+        const s = this.spots.get('spedizione')!;
+        this.burst.setParticleTint(PALETTE.ocra);
+        this.burst.explode(30, s.x, s.y);
+        this.toast(`+${got.metallo} metallo · +${got.benzina} benzina · +${got.cibo} cibo`, PALETTE.radioattivo);
+        return;
+      }
+      if (!startExpedition(p, kindNow, Date.now())) return;
+      analytics.design(['spedizione', 'parti', kindNow]);
+      saveProfile(p);
+      this.closePanel();
+      this.redrawSpot('spedizione');
+      this.updateStash();
+      this.toast('Le squadre partono. Torneranno con quello che trovano.', PALETTE.carta);
+    };
+    const can = back || (!away && ok);
+    const b = new Button(this, back ? 'COLLECT' : away ? 'ON MISSION' : 'SEND SQUAD', bw, bh, () => can && go(), Math.round(px * 1.15));
+    b.setPosition(bx, by).setAlpha(can ? 1 : 0.5);
+    if (can) b.setPrimary();
+    items.push(b);
+    // costo e bottino della scelta, sopra il tasto
+    const loot = back ? `${e!.reward.metallo} metallo · ${e!.reward.benzina} benzina · ${e!.reward.cibo} cibo`
+      : `${E.metallo[0]}–${E.metallo[1]} metallo · ${E.benzina[0]}–${E.benzina[1]} benzina · ${E.cibo[0]}–${E.cibo[1]} cibo`;
+    items.push(label(this, W - m, by - 12, loot, OPS.text, P ? 8 : 9).setOrigin(1, 1).setWordWrapWidth(rw).setAlign('right'));
+    if (!away && !back) items.push(label(this, W - m, by - (P ? 50 : 32), cost ? `Costo ${cost} cibo · ne hai ${p.stash.cibo}` : 'Gratis', ok ? OPS.label : OPS.loss, 9).setOrigin(1, 1));
+  }
+
   /** Mercato: scambi tra risorse, rifornimenti per la prossima campagna, lavori finiti subito. Solo risorse di gioco. */
   private fillShop(items: Phaser.GameObjects.GameObject[], x0: number, y0: number, W: number, _H: number) {
     const p = this.profile, P = this.portrait, S = BALANCE.shop, now = Date.now();
@@ -979,7 +997,7 @@ export class CampScene extends Phaser.Scene {
       const T = shopText.items[k], D = S.supplies[k], own = (p.supplies ?? []).includes(k), ok = !own && canAfford(p.stash, D.cost);
       const x = L + (i % scols) * (sw + 6), ty = y + Math.floor(i / scols) * (sh + 6);
       tile(x, ty, sw, sh, ok, own, () => { if (buySupply(p, k)) done(`${T.name.toUpperCase()} · pronti per la prossima campagna`); });
-      items.push(value(this, x + 12, ty + 6, T.name.toUpperCase(), 14, own ? OPS.gain : OPS.text),
+      items.push(value(this, x + 12, ty + 6, T.name, 14, own ? OPS.gain : OPS.text),
         body(this, x + 12, ty + 26, T.desc, 10, OPS.body).setWordWrapWidth(sw - 24).setMaxLines(1));
       if (own) items.push(label(this, x + sw - 10, ty + (P ? sh / 2 : sh - 12), 'pronto', OPS.gain, 9).setOrigin(1, 0.5));
       else this.costRow(g, items, D.cost, P ? x + sw - 150 : x + 12, P ? ty + sh / 2 : ty + sh - 12, p.stash);
@@ -1095,7 +1113,7 @@ export class CampScene extends Phaser.Scene {
         const g = this.add.graphics();
         drawPatch(g, cx + 20, cy + 20, 13, st.fill, st.symbol);
         items.push(img, shade, frame, g,
-          value(this, cx + 10, cy + ch - 44, info.name.toUpperCase(), 18, open ? OPS.text : OPS.label),
+          value(this, cx + 10, cy + ch - 44, info.name, 18, open ? OPS.text : OPS.label),
           label(this, cx + 10, cy + ch - 18, open ? info.regime : `bloccata · ${info.unlock}`, open ? OPS.body : OPS.label, 8).setWordWrapWidth(cw - 20).setMaxLines(1));
         if (sel) items.push(this.add.rectangle(cx, cy, cw, 3, OPS.text).setOrigin(0));
       });
@@ -1124,7 +1142,7 @@ export class CampScene extends Phaser.Scene {
     items.push(banner, fade(this, x0 + 1, y0 + 1, W - 2, bh, PALETTE.inchiostro, 0.35, 0.97));
     const bp = this.add.graphics();
     drawPatch(bp, x0 + 34, y0 + bh - 34, 16, st.fill, st.symbol);
-    items.push(bp, value(this, x0 + 60, y0 + bh - 58, info.name.toUpperCase(), 26),
+    items.push(bp, value(this, x0 + 60, y0 + bh - 58, info.name, 26),
       body(this, x0 + 60, y0 + bh - 24, `${info.regime} · ${info.bonus}`, 10, OPS.body, W - 90));
     if (civChoice(p)) {
       const hit = this.add.rectangle(x0 + 1, y0 + 1, W - 2, bh, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true });
@@ -1227,7 +1245,7 @@ export class CampScene extends Phaser.Scene {
     let y = this.head(items, L, y0 + 44, w, 'frammenti decifrati', `${frags.length}/${loreTotal}`);
     if (!frags.length) items.push(body(this, L, y, 'Nessun frammento. Le ricerche del ramo "La Caduta" riempiono questo archivio.', 13, OPS.text, w));
     frags.forEach((f, i) => {
-      items.push(label(this, L, y, `frammento ${ROMAN[i] ?? i + 1}`, OPS.accent, 9), value(this, L, y + 14, f.name.toUpperCase(), 16));
+      items.push(label(this, L, y, `frammento ${ROMAN[i] ?? i + 1}`, OPS.accent, 9), value(this, L, y + 14, f.name, 16));
       const t = body(this, L, y + 38, f.lore, 12, OPS.body, w);
       items.push(t);
       y = t.y + t.height + 18;
@@ -1296,25 +1314,6 @@ export class CampScene extends Phaser.Scene {
     items.push(this.link('migliora la sala ›', L, y0 + _H - 26, () => this.openPanel('radar', 'build'), 0));
   }
 
-  /** Riga di risorse (costo o bottino); in rosso quelle che non bastano. */
-  private bagRow(bag: Bag, x: number, y: number, have?: Bag) {
-    const c = this.add.container(0, 0);
-    const g = this.add.graphics();
-    c.add(g);
-    let cx = x;
-    for (const r of RESOURCES) {
-      if (!bag[r]) continue;
-      drawResourceIcon(g, r, cx + 6, y + 8, 6);
-      const short = have && have[r] < bag[r];
-      const t = value(this, cx + 16, y + 8, `${bag[r]}`, 18, short ? OPS.loss : OPS.text).setOrigin(0, 0.5);
-      c.add(t);
-      cx += t.width + 30;
-    }
-    if (have && !canAfford(have, bag)) c.add(label(this, x, y + 22, 'servono altre campagne', OPS.loss, 9));
-    return c;
-  }
-
-  /** primary = azione principale della scheda: riquadro avorio pieno (una sola per scheda); le altre solo col filo. */
   private btn(label: string, x: number, y: number, w: number, enabled: boolean, onClick: () => void, size = 16, primary = false) {
     const b = new Button(this, label, w, 40, () => enabled && onClick(), size);
     b.setPosition(x, y).setAlpha(enabled ? 1 : 0.45);

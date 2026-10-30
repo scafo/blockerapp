@@ -12,15 +12,15 @@ import { profileStore } from '../save/profileStore';
 import { analytics } from '../analytics/analytics';
 import { Button } from '../ui/Button';
 import { drawResourceIcon } from '../ui/resourceIcons';
-import { OPS, body, chip, dot, frameMarks, label, panel, rule, value } from '../ui/ops';
+import { OPS, body, chip, dot, label, panel, rule, value } from '../ui/ops';
 import { uiCamera, view } from '../ui/screen';
 import { civImage, coverImage, fade } from '../ui/images';
 
 const TITLES: Record<RunSummary['outcome'], string> = {
-  victory: 'VITTORIA',
-  retreat: 'RITIRATA',
-  eliminated: 'ELIMINATO',
-  timeout: 'FINE DELLE OPERAZIONI',
+  victory: 'Vittoria',
+  retreat: 'Ritirata',
+  eliminated: 'Eliminato',
+  timeout: 'Fine delle operazioni',
 };
 
 const REASONS = { map: 'I tre imperi rivali sono caduti', time: 'Più province di tutti a fine campagna', tutorial: 'Il primo pezzo di mondo è tuo' };
@@ -44,15 +44,14 @@ export class ResultScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(PALETTE.inchiostro);
     // fondo cinematografico: la potenza in vittoria, un'immagine dell'archivio della Caduta negli altri casi, scurita
     const bg = sum.outcome === 'victory' ? civImage(sum.civ) : ({ retreat: 'load-nave', eliminated: 'load-croce', timeout: 'load-ghiaccio' } as Record<string, string>)[sum.outcome];
-    const img = coverImage(this, bg, 0, 0, width, height, 0.4).setTint(0x9fb4cc).setAlpha(0.55);
-    this.tweens.add({ targets: img, alpha: 0.4, duration: 4000, yoyo: true, repeat: -1 });
-    this.add.rectangle(0, 0, width, height, 0x05070a, 0.5).setOrigin(0);
+    const img = coverImage(this, bg, 0, 0, width, height, 0.4).setTint(0x9dbcdf).setAlpha(0.8);
+    this.tweens.add({ targets: img, alpha: 0.62, duration: 4000, yoyo: true, repeat: -1 });
+    this.add.rectangle(0, 0, width, height, 0x05080d, 0.32).setOrigin(0);
     fade(this, 0, 0, width * 0.6, height, 0x05070a, 0.75, 0, 'h');
     const g = this.add.graphics();
 
     // cornice con i crocini
     const M = P ? 16 : 28, fx = M, fy = M, fw = width - 2 * M, fh = height - 2 * M;
-    frameMarks(g, fx, fy, fw, fh);
     const pad = P ? 14 : 26, L = fx + pad, R = fx + fw - pad;
 
     // intestazione: numero del rapporto a sinistra, codice della mappa a destra; sotto, potenza/fronte/durata in riquadri

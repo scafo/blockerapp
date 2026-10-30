@@ -13,7 +13,7 @@ import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
 import { dashedBox, dots, italic } from '../ui/schematic';
 import { safeInsets, uiCamera, view } from '../ui/screen';
-import { label as monoLabel, panel, value } from '../ui/ops';
+import { backBox, label as monoLabel, panel, value } from '../ui/ops';
 
 // pianta tecnica (riferimento di Nico: mappa di un impianto): fondo blu ardesia con puntini, stanze bianche collegate
 const BLUE = 0x1b2b33, CYAN = 0x6fc4c9;
@@ -63,15 +63,14 @@ export class TreeScene extends Phaser.Scene {
     for (let i = 0; i < Math.round(width * height / 2600); i++) dust.fillStyle(0xffffff, 0.15 + Math.random() * 0.35).fillRect(Math.random() * width, Math.random() * height, 1.2, 1.2);
     // intestazione: nome della pianta e stato della ricerca
     monoLabel(this, 16, 10, 'laboratorio · arsenale', CYAN, 9);
-    value(this, 16, 22, 'ALBERO DELLA RICERCA', 22);
+    value(this, 16, 24, 'Albero della ricerca', 26);
     this.header = this.add.text(width / 2, 30, '', italic(12, CYAN)).setOrigin(0.5, 0);
-    const close = this.add.text(width - 16, 10 + safeInsets().top, '✕', textStyle(22, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
-    close.on('pointerup', () => this.close());
+    backBox(this, width - 16, 12 + safeInsets().top, () => this.close());
     if (!P) {
       const b = (label: string, id: BuildingId, x: number) => this.add.text(x, 16, label, italic(12)).setOrigin(1, 0)
         .setInteractive({ useHandCursor: true }).on('pointerup', () => { this.close(); this.host.openBuilding(id); });
-      b(`ARSENALE liv. ${p.buildings.arsenale} ›`, 'arsenale', width - 60);
-      b(`LABORATORIO liv. ${p.buildings.laboratorio} ›`, 'laboratorio', width - 210);
+      b(`Arsenale liv. ${p.buildings.arsenale} ›`, 'arsenale', width - 140);
+      b(`Laboratorio liv. ${p.buildings.laboratorio} ›`, 'laboratorio', width - 270);
     }
     dots(this.add.graphics(), 16, 64, width - 16, 64, 0xffffff, 0.6);
 
@@ -204,7 +203,7 @@ export class TreeScene extends Phaser.Scene {
     else if (t.ability) drawAbilityIcon(ic, t.ability, x + 20, y + NH / 2, 9, col);
     else if (t.unique) ic.fillStyle(col, 1).fillTriangle(x + 12, y + NH / 2 + 7, x + 28, y + NH / 2 + 7, x + 20, y + NH / 2 - 9);
     else ic.lineStyle(2, col, 1).strokeCircle(x + 20, y + NH / 2, 7);
-    const name = this.add.text(x + 38, y + 8, t.name.toUpperCase(), textStyle(11, done ? BLUE : locked ? PALETTE.tenue : 0xffffff))
+    const name = this.add.text(x + 38, y + 8, t.name, textStyle(11, done ? BLUE : locked ? PALETTE.tenue : 0xffffff))
       .setWordWrapWidth(NW - 44).setLineSpacing(-2);
     const sub = running ? `IN CORSO · ${fmtTime(p.research!.until - Date.now())}` : done ? '✓ fatta'
       : block === 'arsenale' ? `🔒 Arsenale liv. ${t.arsenale}` : block === 'lab' || block === 'nolab' ? `🔒 Laboratorio liv. ${Math.min(t.tier ?? 1, 3)}`
@@ -229,7 +228,7 @@ export class TreeScene extends Phaser.Scene {
     const req = t.req.map((r) => techInfo(r).name).join(', ');
     const where = t.arsenale !== undefined ? `Arsenale liv. ${t.arsenale}` : `Laboratorio liv. ${Math.min(t.tier ?? 1, 3)}`;
     const items: Phaser.GameObjects.GameObject[] = [
-      this.add.text(22, 20, t.name.toUpperCase(), textStyle(18, PALETTE.carta)),
+      this.add.text(22, 20, t.name, textStyle(18, PALETTE.carta)),
       this.add.text(22, 46, `${BRANCHES[t.branch]} · richiede ${where}${req ? ` · dopo: ${req}` : ''}`, italic(11))
         .setWordWrapWidth(width - 44),
       this.add.text(22, 66, t.desc + (t.lore ? '  ·  sblocca un frammento dell\'archivio della Caduta' : ''), textStyle(12, PALETTE.carta, false))

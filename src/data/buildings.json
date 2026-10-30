@@ -35,7 +35,7 @@
     "name": "Squadre di Estrazione",
     "desc": "Spedizioni a tempo nelle terre della Caduta. Tornano con cibo, metallo e benzina.",
     "kinds": {
-      "breve": "Ricognizione dei dintorni",
+      "breve": "Ricognizione",
       "media": "Le città spente",
       "lunga": "Oltre il cratere"
     }

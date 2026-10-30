@@ -1,8 +1,9 @@
-// Schermata d'entrata (Figma di Nico): collage notturno a tutto schermo, titolo al centro tra due staffe verticali.
-// Un tocco ovunque apre il caricamento.
+// Schermata d'entrata (Figma di Nico): collage notturno a tutto schermo, titolo al centro tra due staffe verticali, > PLAY < sotto.
+// PLAY (o INVIO) apre il caricamento.
 import Phaser from 'phaser';
 import { coverImage } from '../ui/images';
-import { uiCamera, view } from '../ui/screen';
+import { UI, uiCamera, view } from '../ui/screen';
+import { OPS } from '../ui/ops';
 import type { LoadData } from './LoadScene';
 
 export class TitleScene extends Phaser.Scene {
@@ -34,11 +35,12 @@ export class TitleScene extends Phaser.Scene {
 
     // titolo: si stringe da lettere larghe e trasparenti alla spaziatura normale, con un lampo leggero
     const size = Math.round(Math.min(W * 0.0556, H * 0.1, 110));
-    const title = this.add.text(W / 2, H / 2, 'ARCHEON', {
+    const title = this.add.text(W / 2, H * 0.449, 'ARCHEON', {
       fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif',
       fontStyle: '500',
       fontSize: `${Math.max(40, size)}px`,
       color: '#ffffff',
+      resolution: UI(),
       shadow: { offsetX: 0, offsetY: -2, color: '#000000', blur: 24, fill: true },
     }).setOrigin(0.5).setAlpha(0);
     const sp = { v: Math.max(40, size) * 0.6 };
@@ -49,9 +51,22 @@ export class TitleScene extends Phaser.Scene {
     this.time.delayedCall(2500, () => this.tweens.add({ targets: title, alpha: 0.82, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }));
 
     this.cameras.main.fadeIn(600, 0, 0, 0);
-    this.input.once('pointerup', () => {
+
+    // > PLAY <: compare dopo il titolo
+    const bw = Math.max(150, W * 0.14), bh = Math.max(40, H * 0.056), by = H * 0.59;
+    const play = this.add.rectangle(W / 2, by, bw, bh, OPS.row, 0.72).setInteractive({ useHandCursor: true }).setAlpha(0);
+    const word = this.add.text(W / 2, by, '> PLAY <', {
+      fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif', fontSize: `${Math.round(Math.max(14, W * 0.0095))}px`, color: '#ffffff', resolution: UI(),
+    }).setOrigin(0.5).setLetterSpacing(3).setAlpha(0);
+    this.tweens.add({ targets: [play, word], alpha: 1, duration: 600, delay: 1900, ease: 'Quad.easeOut' });
+    let gone = false;
+    const go = () => {
+      if (gone) return;
+      gone = true;
       this.cameras.main.fadeOut(400, 0, 0, 0);
       this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Load', next));
-    });
+    };
+    play.on('pointerover', () => play.setFillStyle(OPS.row, 0.95)).on('pointerout', () => play.setFillStyle(OPS.row, 0.72)).on('pointerup', go);
+    this.input.keyboard?.once('keydown-ENTER', go);
   }
 }

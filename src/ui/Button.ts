@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { PALETTE, hex } from '../config/palette';
 import { textStyle } from './style';
+import { OPS } from './ops';
 import { sfx } from '../audio/sfx';
 
 export interface ButtonOpts {
@@ -8,7 +9,7 @@ export interface ButtonOpts {
   hotkey?: string; // es. "G": piccolo distintivo nell'angolo, solo indicativo (la scorciatoia vera la registra hotkeys.ts)
 }
 
-/** Bottone da planimetria tecnica: riquadro ardesia con filo avorio, etichetta avorio; attivo = riquadro avorio pieno. */
+/** Bottone di vetro ardesia con filo sottile ed etichetta spaziata; attivo = ruggine piena (azione principale, Figma di Nico). */
 export class Button extends Phaser.GameObjects.Container {
   private bg: Phaser.GameObjects.Rectangle;
   private label: Phaser.GameObjects.Text;
@@ -28,12 +29,13 @@ export class Button extends Phaser.GameObjects.Container {
   constructor(scene: Phaser.Scene, text: string, w: number, h: number, onClick: () => void, size = 16, opts: ButtonOpts = {}) {
     super(scene, 0, 0);
     this.btnW = w;
-    this.bg = scene.add.rectangle(0, 0, w, h, PALETTE.inchiostro, 0.96).setStrokeStyle(1.5, PALETTE.carta, 0.9).setOrigin(0);
+    this.bg = scene.add.rectangle(0, 0, w, h, OPS.row, 0.72).setStrokeStyle(1, OPS.edge, 0.4).setOrigin(0);
     this.edge = scene.add.rectangle(0, h - 2, w, 2, PALETTE.carta, 0).setOrigin(0); // (niente filo in basso: il riquadro basta)
     this.focusRing = scene.add.rectangle(-3, -3, w + 6, h + 6, 0, 0)
       .setStrokeStyle(2, PALETTE.radioattivo, 1).setOrigin(0).setVisible(false);
     const labelX = opts.icon ? w / 2 + 10 : w / 2;
-    this.label = scene.add.text(labelX, h / 2, text, textStyle(size, PALETTE.carta)).setOrigin(0.5);
+    this.label = scene.add.text(labelX, h / 2, text, textStyle(size, 0xffffff)).setOrigin(0.5).setLetterSpacing(Math.max(1.5, size * 0.14));
+    this.fitLabel();
     this.add([this.bg, this.edge, this.focusRing, this.label]);
     if (opts.icon) {
       this.icon = scene.add.image(labelX - this.label.width / 2 - 12, h / 2, opts.icon).setDisplaySize(size + 2, size + 2);
@@ -49,12 +51,14 @@ export class Button extends Phaser.GameObjects.Container {
       .on('pointerdown', () => { if (!this.disabled_) this.squash(0.94, 60, 'Quad.easeOut'); })
       .on('pointerover', () => {
         if (this.disabled_) { if (this.disabledReason) this.showReason(); return; }
-        if (!this.active_) this.bg.setFillStyle(this.term ? 0x16181c : PALETTE.pannelloAlto, 0.98);
+        if (this.active_ && !this.term) this.bg.setFillStyle(0x74462d, 1);
+        else if (!this.active_) this.bg.setFillStyle(this.term ? 0x16181c : OPS.row, this.term ? 0.98 : 0.95);
       })
       .on('pointerout', () => {
         this.hideReason();
         if (this.disabled_) return;
-        if (!this.active_) this.bg.setFillStyle(this.term ? 0x000000 : PALETTE.inchiostro, this.term ? 0.92 : 0.96);
+        if (this.active_ && !this.term) this.bg.setFillStyle(OPS.cta, 1);
+        else if (!this.active_) this.bg.setFillStyle(this.term ? 0x000000 : OPS.row, this.term ? 0.92 : 0.72);
         if (this.scale < 1) this.squash(1, 120, 'Quad.easeOut');
       })
       .on('pointerup', () => {
@@ -105,10 +109,15 @@ export class Button extends Phaser.GameObjects.Container {
 
   setOn(on: boolean): this {
     this.active_ = on;
-    const ink = this.term ? 0x000000 : PALETTE.inchiostro, paper = this.term ? 0xd8dadc : PALETTE.carta;
-    this.bg.setFillStyle(on ? paper : ink, on ? 1 : this.term ? 0.92 : 0.96);
-    this.label.setColor(hex(on ? ink : this.term ? 0xf2f2f2 : PALETTE.carta));
-    if (on) this.icon?.setTint(ink); else this.icon?.clearTint(); // acceso: l'icona bianca su fondo chiaro spariva
+    if (!this.term) { // vetro o ruggine: etichetta sempre bianca
+      this.bg.setFillStyle(on ? OPS.cta : OPS.row, on ? 1 : 0.72);
+      this.label.setColor('#ffffff');
+      this.icon?.clearTint();
+      return this;
+    }
+    this.bg.setFillStyle(on ? 0xd8dadc : 0x000000, on ? 1 : 0.92);
+    this.label.setColor(hex(on ? 0x000000 : 0xf2f2f2));
+    if (on) this.icon?.setTint(0x000000); else this.icon?.clearTint(); // acceso: l'icona bianca su fondo chiaro spariva
     return this;
   }
 
@@ -117,13 +126,19 @@ export class Button extends Phaser.GameObjects.Container {
     this.term = true;
     this.bg.setStrokeStyle(1, 0xd8dadc, 0.75);
     const px = parseInt(String(this.label.style.fontSize), 10) || 16;
-    this.label.setFontFamily('"DejaVu Sans Mono", Menlo, monospace').setFontStyle('normal').setFontSize(Math.max(12, Math.round(px * 0.8))); // il monospazio è più largo
+    this.label.setLetterSpacing(0).setFontFamily('"DejaVu Sans Mono", Menlo, monospace').setFontStyle('normal').setFontSize(Math.max(12, Math.round(px * 0.8))); // il monospazio è più largo
     return this.setOn(this.active_);
   }
 
   setLabel(text: string): this {
     this.label.setText(text);
+    this.fitLabel();
     return this;
+  }
+
+  /** Testi lunghi: si rimpiccioliscono per restare nel tasto. */
+  private fitLabel() {
+    this.label.setScale(Math.min(1, (this.btnW - 16) / Math.max(1, this.label.width)));
   }
 
   /** Disattiva il bottone: si scurisce, ignora i clic; se dai un motivo, appare al passaggio del mouse. */

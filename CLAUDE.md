@@ -48,8 +48,10 @@ Timer brevi all'inizio, lunghi dopo. **I timer non bloccano mai le campagne.**
 
 ## Estetica (Figma, "Estetica" e "Loading screens")
 Notte, centri di comando, radar, operazioni speciali, toppe/insegne di reparto. **Non troppo retrò** (Nico): niente effetto monitor/CRT,
-niente scanline, niente verde terminale. Stile moderno da sala operativa: blu notte e acciaio, oro pallido per gli accenti, font
-Barlow Semi Condensed + Oswald. Immagini drammatiche del Figma per le potenze e i caricamenti. Leggibilità prima di tutto: colori fazione
+niente scanline, niente verde terminale. **Stile delle schermate = intro ed Estrazione del Figma (nodi 35:29 e 77:49)**: foto fredda e
+drammatica a tutto schermo, Helvetica, titolo grande bianco in alto a sinistra, Back in alto a destra, righe di vetro ardesia con testo
+spaziato, azione principale ruggine in basso a destra (`src/ui/ops.ts`, `Button.ts`). La campagna tiene la carta da terminale.
+Immagini drammatiche del Figma per le potenze e i caricamenti. Leggibilità prima di tutto: colori fazione
 forti + simboli (daltonismo).
 
 ## Run (campagna sulla mappa)
