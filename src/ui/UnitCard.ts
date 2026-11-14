@@ -1,10 +1,18 @@
-// Carta unità: icona e ricarica che scende dall'alto.
+// Carta unità: foto del reparto (generata con Draw Things) velata, icona al centro, ricarica che scende dall'alto.
 import { sfx } from '../audio/sfx';
 import Phaser from 'phaser';
 import type { AbilityType, UnitType } from '../config/balance';
 import { PALETTE } from '../config/palette';
 import { TCOL } from './terminal';
-import { drawAbilityIcon, drawUnitIcon } from './unitIcons';
+import { coverImage } from './images';
+import { icon } from './ops';
+
+/** Fondo della carta: la foto del reparto ritagliata, scurita perché l'icona si legga. */
+function cardArt(scene: Phaser.Scene, key: string, glyph: string): Phaser.GameObjects.GameObject[] {
+  const img = coverImage(scene, key, 0, 0, CARD_W, CARD_H, 0.4).setTint(0x8a96a2);
+  const veil = scene.add.rectangle(0, 0, CARD_W, CARD_H, 0x05080d, 0.35).setOrigin(0);
+  return [img, veil, icon(scene, glyph, CARD_W / 2, CARD_H / 2, 26, PALETTE.carta)];
+}
 
 // solo l'icona (Nico: nomi e costi non si leggevano): carte quadrate, in file da due a sinistra
 export const CARD_W = 58;
@@ -20,10 +28,10 @@ export class UnitCard extends Phaser.GameObjects.Container {
   constructor(scene: Phaser.Scene, readonly type: UnitType, onClick: () => void) {
     super(scene, 0, 0);
     this.bg = scene.add.rectangle(0, 0, CARD_W, CARD_H, TCOL.bg, 0.92).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75);
-    const icon = scene.add.graphics(); // icone disegnate di prima (Nico: le nuove non piacevano)
-    drawUnitIcon(icon, type, CARD_W / 2, CARD_H / 2, 13, PALETTE.carta);
     this.cool = scene.add.rectangle(0, 0, CARD_W, 0, TCOL.bg, 0.75).setOrigin(0);
-    this.add([this.bg, icon, this.cool]);
+    this.add([this.bg, ...cardArt(scene, `u-${type}`, `u-${type}`), this.cool]);
+    this.bg.setFillStyle(TCOL.bg, 0); // il filo resta sopra la foto
+    this.bringToTop(this.bg);
     this.setSize(CARD_W, CARD_H);
     this.bg.setInteractive({ useHandCursor: true }).on('pointerup', () => { sfx('select'); onClick(); });
     scene.add.existing(this);
@@ -57,12 +65,10 @@ export class AbilityCard extends Phaser.GameObjects.Container {
   constructor(scene: Phaser.Scene, readonly ability: AbilityType, onClick: () => void) {
     super(scene, 0, 0);
     this.bg = scene.add.rectangle(0, 0, CARD_W, CARD_H, TCOL.bg, 0.92).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75);
-    const parts: Phaser.GameObjects.GameObject[] = [this.bg];
-    const g = scene.add.graphics();
-    drawAbilityIcon(g, ability, CARD_W / 2, CARD_H / 2, 13, PALETTE.carta);
-    parts.push(g);
     this.cool = scene.add.rectangle(0, 0, CARD_W, 0, TCOL.bg, 0.75).setOrigin(0);
-    this.add([...parts, this.cool]);
+    this.add([this.bg, ...cardArt(scene, `a-${ability}`, `a-${ability}`), this.cool]);
+    this.bg.setFillStyle(TCOL.bg, 0);
+    this.bringToTop(this.bg);
     this.setSize(CARD_W, CARD_H);
     this.bg.setInteractive({ useHandCursor: true }).on('pointerup', () => { sfx('select'); onClick(); });
     scene.add.existing(this);

@@ -6,7 +6,7 @@ import { BALANCE, type Resource, type UnitType, type WorkId } from '../config/ba
 import { PALETTE, TERRAIN_VIEW, hex } from '../config/palette';
 import { BUILDABLE, NEUTRAL, PLAYER, WORKS, type DiploWhat, type Outcome, type VictoryReason } from '../game/RunState';
 import { techInfo } from '../game/tech';
-import { WORK_NAME, drawWorkIcon, workDesc } from '../ui/workIcons';
+import { WORK_NAME, workDesc } from '../ui/workIcons';
 import { buzz } from '../ui/haptics';
 import { FACTION_INFO, majorCount, majorIds } from '../game/factions';
 import civText from '../data/civs.json';
@@ -19,7 +19,8 @@ import { fpsEnabled } from '../ui/debug';
 import { Button } from '../ui/Button';
 import { AbilityCard, CARD_H, CARD_W, UnitCard } from '../ui/UnitCard';
 import { MapLabels } from '../render/MapLabels';
-import { drawResourceIcon } from '../ui/resourceIcons';
+import { icon, resIcon } from '../ui/ops';
+import { coverImage } from '../ui/images';
 import { UI, safeInsets, uiCamera, view } from '../ui/screen';
 import { drawSymbol } from '../ui/symbols';
 import { TCOL, termBox, termLabel, termNotch, termNote, termStyle } from '../ui/terminal';
@@ -90,7 +91,7 @@ export class HudScene extends Phaser.Scene {
   private ended = false;
   private portrait = false;
   private troopsLbl!: Phaser.GameObjects.Text;
-  private resIcons!: Phaser.GameObjects.Graphics;
+  private resIcons: Phaser.GameObjects.Image[] = [];
   private troopIcon!: Phaser.GameObjects.Image;
   private clockIcon!: Phaser.GameObjects.Image;
   private medalBtn!: Button; // al posto del riquadro territorio (Nico): apre province, classifica e fine campagna
@@ -155,11 +156,11 @@ export class HudScene extends Phaser.Scene {
     this.rate = this.add.text(0, 0, '', termStyle(11, PALETTE.radioattivo));
     this.food = this.add.text(0, 0, '', termStyle(11, PALETTE.radioattivo)).setVisible(false); // rancio: tolto dalla barra (Nico: non si capiva)
     this.stats = this.add.text(0, 0, '', termStyle(13, PALETTE.carta)).setLineSpacing(2);
-    this.resIcons = this.add.graphics();
+    this.resIcons = RESOURCES.map((r) => resIcon(this, r, 0, 0, 18));
     // bottino: icone e numeri grandi, ognuno nel colore della sua risorsa
     this.resTexts = RESOURCES.map(() => this.add.text(0, 0, '0', termStyle(16, PALETTE.carta)).setOrigin(0, 0.5)); // valori: bianco (l'icona dice quale risorsa)
     const stake = bagTotal(this.run.state.opts.stake);
-    this.resLabel = this.add.text(0, 0, stake ? ` bottino · puntata ${stake} ` : ' bottino ', termLabel(11))
+    this.resLabel = this.add.text(0, 0, stake ? ` Bottino · puntata ${stake} ` : ' Bottino ', termLabel(11))
       .setBackgroundColor(hex(TCOL.bg));
     // entrate al minuto sotto ogni risorsa: si vede cosa rende l'impero
     this.incTexts = RESOURCES.map(() => this.add.text(0, 0, '', termStyle(11, PALETTE.radioattivo, false)).setOrigin(0, 0));
@@ -364,8 +365,8 @@ export class HudScene extends Phaser.Scene {
       hit.on('pointerup', () => { this.closeMenu(); r.pick(); buzz(10); sfx('click'); });
       items.push(hit);
       const tx = r.icon ? 34 : 14, col = r.off ? TCOL.dim : TCOL.text;
-      if (r.icon) drawWorkIcon(g, r.icon, 20, y + RH / 2 - 1, 7, col);
-      if (kind === 'mappa') items.push(this.add.text(W - 14, y + RH / 2 - 1, r.on ? '■' : '□', termStyle(13, TCOL.text)).setOrigin(1, 0.5));
+      if (r.icon) items.push(icon(this, `w-${r.icon}`, 20, y + RH / 2 - 1, 18, col));
+      if (kind === 'mappa' && r.on) items.push(icon(this, 'ui-spunta', W - 20, y + RH / 2 - 1, 14, TCOL.ok));
       if (r.sub) {
         items.push(this.add.text(tx, y + 3, r.label, termStyle(13, col)), this.add.text(tx, y + 18, r.sub, termStyle(11, r.off ? TCOL.dim : TCOL.label)));
       } else items.push(this.add.text(tx, y + RH / 2 - 1, r.label, termStyle(13, col)).setOrigin(0, 0.5));
@@ -494,7 +495,7 @@ export class HudScene extends Phaser.Scene {
       // verticale: una barra in alto (esercito | fronte), sotto il bottino; tasti a destra sotto la barra
       const w = width - 2 * PAD;
       P.setPosition(PAD, topPad).setSize(w, TOP_H);
-      box(PAD, topPad, w, 72, this.notches[0].setText(' esercito · fronte '));
+      box(PAD, topPad, w, 72, this.notches[0].setText(' Esercito · fronte '));
       box(PAD, topPad + 80, w, TOP_H - 80, this.resLabel);
       this.notches[1].setVisible(false);
       this.troopIcon.setPosition(PAD + 12, topPad + 30);
@@ -521,7 +522,7 @@ export class HudScene extends Phaser.Scene {
       // riquadro territorio tolto (Nico): al suo posto, dopo il bottino, il tasto con la medaglia
       const aW = 176, bW = 44, cW = 252, gap = 6, cx = PAD + aW + gap, bx = cx + cW + gap;
       P.setPosition(PAD, topPad).setSize(aW + cW + gap, BAR_H); // area dei tocchi
-      box(PAD, topPad, aW, BAR_H, this.notches[0].setText(' esercito '));
+      box(PAD, topPad, aW, BAR_H, this.notches[0].setText(' Esercito '));
       box(cx, topPad, cW, BAR_H, this.resLabel);
       this.notches[1].setVisible(false);
       this.medalBtn.setPosition(bx, topPad);
@@ -611,11 +612,10 @@ export class HudScene extends Phaser.Scene {
   }
 
   private layoutResources(x: number, y: number, step: number) {
-    this.resIcons.clear();
-    RESOURCES.forEach((r, k) => {
+    RESOURCES.forEach((_r, k) => {
       // colonna allineata a sinistra: icona e valore sulla riga, entrate al minuto sotto, dal bordo dell'icona (Nico: era in diagonale)
       const cx = x + k * step;
-      drawResourceIcon(this.resIcons, r, cx + 7, y, 8);
+      this.resIcons[k].setPosition(cx + 8, y);
       this.resTexts[k].setPosition(cx + 20, y);
       this.incTexts[k].setPosition(cx, y + 13);
     });
@@ -792,77 +792,84 @@ export class HudScene extends Phaser.Scene {
     this.profile = null;
     if (!info || !fac) return;
     const { width, height } = view(this);
-    const W = Math.min(380, width - 2 * PAD), H = 300;
+    const W = Math.min(380, width - 2 * PAD), H = 306;
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, W, H, TCOL.bg, 0.97).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75),
       termNotch(this, 0, 0, info.kind === 'bot' ? 'Milizia' : 'Impero'),
     ];
+    // ritratto del capo (generato con Draw Things): il capo della sua potenza, o il capitano per le milizie
+    const PW = 74, PH = 98, TX = 14 + PW + 14;
+    items.push(coverImage(this, info.kind === 'bot' || !info.civ ? 'leader-milizia' : `leader-${info.civ}`, 14, 16, PW, PH, 0.25),
+      this.add.rectangle(14, 16, PW, PH, 0, 0).setOrigin(0).setStrokeStyle(1, info.fill, 0.9));
     const g = this.add.graphics();
-    drawSymbol(g, info.symbol, 22, 26, 9, info.fill, PALETTE.carta);
-    items.push(g, this.add.text(40, 14, info.name.toUpperCase(), termStyle(16, PALETTE.carta)).setWordWrapWidth(W - 80));
-    const close = this.add.text(W - 10, 8, '✕', termStyle(18, PALETTE.carta)).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+    drawSymbol(g, info.symbol, 14 + PW - 9, 16 + PH - 9, 7, info.fill, PALETTE.carta);
+    items.push(g, this.add.text(TX, 14, info.name, termStyle(16, PALETTE.carta)).setWordWrapWidth(W - TX - 40));
+    const close = icon(this, 'ui-chiudi', W - 20, 22, 16, TCOL.label).setInteractive({ useHandCursor: true });
     close.on('pointerup', () => this.hideProfile());
     items.push(close);
     const civ = info.civ ? (civText as Record<string, { name: string; regime: string; classe: string }>)[info.civ] : null;
-    const kind = info.kind === 'bot' ? 'MILIZIA PROVINCIALE · forza locale, difende la sua zona'
-      : `IMPERO · potenza ${civ?.name ?? ''} · ${civ?.regime.toLowerCase() ?? ''}`;
-    items.push(this.add.text(14, 46, kind, termStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
-    if (civ) items.push(this.add.text(14, 64, `classe dirigente: ${civ.classe}`, termStyle(11, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
+    const kind = info.kind === 'bot' ? 'Milizia provinciale · difende la sua zona'
+      : `Impero · ${civ?.name ?? ''} · ${civ?.regime.toLowerCase() ?? ''}`;
+    items.push(this.add.text(TX, 38, kind, termStyle(11, TCOL.label, false)).setWordWrapWidth(W - TX - 14));
+    if (civ) items.push(this.add.text(TX, 56, civ.classe, termStyle(11, TCOL.label, false)).setWordWrapWidth(W - TX - 14));
     // peso militare
     const ratio = fac.troops / Math.max(1, st.troops);
     const force = !fac.alive ? 'eliminati' : ratio > 1.25 ? 'più forti di te' : ratio < 0.8 ? 'più deboli di te' : 'forza pari alla tua';
     const troops = fac.alive ? `≈${Math.max(10, Math.round(fac.troops / 10) * 10)}` : '0';
-    items.push(this.add.text(14, 90, `${fac.provinces} ${fac.provinces === 1 ? 'provincia' : 'province'} · truppe ${troops} · ${force}`, termStyle(13, PALETTE.carta)));
+    items.push(icon(this, 'ui-province', TX + 7, 92, 14, TCOL.label), this.add.text(TX + 18, 92, `${fac.provinces}`, termStyle(13, PALETTE.carta)).setOrigin(0, 0.5),
+      icon(this, 'u-fanteria', TX + 64, 92, 15, TCOL.label), this.add.text(TX + 76, 92, troops, termStyle(13, PALETTE.carta)).setOrigin(0, 0.5),
+      this.add.text(TX, 104, force, termStyle(11, ratio > 1.25 && fac.alive ? TCOL.alert : TCOL.label, false)));
     // rapporto e opinione
     const rel = st.relation[f], op = Math.round(st.opinion[f]);
-    const relTxt = rel === 'guerra' ? 'IN GUERRA' : rel === 'alleanza' ? 'ALLEATI' : 'IN PACE';
+    const relTxt = rel === 'guerra' ? 'In guerra' : rel === 'alleanza' ? 'Alleati' : 'In pace';
     const relCol = rel === 'guerra' ? PALETTE.ko : rel === 'alleanza' ? PALETTE.radioattivo : PALETTE.ocra;
-    items.push(this.add.text(14, 118, relTxt, termStyle(15, relCol)));
-    const bx = 120, bw = W - bx - 16, by = 126;
+    items.push(icon(this, rel === 'guerra' ? 'ui-guerra' : rel === 'alleanza' ? 'ui-alleanza' : 'ui-pace', 24, 130, 20, relCol),
+      this.add.text(40, 130, relTxt, termStyle(15, relCol)).setOrigin(0, 0.5));
+    const bx = 130, bw = W - bx - 16, by = 126;
     const bar = this.add.graphics();
     bar.fillStyle(TCOL.bg, 1).fillRect(bx, by, bw, 8).lineStyle(1, PALETTE.carta, 0.6).strokeRect(bx, by, bw, 8).lineBetween(bx + bw / 2, by - 3, bx + bw / 2, by + 11);
     const half = (bw / 2) * Math.min(1, Math.abs(op) / 100);
     bar.fillStyle(op >= 0 ? PALETTE.radioattivo : PALETTE.ko, 1).fillRect(op >= 0 ? bx + bw / 2 : bx + bw / 2 - half, by, half, 8);
     items.push(bar, this.add.text(bx, by + 12, `opinione ${op > 0 ? '+' : ''}${op}`, termStyle(10, PALETTE.tenue, false)));
     // azioni
-    const acts: { label: string; color: number; run: () => void }[] = [];
+    const acts: { label: string; icon: string; color: number; run: () => void }[] = [];
     const D = BALANCE.diplomacy;
     const gift = Math.floor(Math.max(D.donateMin, st.troops * D.donateShare));
     const why = (r: string) => this.toast(r.toUpperCase(), PALETTE.ko);
     if (fac.alive) {
       if (rel === 'guerra') {
-        acts.push({ label: 'PROPONI PACE', color: PALETTE.ocra, run: () => {
+        acts.push({ label: 'Proponi pace', icon: 'ui-pace', color: PALETTE.ocra, run: () => {
           const r = st.proposePeace(f);
           if (r === 'cooldown') why('aspetta prima di riproporre');
         } });
       } else {
-        acts.push({ label: 'DICHIARA GUERRA', color: PALETTE.ko, run: () => { if (!st.declareWar(f)) why('tregua in corso'); } });
+        acts.push({ label: 'Dichiara guerra', icon: 'ui-guerra', color: PALETTE.ko, run: () => { if (!st.declareWar(f)) why('tregua in corso'); } });
       }
       if (rel === 'pace' && info.kind === 'empire') {
-        acts.push({ label: 'PROPONI ALLEANZA', color: PALETTE.radioattivo, run: () => {
+        acts.push({ label: 'Proponi alleanza', icon: 'ui-alleanza', color: PALETTE.radioattivo, run: () => {
           const r = st.proposeAlliance(f);
           if (r === 'opinion') why(`serve opinione +${D.allyOpinion}: fai un dono`);
           else if (r === 'cooldown') why('aspetta prima di riproporre');
         } });
       }
-      if (rel === 'alleanza') acts.push({ label: 'ROMPI ALLEANZA', color: PALETTE.allerta, run: () => st.breakAlliance(f) });
-      acts.push({ label: `DONA ${gift} TRUPPE`, color: PALETTE.carta, run: () => { if (!st.donateTroops(f)) why('truppe insufficienti'); } });
+      if (rel === 'alleanza') acts.push({ label: 'Rompi alleanza', icon: 'ui-chiudi', color: PALETTE.allerta, run: () => st.breakAlliance(f) });
+      acts.push({ label: `Dona ${gift} truppe`, icon: 'u-fanteria', color: PALETTE.carta, run: () => { if (!st.donateTroops(f)) why('truppe insufficienti'); } });
       if (info.kind === 'bot') {
-        acts.push({ label: 'CHIEDI TRIBUTO', color: PALETTE.ocra, run: () => {
+        acts.push({ label: 'Chiedi tributo', icon: 'ui-trofeo', color: PALETTE.ocra, run: () => {
           if (st.diploBlock(f) === 'cooldown') return why('aspetta prima di riproporre');
           st.demandTribute(f);
         } });
       } else {
-        acts.push({ label: `DONA ${D.donateLoot} RISORSE`, color: PALETTE.carta, run: () => { if (!st.donateLoot(f)) why('zaino troppo vuoto'); } });
+        acts.push({ label: `Dona ${D.donateLoot} risorse`, icon: 'st-deposito', color: PALETTE.carta, run: () => { if (!st.donateLoot(f)) why('zaino troppo vuoto'); } });
       }
     }
     const cw = (W - 28 - 8) / 2, ch = 40;
     acts.slice(0, 4).forEach((a, k) => {
-      const x = 14 + (k % 2) * (cw + 8), y = 160 + Math.floor(k / 2) * (ch + 8);
+      const x = 14 + (k % 2) * (cw + 8), y = 162 + Math.floor(k / 2) * (ch + 8);
       const r = this.add.rectangle(x, y, cw, ch, TCOL.bg).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75).setInteractive({ useHandCursor: true });
       r.on('pointerover', () => r.setFillStyle(TCOL.hover)).on('pointerout', () => r.setFillStyle(TCOL.bg));
       r.on('pointerup', () => { a.run(); buzz(10); sfx('click'); this.renderProfile(); });
-      items.push(r, this.add.text(x + cw / 2, y + ch / 2, a.label, termStyle(12, a.color)).setOrigin(0.5));
+      items.push(r, icon(this, a.icon, x + 18, y + ch / 2, 16, a.color), this.add.text(x + 32, y + ch / 2, a.label, termStyle(12, a.color)).setOrigin(0, 0.5));
     });
     items.push(this.add.text(14, H - 34, 'In pace non vi attaccate. Tieni premuto su una provincia per aprire la sua scheda.', termStyle(9, PALETTE.tenue, false)).setWordWrapWidth(W - 28));
     this.profile = this.add.container((width - W) / 2, Math.max(PAD, (height - H) / 2), items).setDepth(46);
@@ -1198,8 +1205,8 @@ export class HudScene extends Phaser.Scene {
       list.forEach((s, i) => {
         const x = M + (i % per) * cw, yy = y + Math.floor(i / per) * rowH;
         const vy = yy + 15, vh = big ? 10 : 8, ix = s.icon || s.res ? 20 : 0;
-        if (s.icon) items.push(this.add.image(x, vy + vh, s.icon).setDisplaySize(14, 14).setOrigin(0, 0.5).setTint(TCOL.label));
-        if (s.res) drawResourceIcon(g, s.res, x + 7, vy + vh, 7);
+        if (s.icon) items.push(this.add.image(x, vy + vh, s.icon).setDisplaySize(15, 15).setOrigin(0, 0.5).setTint(TCOL.label));
+        if (s.res) items.push(resIcon(this, s.res, x + 8, vy + vh, 16));
         items.push(this.add.text(x, yy, s.k, termStyle(11, TCOL.label)).setWordWrapWidth(cw - 8).setMaxLines(1),
           this.add.text(x + ix, vy, s.v, termStyle(big ? 16 : 13, s.c ?? TCOL.text)).setWordWrapWidth(cw - 8 - ix).setMaxLines(1));
       });
@@ -1228,7 +1235,7 @@ export class HudScene extends Phaser.Scene {
       const group = mine ? this.run.selectedUnits() : [];
       const size = unit.size > 1 ? ` ×${unit.size}` : '';
       title(`${info.name}${size}`, `${mine ? 'tua pedina' : `pedina di ${F?.name ?? 'nemico'}`}${group.length > 1 ? ` · ${group.length} selezionate` : ''}`,
-        (x, yy) => drawUnitIcon(g, unit.type, x, yy, 8, F?.fill ?? TCOL.text));
+        (x, yy) => items.push(icon(this, `u-${unit.type}`, x, yy, 20, F?.fill ?? TCOL.text)));
       const pct = unit.hp / unit.maxHp, sup = unit.supply;
       const beats = info.beats.map((b) => unitInfo(b).short.toLowerCase()).join(', ') || '—';
       const front = mine && unit.front >= 0 ? `fronte ${FACTION_INFO[unit.front]?.short.toLowerCase() ?? ''}` : '';
@@ -1308,8 +1315,7 @@ export class HudScene extends Phaser.Scene {
           rule();
           // icona della costruzione accanto al nome (sulla carta si vede solo toccando la provincia o in COSTRUISCI)
           const wk = ready ?? prog!.work, col = ready ? TCOL.text : TCOL.accent;
-          g.fillStyle(TCOL.bg, 1).fillRoundedRect(M, y - 3, 22, 22, 3).lineStyle(1, col, 0.9).strokeRoundedRect(M, y - 3, 22, 22, 3);
-          drawWorkIcon(g, wk, M + 11, y + 8, 6.5, col, TCOL.bg);
+          items.push(icon(this, `w-${wk}`, M + 11, y + 8, 18, col));
           const t = this.add.text(M + 30, y, ready ? `${WORK_NAME[ready]} · ${workDesc(ready, resName)}` : `${work} · ${WORK_NAME[prog!.work]}`, termStyle(13, col)).setWordWrapWidth(inner - 30);
           items.push(t);
           y += Math.max(t.height, 18) + 8;

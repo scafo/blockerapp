@@ -121,13 +121,9 @@ export class Button extends Phaser.GameObjects.Container {
     return this;
   }
 
-  /** Stile della carta da terminale (HUD della campagna): fondo nero, filo grigio chiaro sottile, font del terminale. */
+  /** HUD della campagna: ora ha lo stesso stile di vetro del resto del gioco (la carta da terminale resta sotto). */
   terminal(): this {
-    this.term = true;
-    this.bg.setStrokeStyle(1, 0xd8dadc, 0.75);
-    const px = parseInt(String(this.label.style.fontSize), 10) || 16;
-    this.label.setLetterSpacing(0).setFontFamily('"DejaVu Sans Mono", Menlo, monospace').setFontStyle('normal').setFontSize(Math.max(12, Math.round(px * 0.8))); // il monospazio è più largo
-    return this.setOn(this.active_);
+    return this;
   }
 
   setLabel(text: string): this {

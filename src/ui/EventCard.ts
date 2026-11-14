@@ -1,13 +1,16 @@
 // Carta evento stile Reigns: trascinala a sinistra o a destra (o tocca le scelte). La run è in pausa.
+// In alto l'illustrazione dell'evento (generata con Draw Things, `ev-<id>`), sotto la didascalia e il racconto.
 import { sfx } from '../audio/sfx';
 import Phaser from 'phaser';
 import { PALETTE } from '../config/palette';
 import type { EventChoice, GameEvent } from '../game/events';
-import { termLabel as italic, termNotch as notch, termStyle as textStyle } from './terminal';
+import { termLabel as italic, termStyle as textStyle } from './terminal';
 import { UI, view } from './screen';
+import { coverImage, fade } from './images';
+import { TCOL } from './terminal';
 
 const MAX_W = 380;
-const H = 240;
+const IMG_H = 170; // illustrazione
 const SWIPE = 90; // px per confermare con un trascinamento
 
 export class EventCard extends Phaser.GameObjects.Container {
@@ -30,20 +33,26 @@ export class EventCard extends Phaser.GameObjects.Container {
     const shade = scene.add.rectangle(0, 0, width, height, 0x000000, 0.55).setOrigin(0).setInteractive();
     const cx = width / 2, cy = height / 2;
 
-    const bg = scene.add.rectangle(0, 0, W, H, 0x000000).setStrokeStyle(1, ev.rare ? 0x9fe0a8 : 0xd8dadc, 0.85);
-    const head = notch(scene, -W / 2, -H / 2, ev.rare ? 'Frammento dalla Caduta' : 'Rapporto dal campo', ev.rare ? 0x9fe0a8 : 0x98a1d6);
-    const body = scene.add.text(0, -H / 2 + 40, ev.text, textStyle(15, PALETTE.carta, false))
-      .setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(W - 40).setLineSpacing(3);
-    const hintTxt = scene.add.text(0, H / 2 - 64, '← trascina la carta →', italic(11)).setOrigin(0.5);
-    this.card = scene.add.container(cx, cy, [bg, head, body, hintTxt]);
+    // altezza su misura del racconto
+    const probe = scene.add.text(0, 0, ev.text, textStyle(13, PALETTE.carta, false)).setWordWrapWidth(W - 40).setLineSpacing(4);
+    const H = IMG_H + 30 + probe.height + 46;
+    probe.destroy();
+    const bg = scene.add.rectangle(0, 0, W, H, TCOL.bg).setStrokeStyle(1, ev.rare ? 0x9fe0a8 : TCOL.edge, 0.6);
+    const art = scene.textures.exists(`ev-${ev.id}`) ? coverImage(scene, `ev-${ev.id}`, -W / 2, -H / 2, W, IMG_H, 0.5) : null;
+    const artFade = fade(scene, -W / 2, -H / 2 + IMG_H * 0.55, W, IMG_H * 0.45 + 1, TCOL.bg, 0, 1);
+    const head = scene.add.text(-W / 2 + 20, -H / 2 + IMG_H + 6, ev.rare ? 'Frammento dalla Caduta' : 'Rapporto dal campo', italic(11, ev.rare ? 0x9fe0a8 : TCOL.label));
+    const body = scene.add.text(-W / 2 + 20, head.y + 22, ev.text, textStyle(13, PALETTE.carta, false))
+      .setWordWrapWidth(W - 40).setLineSpacing(4);
+    const hintTxt = scene.add.text(0, H / 2 - 18, '← trascina la carta →', italic(11)).setOrigin(0.5);
+    this.card = scene.add.container(cx, cy - 20, [bg, ...(art ? [art] : []), artFade, head, body, hintTxt]);
 
     // scelte sotto la carta (anche toccabili)
     const mk = (side: 'left' | 'right') => {
       const c = ev[side];
       const ok = canChoose(c);
-      const t = scene.add.text(cx + (side === 'left' ? -W / 2 + 8 : W / 2 - 8), cy + H / 2 - 26,
+      const t = scene.add.text(cx + (side === 'left' ? -W / 2 : W / 2), cy - 20 + H / 2 + 28,
         side === 'left' ? `← ${c.label}` : `${c.label} →`, textStyle(15, ok ? PALETTE.carta : PALETTE.tenue))
-        .setOrigin(side === 'left' ? 0 : 1, 0.5).setBackgroundColor(ok ? '#16181c' : '#000000').setPadding(10, 7, 10, 7);
+        .setOrigin(side === 'left' ? 0 : 1, 0.5).setBackgroundColor(ok ? '#35424e' : '#0a1018').setPadding(12, 9, 12, 9);
       if (ok) t.setInteractive({ useHandCursor: true }).on('pointerup', () => this.pick(side));
       return t;
     };

@@ -11,8 +11,7 @@ import { loadProfile } from '../save/storage';
 import { profileStore } from '../save/profileStore';
 import { analytics } from '../analytics/analytics';
 import { Button } from '../ui/Button';
-import { drawResourceIcon } from '../ui/resourceIcons';
-import { OPS, body, chip, dot, label, panel, rule, value } from '../ui/ops';
+import { OPS, body, chip, icon, label, panel, resIcon, rule, value } from '../ui/ops';
 import { uiCamera, view } from '../ui/screen';
 import { civImage, coverImage, fade } from '../ui/images';
 
@@ -67,10 +66,10 @@ export class ResultScene extends Phaser.Scene {
     const panX = P ? L : R - panW;
     let y = fy + pad + 62;
 
-    // esito: puntino del suo colore + parola grande
+    // esito: icona del suo colore (alloro, bandiera bianca, teschio = guerra, clessidra) + parola grande
     const tone = sum.outcome === 'victory' ? OPS.gain : sum.outcome === 'retreat' ? PALETTE.allerta : sum.outcome === 'eliminated' ? OPS.loss : OPS.label;
-    dot(g, L + 3, y + 7, tone);
-    label(this, L + 14, y, 'esito', tone);
+    icon(this, ({ victory: 'ui-trofeo', retreat: 'ui-ritirata', eliminated: 'ui-guerra', timeout: 'ui-tempo' } as Record<string, string>)[sum.outcome], L + 8, y + 7, 16, tone);
+    label(this, L + 22, y, 'Esito', tone);
     y += 20;
     const title = value(this, L - 2, y, TITLES[sum.outcome], P ? 40 : 64).setWordWrapWidth(colW);
     this.tweens.add({ targets: title, alpha: { from: 0, to: 1 }, x: { from: L - 14, to: L - 2 }, duration: 380, ease: 'Quad.easeOut' });
@@ -82,19 +81,20 @@ export class ResultScene extends Phaser.Scene {
 
     // due dati della campagna, separati da un filo verticale
     const sec = Math.floor(sum.timeMs / 1000);
-    const stats: [string, string][] = [['province max', `${sum.maxProvinces}`], ['durata', `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`]];
-    stats.forEach(([k, v], i) => {
+    const stats: [string, string, string][] = [['Province max', `${sum.maxProvinces}`, 'ui-province'], ['Durata', `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`, 'ui-tempo']];
+    stats.forEach(([k, v, ic], i) => {
       const sx = L + i * 140;
       if (i) g.lineStyle(1, OPS.edge, 0.5).lineBetween(sx - 20, y + 2, sx - 20, y + 50);
-      label(this, sx, y, k);
+      icon(this, ic, sx + 7, y + 7, 13, OPS.label);
+      label(this, sx + 18, y, k);
       value(this, sx, y + 16, v, 30);
     });
     y += 66;
 
     // fronte nuovo: una riga d'avviso con il suo puntino
     if (unlocked > 0) {
-      dot(g, L + 3, y + 7, OPS.accent);
-      label(this, L + 14, y, `nuovo fronte sbloccato · ${roman[unlocked]}`, OPS.accent);
+      icon(this, 'st-operazioni', L + 8, y + 7, 15, OPS.accent);
+      label(this, L + 22, y, `Nuovo fronte sbloccato · ${roman[unlocked]}`, OPS.accent);
       body(this, L, y + 18, `${BALANCE.fronts[unlocked].name}: nemici più forti, potenzia l'HQ.`, 13, OPS.body, colW);
       y += 52;
     }
@@ -112,7 +112,7 @@ export class ResultScene extends Phaser.Scene {
     RESOURCES.forEach((r) => {
       const ry = at(40);
       items.push(() => {
-        drawResourceIcon(g, r, IL + 9, ry + 14, 8);
+        resIcon(this, r, IL + 10, ry + 14, 20);
         body(this, IL + 28, ry + 14, RESOURCE_INFO[r].name, 13, OPS.body).setOrigin(0, 0.5);
         const v = value(this, IR, ry + 14, `${sum.kept[r]}`, 24).setOrigin(1, 0.5);
         if (sum.kept[r] !== sum.backpack[r]) label(this, IR - v.width - 8, ry + 14, `di ${sum.backpack[r]}`).setOrigin(1, 0.5);
@@ -157,10 +157,10 @@ export class ResultScene extends Phaser.Scene {
     // Deposito: sotto il pannello, piccolo (è lo stato della base, non il risultato)
     const s = profile.stash;
     let dy = py0 + ph + 12;
-    label(this, panX, dy, 'deposito');
+    label(this, panX, dy, 'Deposito');
     let dx = panX + 84;
     for (const r of RESOURCES) {
-      drawResourceIcon(g, r, dx + 6, dy + 7, 6);
+      resIcon(this, r, dx + 7, dy + 7, 15);
       const t = body(this, dx + 18, dy + 7, `${s[r]}`, 12, OPS.body).setOrigin(0, 0.5);
       dx += 18 + t.width + 16;
     }

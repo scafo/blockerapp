@@ -1,19 +1,20 @@
-// Interfaccia della campagna nello stile della carta da terminale (MapSCII): fondo nero, filo grigio chiaro, font
-// monospazio del terminale, etichette nel blu del mare, valori in bianco, evidenze in giallo come i nomi delle nazioni.
+// Interfaccia della campagna (Nico, novembre 2026: "più pulita, più gerarchica"): stesso linguaggio del resto del gioco
+// (src/ui/ops.ts) sopra la carta da terminale, che resta com'è: riquadri di vetro scuro con filo sottile, Helvetica, etichette
+// grigie piccole, valori bianchi, numeri importanti grandi. I nomi termStyle/termBox restano per non toccare ogni schermata.
 import Phaser from 'phaser';
 import { PALETTE, hex } from '../config/palette';
-import { TERM_FONT } from '../render/TerminalMap';
+import { FONT } from './style';
 import { UI } from './screen';
 
 // Sistema dei colori dell'interfaccia (Nico: troppi colori a caso). Ogni colore ha un solo significato:
 // bianco = valori · grigio = etichette e testo secondario · verde = va bene / guadagno · ambra = avviso, timer, in corso ·
 // rosso = problema, manca qualcosa. Più i colori delle fazioni. Nient'altro.
 export const TCOL = {
-  bg: 0x000000, // fondo dei riquadri (come la terra della carta)
-  hover: 0x16181c,
-  edge: 0x8f979e, // filo dei riquadri: grigio, non compete coi valori
-  label: 0x8f979e, // etichette
-  text: 0xf2f2f2, // valori
+  bg: 0x0a1018, // fondo dei riquadri (vetro scuro)
+  hover: 0x1c252e,
+  edge: 0x7f8c98, // filo dei riquadri: grigio, non compete coi valori
+  label: 0x8a949a, // etichette
+  text: 0xe9ebe6, // valori
   accent: 0xe0b04a, // avvisi, timer, cose in corso
   alert: 0xe0473a, // problemi
   ok: 0x7fd18b, // va bene, guadagni
@@ -37,22 +38,23 @@ export function tc(color: number): number {
   }
 }
 
-/** Testo del terminale: monospazio, un solo font, corpo agganciato ai quattro della scala. */
+/** Testo dell'interfaccia: un solo font, corpo agganciato ai quattro della scala; titoli e numeri grandi in medio. */
 export const termStyle = (size: number, color: number = TCOL.text, _bold = true): Phaser.Types.GameObjects.Text.TextStyle => ({
-  fontFamily: TERM_FONT, fontSize: `${snapSize(size)}px`, color: hex(tc(color)), resolution: UI(),
+  fontFamily: FONT, fontSize: `${snapSize(size)}px`, fontStyle: snapSize(size) >= TSIZE.title ? '500' : 'normal', color: hex(tc(color)), resolution: UI(),
 });
 
 /** Etichetta (al posto del corsivo della pianta): blu del mare. */
 export const termLabel = (size: number, color: number = TCOL.label) => termStyle(size, color);
 
-/** Etichetta incastrata nel bordo superiore di un riquadro, con il fondo nero che interrompe il filo. */
+/** Etichetta incastrata nel bordo superiore di un riquadro (prima lettera maiuscola), con il fondo del riquadro che interrompe il filo. */
 export function termNotch(scene: Phaser.Scene, x: number, y: number, label: string, color: number = TCOL.label) {
-  return scene.add.text(x + 8, y, ` ${label.toLowerCase()} `, termStyle(11, color)).setOrigin(0, 0.5).setBackgroundColor('#000000');
+  const t = label.toLowerCase();
+  return scene.add.text(x + 8, y, ` ${t.charAt(0).toUpperCase() + t.slice(1)} `, termStyle(11, color)).setOrigin(0, 0.5).setBackgroundColor(hex(TCOL.bg));
 }
 
 /** Riquadro del terminale. */
 export function termBox(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, alpha = 0.92) {
-  return g.fillStyle(TCOL.bg, alpha).fillRect(x, y, w, h).lineStyle(1, TCOL.edge, 0.75).strokeRect(x, y, w, h);
+  return g.fillStyle(TCOL.bg, alpha * 0.9).fillRect(x, y, w, h).lineStyle(1, TCOL.edge, 0.4).strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 }
 
 /** Bigliettino di comunicazione in stile terminale (allarme rosso, avviso giallo, comunicazione blu). */

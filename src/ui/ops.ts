@@ -2,17 +2,22 @@
 // foto drammatica fredda a tutto schermo, titolo grande bianco in alto a sinistra, Back in alto a destra, righe di vetro ardesia
 // con testo spaziato (nome a sinistra, valore tenue a destra), azione principale ruggine in basso a destra.
 // Un solo colore per significato (verde = guadagno, rosso = perdita, ruggine = azione principale).
+// Gerarchia del testo (Nico: "font con poche gerarchie"): titolo dello schermo (value 28–56) → intestazione (heading 15, bianca)
+// → testo (body 13) → didascalia (label 9–10, grigia). Le icone (texture `ic-*` generate con Draw Things) stanno accanto ai numeri
+// e ai nomi, mai da sole senza senso; niente puntini, tacche o crocini decorativi.
 import Phaser from 'phaser';
 import { hex } from '../config/palette';
 import { FONT, FONT_TITLE, textSize } from './style';
 import { UI } from './screen';
+import { RESOURCE_INFO } from '../game/resources';
+import type { Resource } from '../config/balance';
 
 export const OPS = {
   panel: 0x0a1018, // fondo dei pannelli
   edge: 0x7f8c98, // filo dei pannelli e delle righe
   row: 0x35424e, // vetro delle righe
   cta: 0x5e3722, // ruggine dell'azione principale
-  label: 0x8a949a, // etichette (mono maiuscolo)
+  label: 0x8a949a, // didascalie
   text: 0xe9ebe6, // valori e testo principale
   body: 0xb9c0c2, // testo di lettura
   gain: 0x6fd08a, // guadagni, stati positivi
@@ -24,13 +29,26 @@ export const OPS = {
 export function label(scene: Phaser.Scene, x: number, y: number, text: string, color: number = OPS.label, size = 10) {
   return scene.add.text(x, y, text.charAt(0).toUpperCase() + text.slice(1), {
     fontFamily: FONT, fontSize: `${textSize(size)}px`, color: hex(color), resolution: UI(),
-  }).setLetterSpacing(1.8);
+  }).setLetterSpacing(0.6);
 }
 
 /** Valore grande (titoli, numeri). */
 export function value(scene: Phaser.Scene, x: number, y: number, text: string, size: number, color: number = OPS.text) {
   return scene.add.text(x, y, text, { fontFamily: FONT_TITLE, fontSize: `${Math.round(size)}px`, fontStyle: '500', color: hex(color), resolution: UI() });
 }
+
+/** Intestazione di sezione o nome di una voce: bianca, media, senza spaziatura. */
+export function heading(scene: Phaser.Scene, x: number, y: number, text: string, size = 15, color: number = OPS.text) {
+  return value(scene, x, y, text, size, color);
+}
+
+/** Icona generata (texture `ic-<nome>`), centrata in (x, y), lato `size`, tinta `color`. */
+export function icon(scene: Phaser.Scene, name: string, x: number, y: number, size: number, color = 0xffffff) {
+  return scene.add.image(x, y, `ic-${name}`).setDisplaySize(size, size).setTint(color);
+}
+
+/** Icona della risorsa nel suo colore. */
+export const resIcon = (scene: Phaser.Scene, r: Resource, x: number, y: number, size: number) => icon(scene, `res-${r}`, x, y, size, RESOURCE_INFO[r].color);
 
 /** Testo di lettura. */
 export function body(scene: Phaser.Scene, x: number, y: number, text: string, size = 13, color: number = OPS.body, wrap = 0) {
@@ -55,9 +73,10 @@ export function glass(g: Phaser.GameObjects.Graphics, x: number, y: number, w: n
 export function backBox(scene: Phaser.Scene, x: number, y: number, onClick: () => void, w = 104, h = 36): Phaser.GameObjects.GameObject[] {
   const g = scene.add.graphics();
   glass(g, x - w, y, w, h);
-  const t = label(scene, x - w / 2, y + h / 2, '\u2039  Back', OPS.text, 11).setOrigin(0.5);
+  const t = label(scene, x - w / 2 + 9, y + h / 2, 'Back', OPS.text, 11).setOrigin(0.5);
+  const ic = icon(scene, 'ui-indietro', t.x - t.width / 2 - 13, y + h / 2, 13, OPS.text);
   const hit = scene.add.rectangle(x - w, y, w, h, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true }).on('pointerup', onClick);
-  return [g, t, hit];
+  return [g, ic, t, hit];
 }
 
 /** Riga divisoria interna. */
