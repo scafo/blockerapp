@@ -107,6 +107,14 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 
 ## Note del developer (stato e comandi)
 
+- **Arte e interfaccia generate in locale** (Nico, novembre 2026: "ogni sala col suo vibe, icone e personaggi con l'AI, UI più
+  pulita e gerarchica"): tutte le immagini nascono da `../concept-art/manifest.py` (prompt, semi; `python3 manifest.py [tipo]` genera
+  solo quelle che mancano) e entrano nel gioco con `python3 scripts/import-art.py`. Stanze con un'atmosfera ciascuna
+  (`img/rooms`), ritratti dei capi delle potenze, del capitano delle milizie e del comandante (`img/people`), foto dei reparti e
+  delle abilità per le carte (`img/units`), illustrazioni degli eventi (`img/events`), oggetti delle ricerche (`img/tech`); icone
+  bianche su trasparente in `src/assets/icons` (texture `ic-<nome>`, helper `icon()`/`resIcon()` in `src/ui/ops.ts`; i vecchi
+  nomi `ico-*` puntano alle nuove). Gerarchia del testo in `ops.ts`: titolo → `heading` → `body` → `label`. L'HUD della campagna
+  usa lo stesso stile di vetro (`src/ui/terminal.ts`); la carta da terminale sotto non cambia.
 - **Base in sezione alla XCOM 2** (Nico, novembre 2026: "UI migliore ispirata da altri giochi", scelta XCOM 2): la home è la montagna
   della base di notte con tre piani di stanze illustrate (`FLOORS` in `CampScene.ts`; in verticale Comando largo + due colonne);
   ogni stanza si tocca e apre la sua pagina, dove la foto della stanza fa da fondo (niente più pianta). A destra "In corso"

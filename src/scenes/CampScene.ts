@@ -24,7 +24,6 @@ import { askName } from '../ui/nameInput';
 import { canStake, recoverStake, runOptions, stakeIndex } from '../game/camp';
 import { Button } from '../ui/Button';
 import { buzz } from '../ui/haptics';
-import { textStyle } from '../ui/style';
 import { safeInsets, uiCamera, view } from '../ui/screen';
 import { drawPatch } from '../ui/symbols';
 import { civImage, coverImage, fade } from '../ui/images';
@@ -359,9 +358,10 @@ export class CampScene extends Phaser.Scene {
     const upgradable = isB && built && lvl < max && !building && !buildBlock(this.profile, id as BuildingId);
     const state: [string, number] | null = locked ? ['Chiuso', OPS.label] : building ? ['In cantiere', PALETTE.allerta] : !built ? ['Da costruire', OPS.label]
       : e && e.until <= Date.now() ? ['Di ritorno', OPS.gain] : upgradable ? ['Migliorabile', OPS.gain] : null;
-    if (state) spot.deco.push(label(this, x + w - 10, cy, state[0], state[1], 9).setOrigin(1, 0.5).setDepth(6));
-    else if (max) spot.deco.push(label(this, x + w - 10, cy, `Liv ${lvl}/${max}`, OPS.label, 9).setOrigin(1, 0.5).setDepth(6));
-    fit(spot.label, w - 42 - (state || max ? 92 : 0));
+    const right = state ? label(this, x + w - 10, cy, state[0], state[1], 9) : max ? label(this, x + w - 10, cy, `Liv ${lvl}/${max}`, OPS.label, 9) : null;
+    if (right) spot.deco.push(right.setOrigin(1, 0.5).setDepth(6));
+    spot.label.setScale(1);
+    fit(spot.label, w - 42 - (right ? right.width + 10 : 0));
     this.paintRow(id, false);
   }
 
@@ -1133,57 +1133,62 @@ export class CampScene extends Phaser.Scene {
     const bh = this.portrait ? 120 : 104;
     const banner = coverImage(this, civImage(civ), x0 + 1, y0 + 1, W - 2, bh, 0.4).setTint(0xc8d6e6);
     items.push(banner, fade(this, x0 + 1, y0 + 1, W - 2, bh, PALETTE.inchiostro, 0.35, 0.97));
-    const bp = this.add.graphics();
-    drawPatch(bp, x0 + 34, y0 + bh - 34, 16, st.fill, st.symbol);
-    items.push(bp, value(this, x0 + 60, y0 + bh - 58, info.name, 26),
-      body(this, x0 + 60, y0 + bh - 24, `${info.regime} · ${info.bonus}`, 10, OPS.body, W - 90));
+    // ritratto del capo della potenza e il suo emblema accanto al nome
+    const pw = Math.round((bh - 16) * 0.75);
+    items.push(coverImage(this, `leader-${civ}`, x0 + 10, y0 + 8, pw, bh - 16, 0.25),
+      this.add.rectangle(x0 + 10, y0 + 8, pw, bh - 16, 0, 0).setOrigin(0).setStrokeStyle(1, st.fill, 0.9),
+      icon(this, `civ-${civ}`, x0 + pw + 34, y0 + bh - 46, 22, st.fill),
+      value(this, x0 + pw + 52, y0 + bh - 60, info.name, 26),
+      body(this, x0 + pw + 22, y0 + bh - 26, `${info.regime} · ${info.bonus}`, 10, OPS.body, W - pw - 40));
     if (civChoice(p)) {
       const hit = this.add.rectangle(x0 + 1, y0 + 1, W - 2, bh, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true });
       hit.on('pointerup', () => this.openPanel('gioca', 'civ'));
-      items.push(hit, label(this, x0 + W - 16, y0 + 12, 'cambia potenza ›', OPS.accent, 9).setOrigin(1, 0));
+      items.push(hit, label(this, x0 + W - 16, y0 + 12, 'Cambia potenza', OPS.accent, 9).setOrigin(1, 0));
     }
-    const row = (y: number, h: number, text: string, onClick: (() => void) | null, warn = false) => {
-      // riga traslucida come nella home; etichetta in mono, rossa se avverte di un pericolo
-      const r = this.add.rectangle(x0 + 16, y, W - 32, h, 0x2b333b, 0.55).setOrigin(0);
-      if (onClick) r.setInteractive({ useHandCursor: true }).on('pointerup', onClick).on('pointerover', () => r.setFillStyle(0x2b333b, 0.85)).on('pointerout', () => r.setFillStyle(0x2b333b, 0.55));
-      items.push(r, label(this, x0 + 26, y + 7, text, warn ? OPS.loss : OPS.label, 9));
-      if (warn) items.push(this.add.rectangle(x0 + 16, y, 2, h, OPS.loss).setOrigin(0));
-      if (onClick) items.push(label(this, x0 + W - 26, y + h / 2, '›', OPS.text, 14).setOrigin(1, 0.5));
+    const row = (y: number, h: number, text: string, onClick: (() => void) | null, warn = false, ic = '') => {
+      // riga di vetro: icona e intestazione bianca (rossa se avverte di un pericolo); si tocca se porta altrove
+      const r = this.add.rectangle(x0 + 16, y, W - 32, h, OPS.row, 0.55).setOrigin(0).setStrokeStyle(1, OPS.edge, 0.3);
+      if (onClick) r.setInteractive({ useHandCursor: true }).on('pointerup', onClick).on('pointerover', () => r.setFillStyle(OPS.row, 0.9)).on('pointerout', () => r.setFillStyle(OPS.row, 0.55));
+      items.push(r);
+      if (ic) items.push(icon(this, ic, x0 + 34, y + 14, 16, warn ? OPS.loss : OPS.text));
+      items.push(heading(this, x0 + (ic ? 50 : 26), y + 14, text, 13, warn ? OPS.loss : OPS.text).setOrigin(0, 0.5));
+      if (warn) items.push(this.add.rectangle(x0 + 16, y, 3, h, OPS.loss).setOrigin(0));
+      if (onClick) items.push(icon(this, 'ui-play', x0 + W - 32, y + h / 2, 11, OPS.label));
     };
     let y = y0 + bh + 8;
     // fronte: difficoltà e potenza consigliata (alla Clash)
     const fi = activeFront(p), F = BALANCE.fronts[fi], power = playerPower(p), weak = power < F.power;
-    row(y, 52, `FRONTE ${ROMAN[fi]} · ${'★'.repeat(fi + 1)}${'☆'.repeat(BALANCE.fronts.length - fi - 1)}${weak ? ' · NEMICI PIÙ FORTI DI TE' : ''}`, () => this.openPanel('gioca', 'fronti'), weak);
-    items.push(body(this, x0 + 26, y + 24, `${F.name} · potenza consigliata ${F.power} (tua ${power}) · bottino ×${F.lootMult}`, 11, weak ? OPS.loss : OPS.text, W - 70));
+    row(y, 52, `Fronte ${ROMAN[fi]} · ${F.name}${weak ? ' · nemici più forti di te' : ''}`, () => this.openPanel('gioca', 'fronti'), weak, 'st-operazioni');
+    items.push(label(this, x0 + 50, y + 34, `Difficoltà ${fi + 1} di ${BALANCE.fronts.length} · potenza consigliata ${F.power}, tua ${power} · bottino ×${F.lootMult}`, weak ? OPS.loss : OPS.label, 9).setOrigin(0, 0.5));
     y += 58;
     const deck = deckOf(p, civ);
-    row(y, 52, `REPARTI · ${deck.length} ${deck.length === 1 ? 'sbloccato' : 'sbloccati'}, tutti in campagna`, null);
+    row(y, 52, `Reparti · ${deck.length} ${deck.length === 1 ? 'sbloccato' : 'sbloccati'}, tutti in campagna`, null, false, 'st-arsenale');
     const dg = this.add.graphics();
     const dx = Math.min(110, (W - 60) / Math.max(1, deck.length));
-    deck.forEach((t, k) => items.push(icon(this, `u-${t}`, x0 + 34 + k * dx, y + 34, 20, PALETTE.carta)));
+    deck.forEach((t, k) => items.push(icon(this, `u-${t}`, x0 + 50 + k * dx, y + 36, 18, PALETTE.carta)));
     items.push(dg);
-    if (dx >= 100) deck.forEach((t, k) => items.push(this.add.text(x0 + 48 + k * dx, y + 34, unitInfo(t).name, textStyle(10, PALETTE.carta, false)).setOrigin(0, 0.5))); // tanti reparti: solo i simboli
+    if (dx >= 100) deck.forEach((t, k) => items.push(label(this, x0 + 64 + k * dx, y + 36, unitInfo(t).name, OPS.body, 9).setOrigin(0, 0.5))); // tanti reparti: solo le icone
     y += 58;
     // nemici del fronte: le loro armi (se ne hanno che tu non hai, servono potenziamenti)
     const eg = this.add.graphics();
     const mine = unlockedUnits(p, civ);
-    items.push(label(this, x0 + 16, y + 4, 'armi nemiche', OPS.label, 9));
-    F.aiUnits.forEach((t, k) => items.push(icon(this, `u-${t}`, x0 + 140 + k * 28, y + 10, 18, mine.includes(t) ? PALETTE.tenue : PALETTE.ko)));
+    items.push(icon(this, 'ui-guerra', x0 + 34, y + 10, 14, OPS.label), label(this, x0 + 50, y + 10, 'Armi nemiche', OPS.label, 9).setOrigin(0, 0.5));
+    F.aiUnits.forEach((t, k) => items.push(icon(this, `u-${t}`, x0 + 150 + k * 28, y + 10, 18, mine.includes(t) ? PALETTE.tenue : PALETTE.ko)));
     items.push(eg);
     // puntata (alla poker): risorse del Deposito in gioco; più punti, più rende il guadagno; uscire prima costa
     y += 22;
     const K = stakeIndex(p), SK = BALANCE.stake, fee = Math.round(runOptions(p).exitFee * 100);
     // rischi della puntata (in verticale senza la ritirata, che la chiede comunque il tasto ESCI)
     const risks = [`non vinci −${Math.round(SK.lossShare * 100)}%`, ...(this.portrait ? [] : [`ritirata −${fee}%`]), `eliminato −${Math.round(runOptions(p).eliminatedLoss * 100)}%`];
-    row(y, 66, `puntata ×${String(SK.mult[K]).replace('.', ',')}`, null);
-    items.push(label(this, x0 + 26, y + 22, risks.join(' · '), OPS.label, 8));
+    row(y, 66, `Puntata ×${String(SK.mult[K]).replace('.', ',')}`, null, false, 'st-deposito');
+    items.push(label(this, x0 + 50 + 110, y + 14, risks.join(' · '), OPS.label, 8).setOrigin(0, 0.5));
     const cw = Math.min(70, (W - 64) / SK.options.length - 6);
     SK.options.forEach((v, k) => {
       const ok = canStake(p, k), cx = x0 + 24 + k * (cw + 6), cy = y + 36;
-      const chip = this.add.rectangle(cx, cy, cw, 24, k === K ? OPS.text : 0x000000, k === K ? 1 : 0.3).setOrigin(0)
+      const chip = this.add.rectangle(cx + 26, cy, cw, 24, k === K ? OPS.text : 0x000000, k === K ? 1 : 0.3).setOrigin(0)
         .setStrokeStyle(1, ok ? OPS.text : OPS.edge, ok ? 0.7 : 0.4);
       if (ok) chip.setInteractive({ useHandCursor: true }).on('pointerup', () => { p.stake = k; saveProfile(p); this.openPanel('gioca', ''); });
-      items.push(chip, label(this, cx + cw / 2, cy + 12, v ? String(v) : 'niente', k === K ? 0x0a0d10 : ok ? OPS.text : OPS.label, 10).setOrigin(0.5));
+      items.push(chip, label(this, cx + 26 + cw / 2, cy + 12, v ? String(v) : 'Niente', k === K ? 0x0a0d10 : ok ? OPS.text : OPS.label, 10).setOrigin(0.5));
     });
     y += 50;
     // (briefing tolto dalla pagina: troppo testo; fronte, reparti, armi nemiche e puntata bastano per partire)
@@ -1301,7 +1306,7 @@ export class CampScene extends Phaser.Scene {
       const d = new Date(r.at), ry = y + i * 24;
       const when = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
       const [o, oc] = OUT[r.outcome] ?? [r.outcome, OPS.label];
-      items.push(label(this, L, ry, when, OPS.label, 9), label(this, L + w * 0.24, ry, civInfo(r.civ).name, OPS.text, 9),
+      items.push(label(this, L, ry, when, OPS.label, 9), label(this, L + w * 0.24, ry, CIV_IDS.includes(r.civ) ? civInfo(r.civ).name : '—', OPS.text, 9), // registro vecchio o incompleto: niente nome
         label(this, L + w * 0.5, ry, o, oc, 9), label(this, L + w, ry, `${r.tiles} · ${fmtTime(r.timeMs)}`, OPS.body, 9).setOrigin(1, 0));
     });
     items.push(this.link('migliora la sala ›', L, y0 + _H - 26, () => this.openPanel('radar', 'build'), 0));
