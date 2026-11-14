@@ -9,6 +9,7 @@ import { RESOURCES } from '../game/resources';
 import { analytics } from '../analytics/analytics';
 import { saveProfile, type BuildingId, type Profile } from '../save/storage';
 import { Button } from '../ui/Button';
+import { coverImage } from '../ui/images';
 import { drawResourceIcon } from '../ui/resourceIcons';
 import { textStyle } from '../ui/style';
 import { dashedBox, dots, italic } from '../ui/schematic';
@@ -58,6 +59,7 @@ export class TreeScene extends Phaser.Scene {
     const { width, height, portrait: P } = view(this);
     LABEL_W = P ? 80 : 104;
     this.add.rectangle(0, 0, width, height, BLUE, 1).setOrigin(0).setInteractive();
+    coverImage(this, 'room-laboratorio', 0, 0, width, height, 0.5).setAlpha(0.22); // il laboratorio della base, appena visibile dietro l'albero
     // polvere di puntini come sulla carta della pianta
     const dust = this.add.graphics();
     for (let i = 0; i < Math.round(width * height / 2600); i++) dust.fillStyle(0xffffff, 0.15 + Math.random() * 0.35).fillRect(Math.random() * width, Math.random() * height, 1.2, 1.2);

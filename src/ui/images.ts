@@ -15,7 +15,12 @@ import arpanet from '../assets/img/load-arpanet.jpg';
 import titleBg from '../assets/img/title-bg.jpg';
 import bgEstrazione from '../assets/img/bg-estrazione.jpg';
 
+// stanze della base e montagna della home (generate in locale con Draw Things, scripts/import-room-art.py)
+const ROOMS = Object.fromEntries(Object.entries(import.meta.glob<string>('../assets/img/rooms/*.jpg', { eager: true, import: 'default' }))
+  .map(([path, url]) => [path.split('/').pop()!.replace('.jpg', ''), url]));
+
 const URLS: Record<string, string> = {
+  ...ROOMS,
   'civ-imperium': imperium, 'civ-republica': republica, 'civ-aristocrazia': aristocrazia, 'civ-cabal': cabal,
   'load-nave': nave, 'load-croce': croce, 'load-festa': festa, 'load-ghiaccio': ghiaccio, 'load-radar': radar,
   'load-statua': statua, 'load-arpanet': arpanet,
