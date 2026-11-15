@@ -9,9 +9,9 @@ import { RESOURCES } from '../game/resources';
 import { analytics } from '../analytics/analytics';
 import { saveProfile, type BuildingId, type Profile } from '../save/storage';
 import { Button } from '../ui/Button';
-import { coverImage } from '../ui/images';
+import { coverImage, techImage } from '../ui/images';
+import { BRANCH_ICON } from '../ui/icons';
 import { textStyle } from '../ui/style';
-import { italic } from '../ui/schematic';
 import { safeInsets, uiCamera, view } from '../ui/screen';
 import { OPS, backBox, heading, icon, label as monoLabel, panel, resIcon, rule, value } from '../ui/ops';
 import { activeCiv } from '../game/camp';
@@ -63,10 +63,11 @@ export class TreeScene extends Phaser.Scene {
     icon(this, 'ui-ricerca', 30, 36, 26, OPS.text);
     monoLabel(this, 52, 12, 'Laboratorio · Arsenale', CYAN, 9);
     value(this, 52, 26, 'Albero della ricerca', 26);
-    this.header = this.add.text(width / 2, 34, '', italic(12, CYAN)).setOrigin(0.5, 0);
+    this.header = monoLabel(this, width / 2, 36, '', CYAN, 10).setOrigin(0.5, 0);
     backBox(this, width - 16, 12 + safeInsets().top, () => this.close());
     if (!P) {
-      const b = (label: string, id: BuildingId, x: number) => this.add.text(x, 16, label, italic(12)).setOrigin(1, 0)
+      // le due stanze dell'albero: si toccano per migliorarle (stesso colore dei collegamenti delle pagine)
+      const b = (label: string, id: BuildingId, x: number) => monoLabel(this, x, 22, label, OPS.accent, 10).setOrigin(1, 0)
         .setInteractive({ useHandCursor: true }).on('pointerup', () => { this.close(); this.host.openBuilding(id); });
       b(`Arsenale liv. ${p.buildings.arsenale} ›`, 'arsenale', width - 140);
       b(`Laboratorio liv. ${p.buildings.laboratorio} ›`, 'laboratorio', width - 270);
@@ -157,10 +158,10 @@ export class TreeScene extends Phaser.Scene {
       const r0 = Math.min(...rows), r1 = Math.max(...rows);
       const y0 = 12 + r0 * (NH + GY) - GY / 2, y1 = 12 + r1 * (NH + GY) + NH + GY / 2;
       band++;
-      // ramo: numero piccolo grigio, nome bianco sotto
+      // ramo: la sua icona sopra il nome (prima "Ramo 1", "Ramo 2"…)
       const my = (y0 + y1) / 2;
-      this.labels.add(monoLabel(this, 12, my - 16, `Ramo ${band}`, CYAN, 9));
-      this.labels.add(heading(this, 12, my, BRANCHES[branch], 13).setWordWrapWidth(LABEL_W - 20));
+      this.labels.add(icon(this, BRANCH_ICON[branch] ?? 'ui-ricerca', 22, my - 12, 18, OPS.text));
+      this.labels.add(heading(this, 12, my + 4, BRANCHES[branch], 13).setWordWrapWidth(LABEL_W - 20));
       if (band > 1) g.lineStyle(1, 0xffffff, 0.08).lineBetween(LABEL_W - 8, y0, this.size.w, y0);
     }
     // collegamenti: dalla ricerca richiesta a quella che sblocca
@@ -259,11 +260,7 @@ export class TreeScene extends Phaser.Scene {
 
   /** Immagine della ricerca: il reparto o l'abilità che sblocca, l'unità della tua potenza, o l'oggetto della ricerca. */
   private art(id: TechId): string {
-    const t = techInfo(id);
-    if (t.unit) return `u-${t.unit}`;
-    if (t.ability) return `a-${t.ability}`;
-    if (t.unique) return `u-${BALANCE.civs[activeCiv(this.host.profile)].unit}`;
-    return this.textures.exists(`t-${id}`) ? `t-${id}` : 'room-laboratorio';
+    return techImage(this, id, activeCiv(this.host.profile));
   }
 
   private close() {

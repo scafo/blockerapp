@@ -1,9 +1,9 @@
 {
  "title": "MERCATO",
  "desc": "Scambi e rifornimenti con le risorse del Deposito. Il Consiglio Ombra fissa i cambi: si perde sempre qualcosa.",
- "trade": "SCAMBIO",
- "supplies": "RIFORNIMENTI · per la prossima campagna",
- "rush": "CANTIERE E RICERCA",
+ "trade": "Scambio",
+ "supplies": "Rifornimenti per la prossima campagna",
+ "rush": "Finisci subito",
  "items": {
   "truppe": {
    "name": "Truppe fresche",

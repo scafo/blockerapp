@@ -56,7 +56,6 @@ export class ResultScene extends Phaser.Scene {
     // intestazione: numero del rapporto a sinistra, codice della mappa a destra; sotto, potenza/fronte/durata in riquadri
     const roman = ['I', 'II', 'III', 'IV', 'V', 'VI'];
     label(this, L, fy + pad - 4, `Rapporto dal fronte · N° ${profile.runs}`);
-    label(this, R, fy + pad - 4, `mappa #${sum.seed}`).setOrigin(1, 0);
     let cx = L;
     for (const c of [sum.civ, `fronte ${roman[sum.front]}`, sum.campaign]) cx += chip(this, g, cx, fy + pad + 18, c) + 6;
 
@@ -120,11 +119,11 @@ export class ResultScene extends Phaser.Scene {
     });
     // cosa ha cambiato il bottino: una riga per voce, col suo colore
     const mods: [string, string, number][] = [];
-    if (sum.outcome === 'victory') mods.push(['bonus vittoria', `+${Math.round(BALANCE.victory.bonus * 100)}%`, OPS.gain]);
-    if (sum.feePct) mods.push([sum.outcome === 'retreat' ? 'tassa di ritirata' : 'eliminato', `−${sum.feePct}%`, OPS.loss]);
+    if (sum.outcome === 'victory') mods.push(['Bonus vittoria', `+${Math.round(BALANCE.victory.bonus * 100)}%`, OPS.gain]);
+    if (sum.feePct) mods.push([sum.outcome === 'retreat' ? 'Tassa di ritirata' : 'Eliminato', `−${sum.feePct}%`, OPS.loss]);
     const gm = Math.round(sum.gainMult * 100) / 100;
-    if (gm !== 1 && RESOURCES.some((r) => sum.backpack[r] > sum.stake[r])) mods.push(['guadagno oltre la puntata', `×${String(gm).replace('.', ',')}`, OPS.gain]);
-    if (sum.stakeLossPct) mods.push(['puntata persa', `−${sum.stakeLossPct}%`, OPS.loss]);
+    if (gm !== 1 && RESOURCES.some((r) => sum.backpack[r] > sum.stake[r])) mods.push(['Guadagno oltre la puntata', `×${String(gm).replace('.', ',')}`, OPS.gain]);
+    if (sum.stakeLossPct) mods.push(['Puntata persa', `−${sum.stakeLossPct}%`, OPS.loss]);
     if (mods.length) {
       const ry = at(14);
       items.push(() => rule(g, IL, IR, ry + 6));
@@ -177,7 +176,7 @@ export class ResultScene extends Phaser.Scene {
     const fresh = new Button(this, 'ACCAMPAMENTO', bw2, bh, () => this.scene.start('Camp'));
     again.setPosition(L, by);
     fresh.setPosition(P ? L : L + bw1 + 12, P ? by + bh + 10 : by);
-    const cap = label(this, L, by - 18, `rivincita: stessa mappa #${sum.seed}`);
+    const cap = label(this, L, by - 18, 'Rivincita: stessa mappa');
     if (sum.tutorial) {
       // dopo la run guidata si va a scoprire l'accampamento (la rivincita genererebbe un'altra mappa)
       again.destroy();

@@ -311,16 +311,19 @@ export class HudScene extends Phaser.Scene {
   private openMedal() {
     this.medalPanel?.destroy();
     const st = this.run.state, { pos, gap } = st.rank(), n = st.player.provinces;
-    const lines = [`${n} ${n === 1 ? 'provincia' : 'province'}`,
-      st.opts.tutorial ? `obiettivo ${BALANCE.tutorial.goalProvinces} province` : pos === 1 ? `1° in classifica (+${gap})` : `${pos}° in classifica`];
-    const left = Math.max(0, st.timeLeft);
-    if (!st.opts.tutorial) lines.push(`fine campagna tra ${mmss(left)}`);
-    const W = 210, H = 22 + lines.length * 20 + 8;
+    const left = Math.max(0, st.timeLeft), warn = left <= BALANCE.campaign.warnMs;
+    // tre righe con la loro icona: province, classifica (o obiettivo della guida), fine campagna
+    const lines: [string, string, number][] = [
+      ['ui-province', `${n} ${n === 1 ? 'provincia' : 'province'}`, TCOL.text],
+      ['ui-trofeo', st.opts.tutorial ? `Obiettivo ${BALANCE.tutorial.goalProvinces} province` : pos === 1 ? `1° in classifica (+${gap})` : `${pos}° in classifica`, TCOL.text],
+    ];
+    if (!st.opts.tutorial) lines.push(['ui-tempo', `Fine campagna tra ${mmss(left)}`, warn ? PALETTE.ko : TCOL.text]);
+    const W = 230, H = 22 + lines.length * 26 + 6;
     const bg = this.add.rectangle(0, 0, W, H, TCOL.bg, 0.95).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.6);
-    const items: Phaser.GameObjects.GameObject[] = [bg, termNotch(this, 8, 0, ' campagna ').setOrigin(0, 0.5)];
-    lines.forEach((l, k) => {
-      const warn = k === 2 && left <= BALANCE.campaign.warnMs;
-      items.push(this.add.text(12, 18 + k * 20, l, termStyle(13, warn ? PALETTE.ko : PALETTE.carta)));
+    const items: Phaser.GameObjects.GameObject[] = [bg, termNotch(this, 8, 0, 'campagna').setOrigin(0, 0.5)];
+    lines.forEach(([ic, l, col], k) => {
+      const ly = 26 + k * 26;
+      items.push(icon(this, ic, 22, ly, 14, col), this.add.text(38, ly, l, termStyle(13, col)).setOrigin(0, 0.5));
     });
     const b = this.medalBtn, x = Math.min(b.x, view(this).width - PAD - W);
     this.medalPanel = this.add.container(x, b.y + 44 + 8, items).setDepth(40);
@@ -393,47 +396,61 @@ export class HudScene extends Phaser.Scene {
       return;
     }
     const { width, height } = view(this);
-    const rows: [string, string][] = [
-      ['tocco su provincia evidenziata', 'la compri con le truppe (assalto se è di qualcuno)'],
-      ['tocco su una tua provincia', 'scheda e costruzioni'],
-      ['tieni premuto', 'scheda di chi possiede la provincia'],
-      ['trascina col destro · WASD o frecce', 'sposta la carta (telefono: trascina col dito)'],
-      ['rotella o pizzico', 'zoom'],
-      ['carta reparto, poi tuo territorio', 'schiera la pedina'],
-      ['clic sulla pedina', 'la selezioni'],
-      ['Maiusc + clic', 'aggiungi o togli la pedina dal gruppo'],
-      ['trascina col sinistro', 'riquadro: seleziona più pedine (Maiusc: aggiungi)'],
-      ['clic destro o tocco sulla meta', 'manda le pedine selezionate'],
-      ['carta abilità, poi la mappa', 'ricognizione aerea o bombardamento'],
-      ['Spazio o P', 'pausa strategica: i tocchi preparano il piano'],
-      ['MAPPA · L', 'viste della carta: politica, terreno, logistica · L: logistica'],
-      ['H', 'questi comandi · Esc chiude'],
-      ['COSTRUISCI o B, scegli, poi trascina', 'l\'edificio su tutte le tue province toccate'],
-      ['Ctrl o Maiusc + numero · numero', 'salva il gruppo · lo richiami (due volte: la carta ci va)'],
-      ['T · F', 'pedine: difende o attacca da sola · assegna a un fronte'],
-      ['G, poi trascina', 'linea d\'attacco: le pedine selezionate si schierano lungo il tratto'],
-      ['U · I · R', 'unisci · dividi · ritirata delle pedine selezionate'],
-      ['mouse su una provincia di confine', 'previsione dell\'assalto (con pedine scelte: il percorso)'],
+    // comandi in quattro gruppi con la loro icona (prima: un muro di venti righe)
+    const groups: [string, string, [string, string][]][] = [
+      ['Mappa', 'ui-mappa', [
+        ['Tocco su provincia evidenziata', 'la compri con le truppe (assalto se è di qualcuno)'],
+        ['Tocco su una tua provincia', 'scheda e costruzioni'],
+        ['Tieni premuto', 'scheda di chi possiede la provincia'],
+        ['Trascina col destro · WASD o frecce', 'sposta la carta (telefono: trascina col dito)'],
+        ['Rotella o pizzico', 'zoom'],
+        ['Mouse su una provincia di confine', 'previsione dell\'assalto (con pedine scelte: il percorso)'],
+        ['MAPPA · L', 'viste della carta: politica, terreno, logistica · L: logistica'],
+      ]],
+      ['Reparti', 'u-fanteria', [
+        ['Carta reparto, poi tuo territorio', 'schiera la pedina'],
+        ['Clic sulla pedina', 'la selezioni'],
+        ['Maiusc + clic', 'aggiungi o togli la pedina dal gruppo'],
+        ['Trascina col sinistro', 'riquadro: seleziona più pedine (Maiusc: aggiungi)'],
+        ['Clic destro o tocco sulla meta', 'manda le pedine selezionate'],
+        ['G, poi trascina', 'linea d\'attacco: le pedine selezionate si schierano lungo il tratto'],
+        ['T · F', 'pedine: difende o attacca da sola · assegna a un fronte'],
+        ['U · I · R', 'unisci · dividi · ritirata delle pedine selezionate'],
+        ['Ctrl o Maiusc + numero · numero', 'salva il gruppo · lo richiami (due volte: la carta ci va)'],
+      ]],
+      ['Abilità e costruzioni', 'ui-costruisci', [
+        ['Carta abilità, poi la mappa', 'ricognizione aerea o bombardamento'],
+        ['COSTRUISCI o B, scegli, poi trascina', 'l\'edificio su tutte le tue province toccate'],
+      ]],
+      ['Partita', 'ui-pausa', [
+        ['Spazio o P', 'pausa strategica: i tocchi preparano il piano'],
+        ['H', 'questi comandi · Esc chiude'],
+      ]],
     ];
-    const W = Math.min(660, width - 2 * PAD), kx = 16, vx = Math.min(300, W * 0.46);
+    const W = Math.min(680, width - 2 * PAD), kx = 18, vx = Math.min(300, W * 0.46);
     // righe che vanno a capo se serve: l'altezza del riquadro si calcola dopo
-    const texts: Phaser.GameObjects.Text[] = [];
-    let y = 30;
-    for (const [k, v] of rows) {
-      const kt = this.add.text(kx, y, k, termStyle(12, TCOL.text)).setWordWrapWidth(vx - kx - 10); // il tasto: bianco
-      const vt = this.add.text(vx, y, v, termStyle(12, TCOL.label)).setWordWrapWidth(W - vx - 14); // cosa fa: grigio
-      texts.push(kt, vt);
-      y += Math.max(kt.height, vt.height) + 6;
+    const texts: Phaser.GameObjects.GameObject[] = [];
+    let y = 34;
+    for (const [name, ic, rows] of groups) {
+      texts.push(icon(this, ic, kx + 8, y + 9, 16, TCOL.text), this.add.text(kx + 26, y + 9, name, termStyle(14, TCOL.text)).setOrigin(0, 0.5));
+      y += 28;
+      for (const [k, v] of rows) {
+        const kt = this.add.text(kx, y, k, termStyle(12, TCOL.text)).setWordWrapWidth(vx - kx - 10); // il tasto: bianco
+        const vt = this.add.text(vx, y, v, termStyle(12, TCOL.label)).setWordWrapWidth(W - vx - 14); // cosa fa: grigio
+        texts.push(kt, vt);
+        y += Math.max(kt.height, vt.height) + 6;
+      }
+      y += 14;
     }
-    const H = y + 10;
+    const H = y;
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(0, 0, W, H, TCOL.bg, 0.96).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75).setInteractive(),
       termNotch(this, 0, 0, 'comandi'),
       ...texts,
     ];
-    const close = this.add.text(W - 4, 2, '✕', termStyle(14)).setOrigin(1, 0).setPadding(12, 8, 10, 12).setInteractive({ useHandCursor: true });
-    close.on('pointerup', () => this.toggleHelp());
-    items.push(close);
+    const close = icon(this, 'ui-chiudi', W - 20, 20, 14, TCOL.text);
+    const hit = this.add.rectangle(W - 44, 0, 44, 40, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true }).on('pointerup', () => this.toggleHelp());
+    items.push(close, hit);
     this.help = this.add.container((width - W) / 2, Math.max(PAD, (height - H) / 2), items).setDepth(47);
   }
 
@@ -1364,14 +1381,16 @@ export class HudScene extends Phaser.Scene {
         this.add.text(x + 8, H - 6, gr.state, termStyle(11, STATE_COL[gr.state] ?? TCOL.label)).setOrigin(0, 1));
       x += CW + 6;
     }
-    // + GRUPPO: acceso se ci sono pedine selezionate
+    // + GRUPPO: compare quando serve (pedine selezionate o gruppi già fatti), acceso se ci sono pedine selezionate
     const on = sel > 0, PW = 82;
-    termBox(g, x, 0, PW, H, 0.92);
-    const plus = this.add.text(x + PW / 2, H / 2, '+ GRUPPO', termStyle(11, on ? TCOL.text : TCOL.dim)).setOrigin(0.5);
-    const hitP = this.add.rectangle(x, 0, PW, H, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: on });
-    hitP.on('pointerup', () => { if (on) { sfx('order'); this.run.makeGroup(); } else this.notify('seleziona prima le pedine', PALETTE.ko); });
-    items.push(plus, hitP);
-    x += PW;
+    if (on || list.length) {
+      termBox(g, x, 0, PW, H, 0.92);
+      const plus = this.add.text(x + PW / 2, H / 2, '+ GRUPPO', termStyle(11, on ? TCOL.text : TCOL.dim)).setOrigin(0.5);
+      const hitP = this.add.rectangle(x, 0, PW, H, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: on });
+      hitP.on('pointerup', () => { if (on) { sfx('order'); this.run.makeGroup(); } else this.notify('seleziona prima le pedine', PALETTE.ko); });
+      items.push(plus, hitP);
+      x += PW;
+    }
     this.groupBar = this.add.container(x0, y0, items).setDepth(20);
     this.groupBarRect = { x: x0, y: y0, w: x, h: H };
   }

@@ -118,9 +118,16 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
 - **Base in sezione alla XCOM 2** (Nico, novembre 2026: "UI migliore ispirata da altri giochi", scelta XCOM 2): la home è la montagna
   della base di notte con tre piani di stanze illustrate (`FLOORS` in `CampScene.ts`; in verticale Comando largo + due colonne);
   ogni stanza si tocca e apre la sua pagina, dove la foto della stanza fa da fondo (niente più pianta). A destra "In corso"
-  (cantiere, ricerca, estrazione) e in fondo la prossima operazione con AVVIA CAMPAGNA. Foto generate in locale gratis con
-  Draw Things (`draw-things-cli`, FLUX.2 klein 4B, Apache 2.0): prompt in `../concept-base/` (`prefix.txt`, `rooms.tsv`, `gen.sh`;
-  misure multiple di 128, il crash `mpgetbuffer` è casuale e si ritenta), copiate nel gioco con `scripts/import-room-art.py`.
+  (cantiere, ricerca, estrazione) e in fondo la prossima operazione con AVVIA CAMPAGNA e l'immagine del fronte. Foto generate in
+  locale gratis con Draw Things (`draw-things-cli`, FLUX.2 klein 4B, Apache 2.0; misure multiple di 128, il crash `mpgetbuffer` è
+  casuale e si ritenta): vedi la nota sopra.
+- **Pagine delle stanze** (Nico, novembre 2026: "migliora userflow, immagini e icone ma soprattutto UI"): testata staccata dal
+  bordo, fascicolo a destra (in verticale sotto, sale sulla foto se non ci sta) **alto quanto il suo contenuto**, con l'azione
+  subito sotto i livelli (`fillLevels`); niente link minuscoli: schede **Registro / Livelli** (Radar) e **Ricerca / Livelli**
+  (Laboratorio: la vecchia pagina Ricerca è la sua scheda), tasti per l'albero. Sala Operazioni alla XCOM 2: fronte con la sua
+  immagine (`img/fronts`, una per fronte), reparti come carte, durata e puntata come scelte a segmenti (non più un tasto che
+  cambia a ogni tocco), fronti senza stelline. Cantiere con la foto di ogni stanza. Registro del Radar con colonne e record
+  incompleti mostrati come "—" (prima NaN).
 - **Carta da terminale** (Nico, 12 ottobre 2026: "fai come questa, uguale identica" su una mappa d'Europa in un terminale):
   tutta la mappa della campagna passa da un filtro sulla camera (`src/render/RetroPipeline.ts`) che la trasforma in puntini braille
   (celle 9×19 punti, 2 colonne × 4 righe di puntini 3×2, griglia fissa sullo schermo). Terra nera piena, mare pervinca su blu notte,

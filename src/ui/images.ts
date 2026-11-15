@@ -1,6 +1,7 @@
 // Immagini del Figma di Nico (civiltà e schermate di caricamento): moodboard segnaposto finché non arrivano le illustrazioni definitive.
 import Phaser from 'phaser';
-import type { CivId } from '../config/balance';
+import { BALANCE, type CivId } from '../config/balance';
+import { techInfo, type TechId } from '../game/tech';
 import imperium from '../assets/img/civ-imperium.jpg';
 import republica from '../assets/img/civ-republica.jpg';
 import aristocrazia from '../assets/img/civ-aristocrazia.jpg';
@@ -29,6 +30,15 @@ const URLS: Record<string, string> = {
 };
 
 export const civImage = (id: CivId) => `civ-${id}`;
+
+/** Immagine di una ricerca: il reparto o l'abilità che sblocca, l'unità unica della potenza, altrimenti il suo oggetto. */
+export function techImage(scene: Phaser.Scene, id: TechId, civ: CivId): string {
+  const t = techInfo(id);
+  if (t.unit) return `u-${t.unit}`;
+  if (t.ability) return `a-${t.ability}`;
+  if (t.unique) return `u-${BALANCE.civs[civ].unit}`;
+  return scene.textures.exists(`t-${id}`) ? `t-${id}` : 'room-laboratorio';
+}
 
 /** Da chiamare nel preload della prima scena. */
 export function preloadImages(scene: Phaser.Scene) {

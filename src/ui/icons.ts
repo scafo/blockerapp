@@ -23,3 +23,8 @@ export function preloadIcons(scene: Phaser.Scene) {
 
 /** C'è un'icona con questo nome? */
 export const hasIcon = (name: string) => name in FILES;
+
+/** Icona di ogni ramo della ricerca (pagina del Laboratorio e albero). */
+export const BRANCH_ICON: Record<string, string> = {
+  armamenti: 'st-arsenale', esercito: 'u-fanteria', logistica: 'w-ferrovia', economia: 'w-fabbrica', difesa: 'ui-difesa', caduta: 'st-archivio',
+};
