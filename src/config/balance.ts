@@ -214,6 +214,7 @@ export const BALANCE = {
     homeRadius: 16, // non si allontanano oltre (passi dalla partenza)
     maxUnits: 2, // pedine per milizia (Nico: generano tutti truppe): difendono casa e attaccano chi si avvicina
     unitRadius: 24, // le pedine delle milizie non vanno a cercare nemici oltre questi passi da casa
+    troopAssaultMult: 2, // assalto alle milizie con le truppe: costa più dei reparti (prima conquistavi 600 province e il bottino esplodeva)
   },
   // Diplomazia alla HOI4 (rapporti col giocatore): gli imperi partono in pace e possono dichiararti guerra quando vi toccate,
   // le milizie sono ostili. Donazioni = opinione; con l'opinione alta accettano pace e alleanze.
@@ -376,7 +377,7 @@ export const BALANCE = {
   // (2026-10-12, Nico: nemici più aggressivi) azioni ×1,6, tregua iniziale dimezzata, offensive prima e più spesse, +1 pedina IA
   // (2026-10-27, Nico: imperi che si espandono subito e sempre, gioco difficile) azioni ×2,5, crescita ×1,3, truppe iniziali ×1,5, +2 pedine
   fronts: [
-    { name: 'Prima linea', power: 0, lootMult: 1, aiGrowthMult: 1.25, aiStartTroops: 78, aiActChance: 0.168, aiUnits: ['fanteria'], aiUnitHpMult: 1.03, aiDefenseMult: 1, aiBunkers: 0, aiBunkerEveryMs: 0, graceMs: 120_000, offensiveFirstMs: 252_000, offensiveEveryMs: 126_000, maxAiUnits: 7, aiDistance: [34, 60] },
+    { name: 'Prima linea', power: 0, lootMult: 1, aiGrowthMult: 0.85, aiStartTroops: 78, aiActChance: 0.168, aiUnits: ['fanteria'], aiUnitHpMult: 1.03, aiDefenseMult: 1, aiBunkers: 0, aiBunkerEveryMs: 0, graceMs: 120_000, offensiveFirstMs: 252_000, offensiveEveryMs: 126_000, maxAiUnits: 7, aiDistance: [34, 60] },
     { name: 'Valichi del Nord', power: 20, lootMult: 1.3, aiGrowthMult: 1.38, aiStartTroops: 107, aiActChance: 0.205, aiUnits: ['fanteria', 'ricognitori'], aiUnitHpMult: 1.15, aiDefenseMult: 1.05, aiBunkers: 1, aiBunkerEveryMs: 0, graceMs: 105_000, offensiveFirstMs: 228_000, offensiveEveryMs: 114_000, maxAiUnits: 8, aiDistance: [28, 52] },
     { name: 'Terre di cenere', power: 45, lootMult: 1.7, aiGrowthMult: 1.95, aiStartTroops: 195, aiActChance: 0.3, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio'], aiUnitHpMult: 1.26, aiDefenseMult: 1.12, aiBunkers: 2, aiBunkerEveryMs: 180_000, graceMs: 90_000, offensiveFirstMs: 198_000, offensiveEveryMs: 99_000, maxAiUnits: 8, aiDistance: [22, 42] },
     { name: 'Fronte del Lume', power: 75, lootMult: 2.2, aiGrowthMult: 2.07, aiStartTroops: 273, aiActChance: 0.352, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.38, aiDefenseMult: 1.2, aiBunkers: 4, aiBunkerEveryMs: 140_000, graceMs: 75_000, offensiveFirstMs: 168_000, offensiveEveryMs: 87_000, maxAiUnits: 9, aiDistance: [20, 38] },

@@ -39,6 +39,7 @@ const TOP_H = 140; // verticale: altezza dei riquadri in alto (esercito e fronte
 const STATUS_H = 0; // barra di stato della carta tolta (Nico): niente spazio riservato in fondo
 const DOCK_PAD = 8; // margine interno del riquadro dei reparti
 
+const MEDAL_W = 92; // tasto del tempo che manca (clessidra e minuti)
 const mmss = (ms: number) => {
   const sec = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
@@ -96,6 +97,7 @@ export class HudScene extends Phaser.Scene {
   private clockIcon!: Phaser.GameObjects.Image;
   private medalBtn!: Button; // al posto del riquadro territorio (Nico): apre province, classifica e fine campagna
   private medalPanel: Phaser.GameObjects.Container | null = null;
+  private clockKey = '';
   private audioBtn!: Button; // impostazioni audio (Nico): accanto alla medaglia
   private audioPanel: Phaser.GameObjects.Container | null = null;
   private groupBar: Phaser.GameObjects.Container | null = null; // gruppi (armate) alla HOI4, in alto accanto ai tasti
@@ -141,6 +143,7 @@ export class HudScene extends Phaser.Scene {
     this.nextBannerAt = 0;
     this.aliveKey = '';
     this.ended = false;
+    this.clockKey = ''; // il tempo sul tasto si riscrive alla nuova campagna
     this.retreatArmed = null;
     this.eventCard = null;
 
@@ -181,7 +184,7 @@ export class HudScene extends Phaser.Scene {
     this.seed = this.add.text(0, 0, '', termStyle(11, PALETTE.ocra, false)).setOrigin(1, 1);
     // suggerimento: riquadro della pianta (fondo ardesia, filo avorio) che segue il testo
     this.hintBox = this.add.rectangle(0, 0, 10, 10, TCOL.bg, 0.94).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75);
-    this.hint = this.add.text(0, 0, 'Tocca una provincia evidenziata per conquistarla', termLabel(13))
+    this.hint = this.add.text(0, 0, 'Tocca un numero sulla mappa: è il prezzo in truppe di una provincia libera', termLabel(13))
       .setOrigin(0.5, 0).setAlign('center').setPadding(12, 7, 12, 7);
 
     // comandi: carte in basso a sinistra; ritirata e velocità in basso a destra
@@ -189,7 +192,7 @@ export class HudScene extends Phaser.Scene {
     this.cards = this.run.state.opts.units.map((t) => new UnitCard(this, t, () => this.onCard(t)));
     this.abilityCards = this.run.state.opts.abilities.map((a) => new AbilityCard(this, a, () => {
       const block = this.run.toggleAbility(a);
-      if (block === 'cooldown') this.toast('abilità in ricarica', PALETTE.ko);
+      if (block === 'cooldown') this.toast('Abilità in ricarica', PALETTE.ko, 'ui-tempo');
     }));
     this.speedBtn = new Button(this, 'x1', 56, 44, () => {
       const sp = BALANCE.speeds as readonly number[];
@@ -202,7 +205,9 @@ export class HudScene extends Phaser.Scene {
     this.mapBtn = new Button(this, 'MAPPA', 124, 32, () => this.toggleMenu('mappa'), 12, { icon: 'ico-mappa' });
     this.buildBtn = new Button(this, 'COSTRUISCI', 124, 32, () => this.toggleBuildMenu(), 12, { icon: 'ico-costruisci' });
     this.buildBtn.setVisible(!this.run.state.opts.tutorial);
-    this.medalBtn = new Button(this, '', 44, 44, () => this.toggleMedal(), 22, { icon: 'ico-medaglia' });
+    // tempo che manca sul tasto stesso (prima si vedeva solo aprendo il pannello); nella guida resta la medaglia
+    const tut = this.run.state.opts.tutorial;
+    this.medalBtn = new Button(this, tut ? '' : mmss(this.run.state.timeLeft), tut ? 44 : MEDAL_W, 44, () => this.toggleMedal(), tut ? 22 : 15, { icon: tut ? 'ico-medaglia' : 'ico-tempo' });
     this.medalPanel = null;
     this.audioBtn = new Button(this, '', 44, 44, () => this.toggleAudio(), 22, { icon: audioSettings().muted ? 'ico-muto' : 'ico-audio' });
     this.audioPanel = null;
@@ -355,7 +360,7 @@ export class HudScene extends Phaser.Scene {
         return {
           label: WORK_NAME[w], icon: w, on: false, off: locked,
           sub: locked ? `serve ${techInfo(D.tech).name}` : `${st.workPrice(w)} truppe${metal ? ` · ${metal} metallo` : ''}`,
-          pick: () => { if (locked) return this.toast(`SERVE LA RICERCA ${techInfo(D.tech).name.toUpperCase()}`, PALETTE.ko); this.run.setBuildMode(w); },
+          pick: () => { if (locked) return this.toast(`Serve la ricerca ${techInfo(D.tech).name}`, PALETTE.ko, 'ui-lucchetto'); this.run.setBuildMode(w); },
         };
       });
     const H = rows.length * RH + 8;
@@ -479,10 +484,15 @@ export class HudScene extends Phaser.Scene {
   private onCard(t: UnitType) {
     const block = this.run.toggleCard(t);
     if (!block) return;
-    const msg = ({ locked: 'serve l\'Arsenale', cooldown: 'carta in ricarica', troops: 'truppe insufficienti', cap: 'massimo pedine in campo', tile: '', res: `servono ${this.run.state.unitRes(t).n} ${RESOURCE_INFO[this.run.state.unitRes(t).res].name.toLowerCase()} nello zaino` } as const)[block];
+    const msg = ({ locked: 'Serve l\'Arsenale', cooldown: 'Carta in ricarica', troops: 'Truppe insufficienti', cap: 'Massimo pedine in campo', tile: '', res: `Servono ${this.run.state.unitRes(t).n} ${RESOURCE_INFO[this.run.state.unitRes(t).res].name.toLowerCase()} nello zaino` } as const)[block];
     const card = this.cards.find((c) => c.type === t)!;
     this.tweens.add({ targets: card, x: card.x + 4, duration: 50, yoyo: true, repeat: 2 });
-    if (msg) this.toast(msg, PALETTE.ko);
+    if (msg) this.toast(msg, PALETTE.ko, block === 'troops' ? 'res-truppe' : block === 'cooldown' ? 'ui-tempo' : block === 'res' ? `res-${this.run.state.unitRes(t).res}` : 'ui-lucchetto');
+  }
+
+  /** Toglie il messaggio di contesto solo se è ancora quello (un altro arrivato nel frattempo resta). */
+  clearHint(msg: string) {
+    if (this.hint.text === msg) this.setHint(null);
   }
 
   /** Messaggio di contesto in alto al centro (null = nascondi). */
@@ -517,8 +527,8 @@ export class HudScene extends Phaser.Scene {
       this.notches[1].setVisible(false);
       this.troopIcon.setPosition(PAD + 12, topPad + 30);
       this.troops.setPosition(PAD + 38, topPad + 14);
-      this.medalBtn.setPosition(width - PAD - 12 - 44, topPad + 14);
-      this.audioBtn.setPosition(width - PAD - 12 - 44 - 50, topPad + 14);
+      this.medalBtn.setPosition(width - PAD - 12 - this.medalBtn.width, topPad + 14);
+      this.audioBtn.setPosition(width - PAD - 12 - this.medalBtn.width - 50, topPad + 14);
       this.layoutResources(PAD + 16, topPad + 80 + (TOP_H - 80) / 2 - 4, (w - 40) / 3);
       this.topBottom = topPad + TOP_H;
       this.symPos = this.rows.map(() => ({ x: 0, y: 0 }));
@@ -543,7 +553,7 @@ export class HudScene extends Phaser.Scene {
       box(cx, topPad, cW, BAR_H, this.resLabel);
       this.notches[1].setVisible(false);
       this.medalBtn.setPosition(bx, topPad);
-      this.audioBtn.setPosition(bx + 50, topPad);
+      this.audioBtn.setPosition(bx + this.medalBtn.width + 6, topPad);
       this.troopIcon.setPosition(PAD + 12, topPad + 30);
       this.troops.setPosition(PAD + 38, topPad + 14);
       this.layoutResources(cx + 14, topPad + 32, (cW - 24) / 3);
@@ -656,10 +666,18 @@ export class HudScene extends Phaser.Scene {
     this.drawGroupBar();
     if (!this.buildHint && !st.opts.tutorial && st.gameTimeMs > 40_000) {
       this.buildHint = true; // una volta per campagna, se non hai ancora costruito niente
-      const msg = 'Tocca una tua provincia per costruire:\nfabbrica, fortificazione, caserma.';
+      const msg = 'Costruisci con il tasto COSTRUISCI in alto:\nfabbrica, fortificazione, caserma.'; // (il tocco sulla provincia non costruisce più)
       if (!st.worksStarted && !this.hint.visible && !this.provCard) {
         this.setHint(msg);
         this.time.delayedCall(8000, () => { if (this.hint.text === msg) this.setHint(null); });
+      }
+    }
+    if (!st.opts.tutorial) {
+      // si ridisegna solo quando cambia il secondo (o il colore dell'ultimo minuto)
+      const left = Math.max(0, st.timeLeft), key = `${mmss(left)}|${left <= BALANCE.campaign.warnMs ? 1 : 0}`;
+      if (key !== this.clockKey) {
+        this.clockKey = key;
+        this.medalBtn.setLabel(mmss(left)).setLabelColor(left <= BALANCE.campaign.warnMs ? PALETTE.ko : 0xf2f2f2);
       }
     }
     if (this.medalPanel && (this.medalAcc -= delta) <= 0) { this.medalAcc = 1000; this.openMedal(); }
@@ -744,42 +762,42 @@ export class HudScene extends Phaser.Scene {
   /** Provincia tutta tua: stendardo con truppe e bottino. */
   /** Offensiva nemica: preavviso, inizio, esito. */
   onOffensive(faction: number, phase: 'warn' | 'start' | 'end', lost = 0) {
-    const who = FACTION_INFO[faction]?.name.toUpperCase() ?? 'IL NEMICO';
-    if (phase === 'warn') this.toast(`⚠ ${who} PREPARA UN'OFFENSIVA\nrinforza il confine (genio, truppe in cassa)`, PALETTE.allerta);
-    else if (phase === 'start') this.banner(`OFFENSIVA ${who}`, PALETTE.ko, 'attaccano il tuo confine');
-    else this.toast(lost ? `OFFENSIVA FINITA · perso il ${Math.round((lost / Math.max(1, lost + this.run.state.player.tiles)) * 100)}% del territorio` : 'OFFENSIVA RESPINTA', lost > 40 ? PALETTE.ko : PALETTE.ocra);
+    const who = FACTION_INFO[faction]?.name ?? 'Il nemico';
+    if (phase === 'warn') this.toast(`${who} prepara un'offensiva\nRinforza il confine: genio e truppe in cassa`, PALETTE.allerta, 'ui-offensiva');
+    else if (phase === 'start') this.banner(`OFFENSIVA ${who.toUpperCase()}`, PALETTE.ko, 'Attaccano il tuo confine');
+    else this.toast(lost ? `Offensiva finita\nPerso il ${Math.round((lost / Math.max(1, lost + this.run.state.player.tiles)) * 100)}% del territorio` : 'Offensiva respinta', lost > 40 ? PALETTE.ko : PALETTE.ocra, lost ? 'ui-guerra' : 'ui-difesa');
   }
 
   /** Diplomazia: dichiarazioni, paci, alleanze, rifiuti, doni. */
   onDiplomacy(f: number, what: DiploWhat, byPlayer: boolean, amount = 0) {
-    const who = FACTION_INFO[f]?.name.toUpperCase() ?? 'IL NEMICO';
+    const who = FACTION_INFO[f]?.name ?? 'Il nemico';
     if (what === 'war' && !byPlayer) {
-      this.banner(`${who} TI DICHIARA GUERRA`, PALETTE.ko, 'i confini non sono più sicuri');
+      this.banner(`${who.toUpperCase()} TI DICHIARA GUERRA`, PALETTE.ko, 'I confini non sono più sicuri');
       buzz([40, 30, 40]);
-    } else if (what === 'war') this.toast(`GUERRA A ${who}`, PALETTE.ko);
-    else if (what === 'peace') this.toast(`PACE CON ${who}`, PALETTE.ocra);
-    else if (what === 'alliance') this.banner(`ALLEANZA CON ${who}`, PALETTE.radioattivo, 'non vi attaccherete, vedete insieme');
-    else if (what === 'broken') this.toast(`ALLEANZA ROTTA CON ${who}`, PALETTE.allerta);
-    else if (what === 'refused') this.toast(`${who} RIFIUTA`, PALETTE.ko);
-    else if (what === 'tribute') this.toast(`TRIBUTO DA ${who} · +${amount} risorse`, PALETTE.ocra);
-    else if (what === 'gift') this.toast(`DONO A ${who} · opinione in salita`, PALETTE.radioattivo);
+    } else if (what === 'war') this.toast(`Guerra a ${who}`, PALETTE.ko, 'ui-guerra');
+    else if (what === 'peace') this.toast(`Pace con ${who}`, PALETTE.ocra, 'ui-pace');
+    else if (what === 'alliance') this.banner(`ALLEANZA CON ${who.toUpperCase()}`, PALETTE.radioattivo, 'Non vi attaccherete, vedete insieme');
+    else if (what === 'broken') this.toast(`Alleanza rotta con ${who}`, PALETTE.allerta, 'ui-alleanza');
+    else if (what === 'refused') this.toast(`${who} rifiuta`, PALETTE.ko, 'ui-chiudi');
+    else if (what === 'tribute') this.toast(`Tributo da ${who}\n+${amount} risorse`, PALETTE.ocra, 'res-metallo');
+    else if (what === 'gift') this.toast(`Dono a ${who}\nL'opinione sale`, PALETTE.radioattivo, 'ui-alleanza');
     if (this.profileF === f) this.renderProfile();
   }
 
   /** Un nemico assalta una tua provincia: c'è tempo per rinforzarsi (truppe in cassa, bunker, pedine). */
   onDefending(by: number) {
-    this.toast(`${FACTION_INFO[by]?.short ?? 'IL NEMICO'} ASSALTA UNA TUA PROVINCIA\nhai qualche secondo: tieni truppe in cassa`, PALETTE.ko);
+    this.toast(`${FACTION_INFO[by]?.name ?? 'Il nemico'} assalta una tua provincia\nHai qualche secondo: tieni truppe in cassa`, PALETTE.ko, 'ui-attacco');
   }
 
   /** La capitale è caduta: i rifornimenti ripartono dalla nuova. */
   onCapital() {
-    this.banner('CAPITALE SPOSTATA', PALETTE.allerta, 'la logistica riparte dalla nuova capitale');
+    this.banner('CAPITALE SPOSTATA', PALETTE.allerta, 'La logistica riparte dalla nuova capitale');
   }
 
   /** Accerchiamento: una sacca si arrende. */
   onEncircled(by: number, from: number, n: number) {
-    if (by === PLAYER) this.banner(`ACCERCHIAMENTO · +${n} ${n === 1 ? 'PROVINCIA' : 'PROVINCE'}`, PALETTE.radioattivo, 'la sacca si arrende');
-    else if (from === PLAYER) this.toast(`SACCA PERDUTA · ${n} ${n === 1 ? 'provincia' : 'province'} a ${FACTION_INFO[by]?.short ?? '?'}`, PALETTE.ko);
+    if (by === PLAYER) this.banner(`ACCERCHIAMENTO · +${n} ${n === 1 ? 'PROVINCIA' : 'PROVINCE'}`, PALETTE.radioattivo, 'La sacca si arrende');
+    else if (from === PLAYER) this.toast(`Sacca perduta\n${n} ${n === 1 ? 'provincia' : 'province'} a ${FACTION_INFO[by]?.name ?? '?'}`, PALETTE.ko, 'ui-province');
   }
 
   // ---------- scheda di un impero ----------
@@ -852,7 +870,7 @@ export class HudScene extends Phaser.Scene {
     const acts: { label: string; icon: string; color: number; run: () => void }[] = [];
     const D = BALANCE.diplomacy;
     const gift = Math.floor(Math.max(D.donateMin, st.troops * D.donateShare));
-    const why = (r: string) => this.toast(r.toUpperCase(), PALETTE.ko);
+    const why = (r: string) => this.toast(r.charAt(0).toUpperCase() + r.slice(1), PALETTE.ko, 'ui-chiudi');
     if (fac.alive) {
       if (rel === 'guerra') {
         acts.push({ label: 'Proponi pace', icon: 'ui-pace', color: PALETTE.ocra, run: () => {
@@ -895,35 +913,35 @@ export class HudScene extends Phaser.Scene {
   onEliminated(faction: number, by: number, loot: Bag) {
     if (faction === PLAYER) return;
     if (by !== PLAYER && FACTION_INFO[faction]?.kind === 'bot') return; // milizie spazzate via altrove: niente avvisi
-    const who = FACTION_INFO[faction].name.toUpperCase();
+    const who = FACTION_INFO[faction].name;
     const got = bagTotal(loot);
     const msg = by === PLAYER
-      ? `${who} ELIMINATI${got ? `\n+${got} risorse dal loro bottino` : ''}`
-      : `${who} SPAZZATI VIA DA ${FACTION_INFO[by]?.short ?? 'NESSUNO'}`;
-    this.toast(msg, by === PLAYER ? PALETTE.radioattivo : PALETTE.ocra);
+      ? `${who} eliminati${got ? `\n+${got} risorse dal loro bottino` : ''}`
+      : `${who} spazzati via\nDa ${FACTION_INFO[by]?.name ?? 'nessuno'}`;
+    this.toast(msg, by === PLAYER ? PALETTE.radioattivo : PALETTE.ocra, by === PLAYER ? 'ui-trofeo' : 'ui-guerra');
   }
 
   /** Ultimo minuto di campagna. */
   onTimer() {
-    this.toast('ULTIMO MINUTO\nallo scadere vince chi ha più province', PALETTE.allerta);
+    this.toast('Ultimo minuto\nAllo scadere vince chi ha più province', PALETTE.allerta, 'ui-tempo');
   }
 
   /** Bigliettino dalla mappa (gruppi, muro, comandi delle pedine). */
   notify(msg: string, color: number) {
-    this.toast(msg.toUpperCase(), color);
+    this.toast(msg.charAt(0).toUpperCase() + msg.slice(1), color);
   }
 
   /** Coalizione degli imperi contro di te: si forma o si scioglie. */
   onCoalition(phase: 'form' | 'end', members: number[]) {
     if (phase === 'form') {
-      this.banner('COALIZIONE CONTRO DI TE', PALETTE.ko, `${members.map((m) => FACTION_INFO[m]?.short ?? '?').join(' · ')} smettono di combattersi`);
+      this.banner('COALIZIONE CONTRO DI TE', PALETTE.ko, `${members.map((m) => FACTION_INFO[m]?.name ?? '?').join(' · ')} smettono di combattersi`);
       buzz([40, 30, 40]);
-    } else this.toast('COALIZIONE SCIOLTA\nil tuo vantaggio è calato, gli imperi tornano rivali', PALETTE.ocra);
+    } else this.toast('Coalizione sciolta\nIl tuo vantaggio è calato, gli imperi tornano rivali', PALETTE.ocra, 'ui-alleanza');
   }
 
   /** Un impero bombarda una tua provincia di confine. */
   onEnemyStrike(by: number) {
-    this.toast(`BOMBARDAMENTO ${FACTION_INFO[by]?.short ?? 'NEMICO'} IN ARRIVO\nsposta le pedine · la contraerea lo ferma`, PALETTE.ko);
+    this.toast(`Bombardamento di ${FACTION_INFO[by]?.name ?? 'un nemico'} in arrivo\nSposta le pedine: la contraerea lo ferma`, PALETTE.ko, 'a-bombardamento');
   }
 
   /** Tasto COSTRUISCI acceso (con l'edificio scelto) o spento. */
@@ -958,13 +976,13 @@ export class HudScene extends Phaser.Scene {
   /** Bigliettini impilati nell'angolo in alto a destra, sotto le potenze (il più nuovo in cima); in verticale al centro. */
   /** Mantenimento: manca una risorsa per le pedine. */
   onUpkeep(res: Resource) {
-    this.toast(`MANCA ${RESOURCE_INFO[res].name.toUpperCase()}: LE PEDINE CHE LO USANO SI LOGORANO`, PALETTE.ko);
+    this.toast(`Manca ${RESOURCE_INFO[res].name.toLowerCase()}\nLe pedine che lo usano si logorano`, PALETTE.ko, `res-${res}`);
   }
 
-  private toast(msg: string, color: number) {
+  private toast(msg: string, color: number, ic = '') {
     const { width } = view(this);
-    const w = this.portrait ? width - 2 * PAD : Math.min(300, width / 3);
-    const n = termNote(this, this.portrait ? width / 2 : width - PAD, this.topBottom + (this.portrait ? 64 : 90), w, msg, color, this.portrait ? 0.5 : 1).setDepth(45).setAlpha(0);
+    const w = this.portrait ? width - 2 * PAD : Math.min(320, width / 3);
+    const n = termNote(this, this.portrait ? width / 2 : width - PAD, this.topBottom + (this.portrait ? 64 : 90), w, msg, color, this.portrait ? 0.5 : 1, ic).setDepth(45).setAlpha(0);
     this.notes.unshift(n);
     this.layoutNotes();
     n.x += 16;
@@ -1004,9 +1022,9 @@ export class HudScene extends Phaser.Scene {
   /** Città presa: provincia annessa (toast) o capitale caduta (cartello). Le IA si annunciano solo per le capitali. */
   onProvince(by: number, capital: boolean, nation: string, bonus: number) {
     if (by === PLAYER) {
-      if (capital) this.banner(`${nation.toUpperCase()} CADE`, PALETTE.ocra, `capitale presa${bonus ? ` · +${bonus} truppe` : ''}`);
+      if (capital) this.banner(`${nation.toUpperCase()} CADE`, PALETTE.ocra, `Capitale presa${bonus ? ` · +${bonus} truppe` : ''}`);
     } else if (capital && by >= 0) {
-      this.toast(`${FACTION_INFO[by].short} PRENDONO LA CAPITALE: ${nation.toUpperCase()}`, PALETTE.ocra);
+      this.toast(`${FACTION_INFO[by].name} prende ${nation}\nNe conquista la capitale`, PALETTE.ocra, 'ui-capitale');
     }
   }
 
@@ -1029,7 +1047,7 @@ export class HudScene extends Phaser.Scene {
     if (this.ended) return;
     const { width, height } = view(this);
     const t = this.add.text(width / 2, height * 0.36, title, termStyle(34, color)).setOrigin(0.5).setDepth(40);
-    const s2 = this.add.text(width / 2, height * 0.36 + 32, sub.toUpperCase(), termStyle(14, PALETTE.carta)).setOrigin(0.5)
+    const s2 = this.add.text(width / 2, height * 0.36 + 32, sub.charAt(0).toUpperCase() + sub.slice(1), termStyle(15, PALETTE.carta)).setOrigin(0.5)
       .setDepth(40);
     s2.setWordWrapWidth(width - 40).setAlign('center');
     for (const o of [t, s2]) {
@@ -1088,7 +1106,7 @@ export class HudScene extends Phaser.Scene {
     this.pauseUi = null;
     this.pauseFrame.setVisible(st.paused);
     if (!st.paused) {
-      if (st.plan.length) this.toast(`PIANO IN ESECUZIONE · ${st.plan.length} province`, PALETTE.radioattivo);
+      if (st.plan.length) this.toast(`Piano in esecuzione\n${st.plan.length} province`, PALETTE.radioattivo, 'ui-play');
       return;
     }
     this.hint.setVisible(false);
@@ -1319,7 +1337,8 @@ export class HudScene extends Phaser.Scene {
         const w = st.workOf(p);
         stats([
           o === NEUTRAL ? { k: 'per prenderla', v: `${cost}`, c: st.troops > cost ? TCOL.text : TCOL.alert, icon: 'ico-truppe' }
-            : { k: 'per prenderla', v: 'pedine', c: TCOL.text, icon: 'ico-truppe' }, // Nico: imperi e milizie si combattono alla HOI4
+            : st.isMilitia(o) ? { k: 'assalto', v: `${cost}`, c: st.troops > cost ? TCOL.text : TCOL.alert, icon: 'ico-truppe' } // le milizie anche con le truppe
+            : { k: 'per prenderla', v: 'reparti', c: TCOL.text, icon: 'ico-truppe' }, // Nico: gli imperi si combattono alla HOI4
           ...(fc ? [{ k: 'esito', v: odds, c: fc.odds === 'incerta' ? TCOL.accent : fc.odds === 'difficile' || !fc.can ? TCOL.alert : TCOL.ok }] : []),
           { k: 'difesa', v: seen || o === NEUTRAL ? String(st.provDefense(p)) : '?', icon: 'ico-difesa' },
           { k: `${resName} al min`, v: st.provPerMin(p).toFixed(1).replace('.', ','), res: T.res },

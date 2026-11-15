@@ -132,6 +132,12 @@ export class Button extends Phaser.GameObjects.Container {
     return this;
   }
 
+  /** Colore dell'etichetta (es. il tempo che manca diventa rosso nell'ultimo minuto). */
+  setLabelColor(color: number): this {
+    this.label.setColor(hex(color));
+    return this;
+  }
+
   /** Testi lunghi: si rimpiccioliscono per restare nel tasto. */
   private fitLabel() {
     this.label.setScale(Math.min(1, (this.btnW - 16) / Math.max(1, this.label.width)));

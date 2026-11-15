@@ -1,11 +1,7 @@
-// Immagini del Figma di Nico (civiltà e schermate di caricamento): moodboard segnaposto finché non arrivano le illustrazioni definitive.
+// Immagini del Figma di Nico (schermate di caricamento); le potenze ora sono generate (img/civs).
 import Phaser from 'phaser';
 import { BALANCE, type CivId } from '../config/balance';
 import { techInfo, type TechId } from '../game/tech';
-import imperium from '../assets/img/civ-imperium.jpg';
-import republica from '../assets/img/civ-republica.jpg';
-import aristocrazia from '../assets/img/civ-aristocrazia.jpg';
-import cabal from '../assets/img/civ-cabal.jpg';
 import nave from '../assets/img/load-nave.jpg';
 import croce from '../assets/img/load-croce.jpg';
 import festa from '../assets/img/load-festa.jpg';
@@ -23,7 +19,6 @@ const ROOMS = Object.fromEntries(Object.entries(import.meta.glob<string>('../ass
 
 const URLS: Record<string, string> = {
   ...ROOMS,
-  'civ-imperium': imperium, 'civ-republica': republica, 'civ-aristocrazia': aristocrazia, 'civ-cabal': cabal,
   'load-nave': nave, 'load-croce': croce, 'load-festa': festa, 'load-ghiaccio': ghiaccio, 'load-radar': radar,
   'load-statua': statua, 'load-arpanet': arpanet,
   'title-bg': titleBg, 'bg-estrazione': bgEstrazione,

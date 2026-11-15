@@ -58,16 +58,23 @@ export function termBox(g: Phaser.GameObjects.Graphics, x: number, y: number, w:
 }
 
 /** Bigliettino di comunicazione in stile terminale (allarme rosso, avviso giallo, comunicazione blu). */
-export function termNote(scene: Phaser.Scene, x: number, y: number, w: number, msg: string, color: number, ox = 0.5) {
+export function termNote(scene: Phaser.Scene, x: number, y: number, w: number, msg: string, color: number, ox = 0.5, ic = '') {
+  // avviso: prima riga come titolo (bianco, o del colore del messaggio se è una buona notizia), il resto come spiegazione grigia;
+  // icona del tipo di avviso (guerra, pace, capitale…) accanto al titolo, barretta colorata a sinistra
   const alarm = color === PALETTE.ko, warn = color === PALETTE.allerta;
   const label = alarm ? 'allarme' : warn ? 'avviso' : 'comunicazione';
   const lc = alarm ? TCOL.alert : warn ? TCOL.accent : TCOL.label;
-  const t = scene.add.text(12, 14, msg, termStyle(13, alarm || warn ? TCOL.text : color)).setWordWrapWidth(w - 24).setLineSpacing(2);
-  const h = t.height + 26;
+  const [first, ...rest] = msg.split('\n');
+  const tx = ic ? 36 : 12;
+  const head = scene.add.text(tx, 14, first, termStyle(14, alarm || warn ? TCOL.text : color)).setWordWrapWidth(w - tx - 12).setLineSpacing(2);
+  const more = rest.length ? scene.add.text(tx, head.y + head.height + 3, rest.join('\n'), termStyle(12, TCOL.label)).setWordWrapWidth(w - tx - 12).setLineSpacing(2) : null;
+  const h = (more ? more.y + more.height : head.y + head.height) + 12;
   const g = scene.add.graphics();
   termBox(g, 0, 0, w, h, 0.95);
   g.fillStyle(lc, 1).fillRect(0, 0, 3, h);
-  const c = scene.add.container(x - w * ox, y, [g, t, termNotch(scene, 0, 0, label, lc)]);
+  const parts: Phaser.GameObjects.GameObject[] = [g, head, ...(more ? [more] : []), termNotch(scene, 0, 0, label, lc)];
+  if (ic && scene.textures.exists(`ic-${ic}`)) parts.push(scene.add.image(20, head.y + 9, `ic-${ic}`).setDisplaySize(16, 16).setTint(alarm ? TCOL.alert : warn ? TCOL.accent : color));
+  const c = scene.add.container(x - w * ox, y, parts);
   c.setSize(w, h);
   return c;
 }

@@ -115,6 +115,7 @@ export class RunScene extends Phaser.Scene {
   private longPressed = false; // pulsazione di anello di selezione e bersaglio dell'avanzata
   private nextMilestone = 0;
   private tapFxTile = -1;
+  private unitsHintShown = false; // spiegazione "si prendono con i reparti": una volta per campagna
   private dragMode: 'pan' | 'paint' = 'pan';
   private lastMid: { x: number; y: number } | null = null;
   private lastPainted = -1;
@@ -220,6 +221,7 @@ export class RunScene extends Phaser.Scene {
     this.usage = { tocchi: 0, avanzate: 0, pittura: 0, pedine: 0, navi: 0 };
     this.nextMilestone = 0;
     this.tapFxTile = -1;
+    this.unitsHintShown = false;
     this.frontLabels = [];
     this.factionTags = this.state.factions.map(() => ({ x: 0, y: 0, visible: false, scale: 1, angle: 0, len: 0, wid: 0 }));
     this.lastAffordable = '';
@@ -925,7 +927,8 @@ export class RunScene extends Phaser.Scene {
   private redrawFrontier(force = false) {
     const front = this.state.frontier();
     const troops = this.state.troops;
-    const ok = front.map((p) => this.state.provOwner[p] === NEUTRAL && troops > this.state.provCost(PLAYER, p)); // con le truppe solo il vuoto
+    // con le truppe: il vuoto e le milizie (assalto a tempo); gli imperi con le pedine
+    const ok = front.map((p) => (this.state.provOwner[p] === NEUTRAL || this.state.isMilitia(this.state.provOwner[p])) && troops > this.state.provCost(PLAYER, p));
     const key = ok.map((v) => (v ? 1 : 0)).join('') + front.join(',');
     if (!force && key === this.lastAffordable) return;
     this.lastAffordable = key;
@@ -958,8 +961,10 @@ export class RunScene extends Phaser.Scene {
       const { x, y } = center(this.map.provinces[p].anchor);
       if (x < view.x - S || x > view.right + S || y < view.y - S || y > view.bottom + S) continue;
       const def = this.state.provCost(PLAYER, p);
-      if (this.state.provOwner[p] !== NEUTRAL) continue; // province di imperi e milizie: si prendono con le pedine, niente prezzo
-      this.frontLabels.push({ x, y, text: String(def), color: this.state.troops > def ? MAP_INK : PALETTE.mappa.segno });
+      if (this.state.provOwner[p] !== NEUTRAL && !this.state.isMilitia(this.state.provOwner[p])) continue; // province degli imperi: con le pedine, niente prezzo
+      // bianco = la compri, ambra = assalto a una milizia, grigio = non bastano le truppe (prima bianco e grigio quasi uguali)
+      const can = this.state.troops > def, militia = this.state.provOwner[p] !== NEUTRAL;
+      this.frontLabels.push({ x, y, text: String(def), color: !can ? 0x7d858c : militia ? PALETTE.allerta : MAP_INK });
     }
   }
 
@@ -1825,7 +1830,14 @@ export class RunScene extends Phaser.Scene {
     } else if (res.reason === 'battle') {
       this.failFx(x, y, 'assalto in corso');
     } else if (res.reason === 'units') {
-      this.failFx(x, y, 'si prende con le pedine');
+      this.failFx(x, y, 'serve un reparto');
+      // la prima volta si spiega come: le province di imperi e milizie non si comprano, si prendono con le pedine
+      if (!this.unitsHintShown) {
+        this.unitsHintShown = true;
+        const msg = 'Le province degli imperi si prendono con i reparti:\ntocca una carta in basso, poi un tuo territorio vicino.';
+        this.hud.setHint(msg);
+        this.time.delayedCall(7000, () => this.hud.clearHint(msg));
+      }
     } else if (res.reason === 'not-adjacent') {
       this.failFx(x, y, 'troppo lontano');
     } else if (res.reason === 'impassable') {

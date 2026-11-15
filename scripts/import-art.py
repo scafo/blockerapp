@@ -27,7 +27,7 @@ print('icons', len(list((art / 'icons').glob('*.png'))))
 
 for folder, dest, size, q in [('rooms', 'rooms', (1408, 768), 80), ('portraits', 'people', (480, 640), 82), ('units', 'units', (576, 384), 80),
                              ('events', 'events', (672, 384), 80), ('tech', 'tech', (256, 256), 82),
-                             ('fronts', 'fronts', (1056, 576), 80)]:
+                             ('fronts', 'fronts', (1056, 576), 80), ('civs', 'civs', (1408, 768), 82)]:
     (img / dest).mkdir(parents=True, exist_ok=True)
     n = 0
     for src in sorted((art / folder).glob('*.png')):

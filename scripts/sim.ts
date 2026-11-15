@@ -39,8 +39,9 @@ for (let r = 0; r < runs; r++) {
     tapAcc += tapsPerSec / 10;
     while (tapAcc >= 1) {
       tapAcc--;
-      // giocatore "medio": attacca la provincia più debole che può permettersi
-      const f = st.frontier(PLAYER).filter((p) => st.troops > st.provCost(PLAYER, p));
+      // giocatore "medio": compra la provincia libera più economica che può permettersi (con le truppe si compra solo il vuoto;
+      // imperi e milizie si prendono con le pedine)
+      const f = st.frontier(PLAYER).filter((p) => (st.provOwner[p] === -1 || st.isMilitia(st.provOwner[p])) && !st.battleAt(p) && st.troops > st.provCost(PLAYER, p));
       if (f.length) st.attackProvince(PLAYER, f.reduce((a, b) => (st.provCost(PLAYER, a) <= st.provCost(PLAYER, b) ? a : b)));
     }
     // giocatore "da OpenFront": se le truppe superano il punto ottimale lancia un'avanzata verso il nemico/neutro più vicino

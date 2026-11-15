@@ -125,7 +125,8 @@ export class MapLabels {
         this.front.push(t);
       }
       if (t.text !== l.text) t.setText(l.text);
-      t.setColor(hex(l.color)).setPosition(Math.round(sx), Math.round(sy)).setVisible(true);
+      if (t.getData('c') !== l.color) t.setColor(hex(l.color)).setData('c', l.color); // il colore si riscrive solo se cambia
+      t.setPosition(Math.round(sx), Math.round(sy)).setVisible(true);
       f++;
     }
     for (let k = f; k < this.front.length; k++) this.front[k].setVisible(false);
@@ -163,8 +164,9 @@ export class MapLabels {
   /** Scritta che sale da un punto della mappa (bottino, costi, ordini). */
   float(src: LabelSource, x: number, y: number, msg: string, color: number, delay = 0) {
     const [sx, sy] = this.toScreen(src.cameras.main, x, y);
-    const t = this.scene.add.text(Math.round(sx), Math.round(sy), msg, { fontFamily: FONT_PIXEL, fontSize: '14px', fontStyle: '400', color: hex(color), resolution: UI(), stroke: '#000000', strokeThickness: 4 }).setOrigin(0.5).setAlpha(0);
+    // più grande e più lenta di prima: costi, bottino ed errori si leggono anche sopra il territorio colorato
+    const t = this.scene.add.text(Math.round(sx), Math.round(sy), msg, { fontFamily: FONT_PIXEL, fontSize: '16px', fontStyle: '400', color: hex(color), resolution: UI(), stroke: '#000000', strokeThickness: 5 }).setOrigin(0.5).setAlpha(0);
     this.layer.add(t);
-    this.scene.tweens.add({ targets: t, y: sy - 22, alpha: { from: 1, to: 0 }, delay, duration: 900, ease: 'Quad.easeOut', onComplete: () => t.destroy() });
+    this.scene.tweens.add({ targets: t, y: sy - 28, alpha: { from: 1, to: 0 }, delay, duration: 1200, ease: 'Quad.easeOut', onComplete: () => t.destroy() });
   }
 }

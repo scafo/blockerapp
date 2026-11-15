@@ -128,6 +128,14 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   immagine (`img/fronts`, una per fronte), reparti come carte, durata e puntata come scelte a segmenti (non più un tasto che
   cambia a ogni tocco), fronti senza stelline. Cantiere con la foto di ogni stanza. Registro del Radar con colonne e record
   incompleti mostrati come "—" (prima NaN).
+- **Campagna: feedback, comandi, regole** (Nico, novembre 2026, "migliora gameplay mappa", tutte e quattro le aree): avvisi con titolo,
+  spiegazione e icona per tipo, niente maiuscolo (`termNote`); tempo che manca sul tasto con la clessidra (rosso nell'ultimo minuto);
+  costi sulla mappa bianchi (compri), ambra (assalto a una milizia), grigi (truppe insufficienti); scritte che salgono più grandi;
+  comandi (H) in quattro gruppi. **Regole** (sim: il giocatore si fermava a 50–110 province, 0 vittorie su 3 al Fronte I): il
+  giocatore **assalta le milizie anche con le truppe** (assalto a tempo, costo ×`bots.troopAssaultMult` = 2), gli imperi restano solo
+  coi reparti; **reparto appena schierato avanza da solo** sulle province nemiche vicine finché non riceve un ordine (`Unit.fresh`);
+  Fronte I `aiGrowthMult` 0,85 (era 1,25). Sim dopo: 3 vittorie su 4, bottino 1.600–5.700. `sim.ts` ora compra solo il vuoto e le milizie.
+  Immagini delle potenze generate (`img/civs`, al posto di quelle del Figma) e icone delle risorse nuove (lingotti, tanica, covone, soldato).
 - **Carta da terminale** (Nico, 12 ottobre 2026: "fai come questa, uguale identica" su una mappa d'Europa in un terminale):
   tutta la mappa della campagna passa da un filtro sulla camera (`src/render/RetroPipeline.ts`) che la trasforma in puntini braille
   (celle 9×19 punti, 2 colonne × 4 righe di puntini 3×2, griglia fissa sullo schermo). Terra nera piena, mare pervinca su blu notte,

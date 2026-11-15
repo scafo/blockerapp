@@ -1412,6 +1412,8 @@ export class RunState {
       path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs,
       size: 1, stance: 'tieni', front: -1, supply: 1, post: -1, goal: -1,
     };
+    // reparto del giocatore appena schierato: avanza da solo sulle province nemiche vicine finché non gli dai un ordine (Nico)
+    if (f === PLAYER && !isNaval(type)) { u.stance = 'attacca'; u.fresh = true; }
     this.units.push(u);
     return u;
   }
@@ -1444,6 +1446,7 @@ export class RunState {
 
   /** Ordine del giocatore: la pedina lascia il fronte assegnato e va dove le dici. */
   command(u: Unit, to: number): boolean {
+    if (u.fresh) { u.fresh = false; u.stance = 'tieni'; } // primo ordine: da qui in poi fa quello che dici
     u.front = -1;
     u.post = -1;
     u.goal = -1;
@@ -1458,7 +1461,7 @@ export class RunState {
 
   /** Comportamento: tieni la posizione oppure attacca da sola i nemici vicini. */
   setStance(units: Unit[], stance: Stance) {
-    for (const u of units) { u.stance = stance; u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs; }
+    for (const u of units) { u.stance = stance; u.fresh = false; u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs; }
   }
 
   /** Assegna le pedine al confine con una fazione: si dispongono lungo la linea (e la spingono se attaccano da sole). */
@@ -1599,6 +1602,8 @@ export class RunState {
     for (const u of this.unitsOf(PLAYER)) {
       if (isNaval(u.type) || u.path.length || this.gameTimeMs - u.lastOrderMs < O.autoEveryMs || this.battles.some((b) => b.unit === u.id)) continue;
       u.lastOrderMs = this.gameTimeMs;
+      // reparto appena schierato che ha ricevuto un fronte, una linea o un'offensiva: fa quello, non avanza più da solo
+      if (u.fresh && (u.front >= 0 || u.post >= 0 || u.goal >= 0)) { u.fresh = false; u.stance = 'tieni'; }
       const attack = u.stance === 'attacca';
       if (u.goal >= 0) {
         // offensiva: arrivata, tiene la nuova posizione; altrimenti riprende la marcia (dopo un assedio o se bloccata)
@@ -1648,7 +1653,7 @@ export class RunState {
       }
       if (target < 0) {
         for (const p of this.frontier(PLAYER)) {
-          if (this.provOwner[p] === NEUTRAL || this.battleAt(p)) continue;
+          if (this.provOwner[p] === NEUTRAL || this.battleAt(p) || !this.atWar(PLAYER, this.provOwner[p])) continue;
           const d = hexDistance(provs[p].anchor, u.tile);
           if (d < bd) { bd = d; target = provs[p].anchor; }
         }
@@ -1989,6 +1994,7 @@ export class RunState {
     let d = 0;
     for (const i of this.map.provinces[p].tiles) if (this.passable(i)) d += this.costFor(by, i);
     if (by === PLAYER) d *= this.opts.mods.attackCostMult; // dottrina d'assalto
+    if (by === PLAYER && this.isMilitia(this.provOwner[p])) d *= BALANCE.bots.troopAssaultMult; // milizie con le truppe: care
     if (by === PLAYER && (this.weakUntil.get(p) ?? 0) > this.gameTimeMs) d *= 0.5; // segnalata dal radar: sguarnita
     d *= 1 + (1 - this.supplyFrom(by, p)) * BALANCE.logistics.attackPenalty; // attaccare da province mal rifornite costa di più
     return Math.ceil(d);
@@ -2057,13 +2063,19 @@ export class RunState {
     return this.attackProvince(by, this.provOf(i));
   }
 
+  /** Milizia provinciale (si assalta anche con le truppe). */
+  isMilitia(f: number): boolean {
+    return f > PLAYER && this.factions[f]?.kind === 'bot';
+  }
+
   attackProvince(by: number, p: number): ConquerResult {
     if (!this.provPassable(p)) return { ok: false, reason: 'impassable' };
     if (this.provOwner[p] === by) return { ok: false, reason: 'owned' };
     if (!this.isFrontierProv(p, by)) return { ok: false, reason: 'not-adjacent' };
     if (this.battleAt(p)) return { ok: false, reason: 'battle' };
-    // Nico: con le truppe si compra solo il territorio vuoto; le province di imperi e milizie si prendono con le pedine (alla HOI4)
-    if (this.provOwner[p] !== NEUTRAL) return { ok: false, reason: 'units' };
+    // Nico: con le truppe si compra il territorio vuoto; le province degli imperi si prendono con le pedine (alla HOI4). Le milizie
+    // il giocatore le assalta anche con le truppe (assalto a tempo), altrimenti a metà campagna restava con le truppe ferme
+    if (this.provOwner[p] !== NEUTRAL && !(by === PLAYER && this.isMilitia(this.provOwner[p]))) return { ok: false, reason: 'units' };
     const cost = this.provCost(by, p);
     const att = this.factions[by];
     if (att.troops <= cost) return { ok: false, reason: 'troops', need: cost };
