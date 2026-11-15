@@ -115,6 +115,9 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   bianche su trasparente in `src/assets/icons` (texture `ic-<nome>`, helper `icon()`/`resIcon()` in `src/ui/ops.ts`; i vecchi
   nomi `ico-*` puntano alle nuove). Gerarchia del testo in `ops.ts`: titolo → `heading` → `body` → `label`. L'HUD della campagna
   usa lo stesso stile di vetro (`src/ui/terminal.ts`); la carta da terminale sotto non cambia.
+  **Stile delle foto** (Nico, 15 novembre 2026: "meno AI, spontanee come nel Figma, non sempre centrate"): fotogrammi rubati,
+  soggetto spinto su un lato e tagliato dal bordo, qualcosa sfocato in primo piano, punto di vista strano (dal basso, alle spalle,
+  attraverso un cancello), colori freddi e spenti, grana (`VIBE`, `PORTRAIT`, `OBJECT` nel manifest). Le vecchie in `concept-art/old/v1/`.
 - **Base in sezione alla XCOM 2** (Nico, novembre 2026: "UI migliore ispirata da altri giochi", scelta XCOM 2): la home è la montagna
   della base di notte con tre piani di stanze illustrate (`FLOORS` in `CampScene.ts`; in verticale Comando largo + due colonne);
   ogni stanza si tocca e apre la sua pagina, dove la foto della stanza fa da fondo (niente più pianta). A destra "In corso"
