@@ -51,6 +51,8 @@ export interface Profile {
   weekly?: Record<string, number>; // contatori settimanali generici (riservato all'operazione della settimana)
   bestProvinces?: number; // record di province in una run (sostituisce bestTiles, che resta solo nello storico)
   world?: WorldSave | null; // il mondo in corso: resta tra una campagna e l'altra finché non vinci il fronte
+  premiumClaimed?: string[]; // consegne del Lume già applicate (id dal server): una consegna non si applica mai due volte
+  cosmetics?: string[]; // oggetti estetici comprati col Lume
 }
 
 /** Impero persistente: stessa mappa e stessi rivali di campagna in campagna, sullo stesso fronte, fino alla vittoria. */

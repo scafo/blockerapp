@@ -21,6 +21,9 @@ import { loadProfile, resetProfile, saveProfile, type BuildingId, type Expeditio
 import { analytics } from '../analytics/analytics';
 import { FPS_KEY, fpsEnabled } from '../ui/debug';
 import { askName } from '../ui/nameInput';
+import { askField } from '../ui/askField';
+import { LUME_PACKS, PREMIUM, rushLume, type PackId, type RushKind } from '../config/premium';
+import { applyGrant, buyPack, confirmClaimed, fetchWallet, premiumOn, sendCode, signOut, signedEmail, spend, verifyCode, type SpendReq } from '../online/premium';
 import { canStake, recoverStake, runOptions, stakeIndex } from '../game/camp';
 import { Button } from '../ui/Button';
 import { buzz } from '../ui/haptics';
@@ -120,6 +123,7 @@ export class CampScene extends Phaser.Scene {
   private lastToast: Phaser.GameObjects.Container | null = null;
   private burst!: Phaser.GameObjects.Particles.ParticleEmitter;
   private navBtns: { btn: { setOn: (on: boolean) => void; setVisible: (v: boolean) => void }; on: () => boolean }[] = [];
+  private lume = { email: null as string | null, balance: null as number | null, busy: false }; // Lume (acquisti con soldi veri)
 
   constructor() {
     super('Camp');
@@ -163,6 +167,113 @@ export class CampScene extends Phaser.Scene {
     this.scale.once('resize', () => this.scene.restart());
     // alcune WebView (app iOS) al primissimo avvio leggono il notch come 0: un ricontrollo rapido corregge il layout
     this.time.delayedCall(300, () => { if (safeInsets().top !== this.safe.top) this.scene.restart(); });
+    if (premiumOn) this.startLume();
+  }
+
+  /** Lume all'avvio: saldo e consegne in sospeso; al ritorno da Stripe (?lume=ok) aspetta l'accredito del webhook. */
+  private startLume() {
+    const q = new URLSearchParams(location.search), back = q.get('lume');
+    if (back) {
+      q.delete('lume');
+      history.replaceState(null, '', location.pathname + (q.size ? `?${q}` : '') + location.hash);
+    }
+    if (back === 'annullato') this.time.delayedCall(700, () => this.toast('Pagamento annullato\nNessun addebito.', PALETTE.allerta));
+    const before = this.lume.balance;
+    void this.syncLume().then(async () => {
+      if (back !== 'ok') return;
+      // il webhook di Stripe può arrivare qualche secondo dopo il ritorno: ricontrolla per ~20 s
+      for (let i = 0; i < 10 && this.scene.isActive() && (this.lume.balance ?? 0) <= (before ?? 0); i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        await this.syncLume();
+      }
+      if (this.scene.isActive()) this.toast(`Pagamento ricevuto\nSaldo: ${this.lume.balance ?? 0} Lume.`, PALETTE.radioattivo);
+    });
+  }
+
+  /** Rilegge saldo e consegne dal server, applica le consegne al profilo, salva, poi le segna come ritirate. */
+  private async syncLume() {
+    this.lume.email = await signedEmail();
+    if (!this.lume.email) { this.lume.balance = null; return this.refreshShop(); }
+    const r = await fetchWallet();
+    if (!r.ok) return this.refreshShop();
+    this.lume.balance = r.data.lume;
+    this.applyGrants(r.data.grants);
+    this.refreshShop();
+  }
+
+  private applyGrants(grants: Parameters<typeof applyGrant>[1][]) {
+    if (!grants.length) return;
+    const p = this.profile, now = Date.now();
+    for (const g of grants) applyGrant(p, g, now);
+    saveProfile(p);
+    this.updateStash();
+    this.settleAll(false);
+    void confirmClaimed(grants.map((g) => g.id));
+  }
+
+  private refreshShop() {
+    if (this.scene.isActive() && this.panelSpot === 'mercato') this.openPanel('mercato');
+  }
+
+  private lumeLogin() {
+    askField({ title: shopText.lume.login, note: shopText.lume.loginNote, placeholder: 'nome@esempio.it', type: 'email', maxLength: 120, inputMode: 'email' }, async (email) => {
+      if (!email) return;
+      if (!(await sendCode(email))) return this.toast('Email non valida\nControlla e riprova.', OPS.loss);
+      askField({ title: shopText.lume.codeTitle, note: shopText.lume.codeNote.replace('{email}', email), placeholder: '123456', type: 'text', maxLength: 10, inputMode: 'numeric' }, async (code) => {
+        if (!code) return;
+        if (!(await verifyCode(email, code.replace(/\s/g, '')))) return this.toast('Codice sbagliato o scaduto\nRichiedi un codice nuovo.', OPS.loss);
+        await this.syncLume();
+      });
+    });
+  }
+
+  /** Spesa di Lume: il server scala e consegna, il gioco applica la consegna. */
+  private async lumeSpend(req: SpendReq) {
+    if (this.lume.busy) return;
+    this.lume.busy = true;
+    const r = await spend(req);
+    this.lume.busy = false;
+    if (!r.ok) {
+      this.toast(r.error === 'lume' ? 'Lume insufficiente\nCompra un pacchetto.' : 'Operazione non riuscita\nRiprova tra poco.', OPS.loss);
+      return this.syncLume();
+    }
+    this.lume.balance = r.data.lume;
+    buzz(12);
+    this.applyGrants([r.data.grant]);
+    this.refreshShop();
+  }
+
+  private async lumeBuy(pack: PackId) {
+    if (this.lume.busy) return;
+    this.lume.busy = true;
+    const err = await buyPack(pack);
+    this.lume.busy = false;
+    if (err) this.toast('Pagamento non disponibile\nRiprova tra poco.', OPS.loss);
+  }
+
+  /** Sezione Lume in cima al Mercato: accesso, saldo, pacchetti, risorse. Ritorna la y sotto. */
+  private fillLume(items: Phaser.GameObjects.GameObject[], L: number, y: number, w: number): number {
+    const T = shopText.lume, e = this.lume;
+    y = this.head(items, L, y, w, T.title, e.balance === null ? '' : `${e.balance} Lume`, OPS.accent);
+    if (!e.email) {
+      const d = body(this, L, y, T.desc, 12, OPS.body, w);
+      items.push(d, this.btn(T.login, L, d.y + d.height + 10, w, true, () => this.lumeLogin(), 12));
+      return d.y + d.height + 10 + 40 + 16;
+    }
+    const ids = Object.keys(LUME_PACKS) as PackId[], pw = (w - (ids.length - 1) * 6) / ids.length;
+    ids.forEach((k, i) => {
+      const P = LUME_PACKS[k], eur = (P.cents / 100).toFixed(2).replace('.', ',');
+      items.push(this.btn(`${P.lume} LUME · ${eur} €`, L + i * (pw + 6), y, pw, !e.busy, () => void this.lumeBuy(k), 11));
+    });
+    y += 46;
+    const R = PREMIUM.resources;
+    items.push(this.btn(T.resources.replace('{amount}', String(R.amount)).replace('{cost}', String(R.cost)), L, y, w,
+      !e.busy && (e.balance ?? 0) >= R.cost, () => void this.lumeSpend({ item: 'resources' }), 12));
+    y += 46;
+    items.push(label(this, L, y + 4, '', OPS.label, 10).setText(e.email).setOrigin(0, 0.5),
+      label(this, L + w, y + 4, T.out, OPS.accent, 10).setOrigin(1, 0.5).setInteractive({ useHandCursor: true })
+        .on('pointerup', () => void signOut().then(() => this.syncLume())));
+    return y + 22;
   }
 
   update(_t: number, delta: number) {
@@ -984,11 +1095,13 @@ export class CampScene extends Phaser.Scene {
     };
     const desc = body(this, L, y, shopText.desc, 13, OPS.text, w);
     items.push(desc);
+    y = desc.y + desc.height + 18;
+    if (premiumOn) y = this.fillLume(items, L, y, w);
     const g = this.add.graphics(); // icone: aggiunte in fondo, sopra le schede
     const tile = (x: number, ty: number, tw: number, th: number, ok: boolean, on: boolean, run: () => void) =>
       this.rowBox(items, x, ty, tw, th, ok ? run : undefined, on ? OPS.gain : undefined, !ok && !on);
     // scambio: 50 di una → 30 di un'altra
-    y = this.head(items, L, desc.y + desc.height + 18, w, shopText.trade);
+    y = this.head(items, L, y, w, shopText.trade);
     const pairs = RESOURCES.flatMap((a) => RESOURCES.filter((b) => b !== a).map((b) => [a, b] as const));
     const cols = P ? 2 : 3, tw = (w - (cols - 1) * 6) / cols, th = 36;
     pairs.forEach(([a, b], k) => {
@@ -1021,23 +1134,34 @@ export class CampScene extends Phaser.Scene {
     y += Math.ceil(SUPPLIES.length / scols) * (sh + 6) + 12;
     // lavori in corso: finiti subito pagando metallo
     y = this.head(items, L, y, w, shopText.rush);
-    const jobs = [
+    const withLume = premiumOn && this.lume.balance !== null;
+    const jobs: { what: RushKind; job: { until: number } | null; name: string }[] = [
       { what: 'construction' as const, job: p.construction, name: p.construction ? `${buildingText[p.construction.id].name} liv. ${p.buildings[p.construction.id] + 1}` : '' },
       { what: 'research' as const, job: p.research, name: p.research ? techInfo(p.research.id).name : '' },
+      ...(withLume ? [{ what: 'expedition' as const, job: p.expedition, name: 'Estrazione' }] : []),
     ].filter((j) => j.job && j.job.until > now);
     if (!jobs.length) items.push(label(this, L, y, 'Nessun cantiere o ricerca in corso', OPS.label, 10));
+    // col Lume: nome del lavoro sopra, due tasti affiancati (metallo | Lume); l'Estrazione solo col Lume
+    const step = withLume ? 66 : 46, top = withLume ? 20 : 0;
     jobs.forEach((j, i) => {
-      const cost = rushCost(j.job!.until, now), ok = p.stash.metallo >= cost;
-      items.push(this.btn(`FINISCI ORA: ${j.name.toUpperCase()} · ${cost} METALLO`, L, y + i * 46, w, ok, () => {
-        if (!rush(p, j.what, Date.now())) return;
+      const cost = rushCost(j.job!.until, now), ok = p.stash.metallo >= cost, metal = j.what !== 'expedition', jy = y + i * step;
+      const mw = withLume ? (w - 6) / 2 : w;
+      if (withLume) items.push(label(this, L, jy + 6, `Finisci ora: ${j.name}`, OPS.body, 11).setOrigin(0, 0.5));
+      if (metal) items.push(this.btn(withLume ? `${cost} METALLO` : `FINISCI ORA: ${j.name.toUpperCase()} · ${cost} METALLO`, L, jy + top, mw, ok, () => {
+        if (!rush(p, j.what as 'construction' | 'research', Date.now())) return;
         analytics.design(['mercato', 'accelera', j.what], cost);
         saveProfile(p);
         this.closePanel();
         this.settleAll(false);
       }, 12));
+      if (withLume) {
+        const min = Math.ceil((j.job!.until - now) / 60_000), lc = rushLume(min);
+        items.push(this.btn(`${lc} LUME`, metal ? L + mw + 6 : L, jy + top, metal ? mw : w,
+          !this.lume.busy && (this.lume.balance ?? 0) >= lc, () => void this.lumeSpend({ item: 'rush', what: j.what, minutes: min }), 12));
+      }
     });
     items.push(g);
-    return y + (jobs.length ? jobs.length * 46 - 6 : 16);
+    return y + (jobs.length ? jobs.length * step - 6 : 16);
   }
 
   /** Costo del prossimo livello a schede: icona, quanto serve, quanto hai (barra verde se basta, rossa se no) e tempo. */

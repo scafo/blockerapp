@@ -91,7 +91,8 @@ forti + simboli (daltonismo).
 
 ## Regole di design
 - Max 5–6 scelte a schermo. Mappa sempre libera al centro, comandi negli angoli in basso.
-- Ogni conquista dà soddisfazione visiva. Mai pay-to-win, mai loot box a pagamento.
+- Ogni conquista dà soddisfazione visiva. Mai loot box a pagamento. (Prima anche "mai pay-to-win": il 20 novembre 2026 Nico ha scelto
+  acquisti con soldi veri, compresi i pacchetti di risorse: vedi "Lume" nelle note.)
 - Tutti i numeri in `src/config/balance.ts`. Contenuti (eventi, unità, edifici) in JSON in `src/data/`.
 
 ## MVP (costruisci SOLO questo)
@@ -118,6 +119,16 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   **Stile delle foto** (Nico, 15 novembre 2026: "meno AI, spontanee come nel Figma, non sempre centrate"): fotogrammi rubati,
   soggetto spinto su un lato e tagliato dal bordo, qualcosa sfocato in primo piano, punto di vista strano (dal basso, alle spalle,
   attraverso un cancello), colori freddi e spenti, grana (`VIBE`, `PORTRAIT`, `OBJECT` nel manifest). Le vecchie in `concept-art/old/v1/`.
+- **Lume, acquisti con soldi veri** (Nico, 20 novembre 2026: gioco gratis, si paga dentro il gioco): moneta Lume venduta a pacchetti
+  con Stripe Checkout (100/330/875 Lume a 1,99/4,99/9,99 €), spesa per finire timer (1 Lume ogni 10 min, minimo 5; anche
+  l'Estrazione), 300 di ogni risorsa per 30 Lume (possono superare la capienza del Deposito) ed estetica (`PREMIUM.cosmetics`,
+  vuoto finché Nico non sceglie gli oggetti). Catalogo in `src/config/premium.ts`. **Il server decide tutto**: funzioni Vercel in
+  `api/` (`checkout`, `stripe-webhook` con firma verificata e importo controllato, `spend`, `wallet`), saldo e consegne in Supabase
+  (`supabase/schema.sql`, scrittura solo dal service role); il gioco (`src/online/premium.ts`) accede con email e codice di 6 cifre,
+  applica le consegne una volta sola (`profile.premiumClaimed`) e poi le segna come ritirate. Sezione Lume in cima al Mercato.
+  Spento senza `VITE_SUPABASE_*` e nell'app (Google Play vuole il suo sistema di pagamento). Chiavi: `.env.example`; in locale
+  `npm run dev` serve anche `api/` (plugin in `vite.config.ts`). Limite: risorse e timer stanno ancora nel salvataggio locale, chi
+  lo modifica può darsi risorse; proteggere anche quelle = seconda fase (bottino controllato dal server).
 - **Base in sezione alla XCOM 2** (Nico, novembre 2026: "UI migliore ispirata da altri giochi", scelta XCOM 2): la home è la montagna
   della base di notte con tre piani di stanze illustrate (`FLOORS` in `CampScene.ts`; in verticale Comando largo + due colonne);
   ogni stanza si tocca e apre la sua pagina, dove la foto della stanza fa da fondo (niente più pianta). A destra "In corso"

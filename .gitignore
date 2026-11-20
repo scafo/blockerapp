@@ -4,3 +4,5 @@ dist
 *.log
 dist-single
 scripts/data/bathy/
+.env
+.env*.local
