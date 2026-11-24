@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Ricerca · cubo</title>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  /* Mockup della Ricerca sul riferimento di Nico: un parallelepipedo a fil di ferro in vero 3D, pieno di strati fotografici
+     (nuvola nel reticolo in cima, giardino, righe colorate, lastra di vetro incrinato, blocco d'acqua con rocce e ghiaia), che
+     gira col mouse. Ogni strato è un ramo della ricerca. A sinistra una colonna fitta di scritte, in alto tre testate, a destra
+     riquadri bordati con miniature e dati. Le scritte sono ferme. Stile del gioco (Nico, 24 novembre 2026): barra vera, Chakra
+     Petch e Share Tech Mono, colori della palette (niente verde da terminale né LED), foto fredde e desaturate della lore. */
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #05080d; color: #e9ebe6; font-family: "Share Tech Mono", monospace; width: 1440px; height: 900px; overflow: hidden; position: relative; }
+  /* barra del gioco (src/ui/navBar.ts): fondo scuro pieno, filo sotto, Home, sezioni in Chakra Petch, scorte, Frammenti, profilo, audio */
+  nav { position: absolute; top: 0; left: 0; right: 0; height: 64px; display: flex; align-items: center; padding: 0 24px; background: rgba(5,8,13,.94);
+    border-bottom: 1px solid rgba(127,140,152,.28); z-index: 5; font-family: "Chakra Petch", sans-serif; }
+  nav .ic { width: 22px; height: 22px; display: inline-block; background: var(--c, #b9c0c2); -webkit-mask: var(--m) center / contain no-repeat; mask: var(--m) center / contain no-repeat; }
+  nav .home { display: flex; align-items: center; gap: 8px; opacity: .8; font: 17px "Helvetica Neue", Helvetica, Arial, sans-serif; color: #e9ebe6; --c: #e9ebe6; }
+  nav .sep { width: 1px; height: 32px; background: rgba(127,140,152,.35); margin: 0 48px 0 20px; }
+  nav .tab { font-size: 16px; letter-spacing: 2.5px; color: #8a949a; margin-right: 40px; height: 64px; line-height: 64px; position: relative; }
+  nav .tab.on { color: #e9ebe6; }
+  nav .tab.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: 2px; height: 3px; background: #fff; }
+  nav .nright { margin-left: auto; display: flex; align-items: center; }
+  nav .res { display: flex; align-items: center; gap: 10px; width: 112px; font-size: 18px; color: #e9ebe6; }
+  nav .lume { display: flex; align-items: center; gap: 10px; width: 96px; font-size: 18px; color: #9fd0f5; --c: #9fd0f5; margin-left: 20px; }
+  #gl { position: absolute; left: 0; top: 64px; }
+  /* testata: tre gruppi come nel riferimento */
+  .head { position: absolute; top: 76px; left: 16px; right: 16px; height: 54px; font: 600 24px "Chakra Petch", sans-serif; letter-spacing: .04em; line-height: 1; }
+  .head span { position: absolute; top: 0; }
+  .head small { display: block; font: 13px "Share Tech Mono", monospace; letter-spacing: .08em; margin-top: 4px; }
+  .mark { position: absolute; top: 108px; left: 520px; width: 330px; border-top: 2px solid #d23a2e; }
+  .mark i { position: absolute; left: -8px; top: -8px; width: 2px; height: 14px; background: #d23a2e; }
+  /* colonna sinistra: scritte fitte, grandi e piccole, colori in scala dall'alto in basso */
+  .left { position: absolute; left: 16px; top: 134px; width: 320px; height: 752px; overflow: hidden; line-height: 1.02; word-break: break-all; }
+  .left .big { font-family: "Chakra Petch", sans-serif; font-weight: 600; line-height: .95; }
+  /* colonna destra: bordo spesso, riquadri con miniature */
+  .right { position: absolute; right: 10px; top: 124px; width: 236px; height: 760px; border-left: 3px solid #e9ebe6; overflow: hidden; font-size: 13px; line-height: 1.25; letter-spacing: .04em; }
+  .right .n { font: 600 16px "Chakra Petch", sans-serif; letter-spacing: .12em; }
+  .right .b { border-bottom: 3px solid #e9ebe6; padding: 6px 8px 8px 10px; }
+  .right .b.r { border-bottom-color: #d23a2e; }
+  .right img { display: block; width: 120px; height: 74px; object-fit: cover; margin: 5px 0 4px 26px; }
+  .right img.off { filter: grayscale(1) brightness(.35); }
+  .tag { position: absolute; left: 0; top: 0; will-change: transform; font: 600 15px "Chakra Petch", sans-serif; letter-spacing: .14em; pointer-events: none; white-space: nowrap; }
+</style>
+</head>
+<body>
+<nav><span class="home"><i class="ic" style="--m:url(/node_modules/lucide-static/icons/arrow-left.svg)"></i>Home</span><i class="sep"></i><span class="tab">GIOCA</span><span class="tab">BASE</span><span class="tab on">RICERCA</span><span class="tab">ARSENALE</span><span class="tab">MERCATO</span><span class="nright"><span class="res"><i class="ic" style="--m:url(/node_modules/lucide-static/icons/cog.svg);--c:#a9bccb"></i>476</span><span class="res"><i class="ic" style="--m:url(/node_modules/lucide-static/icons/fuel.svg);--c:#f2b84b"></i>109</span><span class="res"><i class="ic" style="--m:url(/node_modules/lucide-static/icons/wheat.svg);--c:#9dbf6b"></i>141</span><span class="lume"><i class="ic" style="--m:url(/node_modules/lucide-static/icons/sparkles.svg)"></i>120</span><span style="margin-left:20px"><i class="ic" style="--m:url(/node_modules/lucide-static/icons/user-round.svg)"></i></span><span style="margin-left:22px"><i class="ic" style="--m:url(/node_modules/lucide-static/icons/volume-2.svg)"></i></span></span></nav>
+<canvas id="gl"></canvas>
+<div class="head">
+  <span style="left:0;color:#e9ebe6">LABORATORIO.LIV2<small style="color:#8a949a">NO 18 RICERCHE · 7 ATT</small></span>
+  <span style="left:520px;color:#e9ebe6">ARCHIVIO.CADUTA</span>
+  <span style="left:860px;color:#d23a2e;font:15px 'Share Tech Mono';top:24px">3808²</span>
+  <span style="right:0;color:#9fd0f5">SEGNALE.47 MHZ</span>
+</div>
+<div class="mark"><i></i></div>
+<div class="left" id="left"></div>
+<div class="right" id="right"></div>
+<div id="tags"></div>
+<script>
+  // scritte ferme: generate una volta con un seme fisso; colore a fasce per altezza come nel riferimento, ma coi colori del gioco
+  let seed = 11; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const pick = (a) => a[(rnd() * a.length) | 0];
+  // testo, Lume azzurro, viola della Corruzione, rosso ruggine, verde acqua, grigio delle didascalie
+  const BAND = ['#9fd0f5', '#e9ebe6', '#b57ad6', '#b57ad6', '#e9ebe6', '#d23a2e', '#8a949a', '#6cc7c2', '#6cc7c2', '#d23a2e', '#e9ebe6', '#9fd0f5', '#6cc7c2', '#8a949a'];
+  const WORDS = ['TRINCEE', 'RETE.RADAR', 'FORTEZZE', 'ESTRAZ+', 'IND.CITTA', 'PIANO.Q', 'STRADE', 'RIFORN', 'FERROVIE', 'ADDESTR', 'ELITE', 'ASSALTO',
+    'SEGNALE', 'IL.LUME', 'PROTOTIPO', 'CADUTA', 'ANNO.0', 'FRAMMENTI', 'ALATI', 'CORRUZIONE', 'MUNIZIONI', 'CORAZZE', 'LUME', 'AVVENTO'];
+  const code = (n) => Array.from({ length: n }, () => 'ABCDEFGHIKLMNOPRSTUVZ0123456789.:=-'[(rnd() * 35) | 0]).join('');
+  const lines = [];
+  for (let i = 0; i < 60; i++) {
+    const band = BAND[Math.min(BAND.length - 1, (i / 60 * BAND.length) | 0)], size = pick([13, 14, 15, 16, 22, 26, 30, 14, 15]);
+    const txt = rnd() < 0.35 ? pick(WORDS) : rnd() < 0.5 ? `${pick(WORDS)}.${(rnd() * 99) | 0}` : code(6 + ((rnd() * 10) | 0));
+    lines.push(`<div class="${size > 20 ? 'big' : ''}" style="color:${rnd() < 0.15 ? pick(BAND) : band};font-size:${size}px;margin-left:${(rnd() * 40) | 0}px">${txt}</div>`);
+  }
+  document.getElementById('left').innerHTML = lines.join('');
+  // colonna destra: un riquadro per ramo con la prossima ricerca e la sua miniatura
+  const BR = [['LA CADUTA', '#b57ad6', 'IL LUME', 'frammenti', 1], ['ESERCITO', '#6cc7c2', 'ELITE', 'elite', 1], ['ECONOMIA', '#a9bccb', 'CITTA INDUSTR.', 'industria', 1],
+    ['LOGISTICA', '#9fd0f5', 'FERROVIE', 'ferrovie', 1], ['DIFESA', '#d23a2e', 'FORTEZZE', 'fortezze', 0]];
+  document.getElementById('right').innerHTML = BR.map(([n, col, t, k, on], i) =>
+    `<div class="b ${i % 2 ? 'r' : ''}"><span class="n" style="color:${col}">${n}</span><br><span style="color:#e9ebe6">${code(4)} ${t}</span>` +
+    `<img src="../../src/assets/img/tech/t-${k}.jpg" class="${on ? '' : 'off'}"><span style="color:#8a949a">${code(3)}.${(rnd() * 99) | 0} ${on ? 'T30:00' : 'BLOCCO'}</span></div>`).join('') +
+    Array.from({ length: 14 }, () => `<div style="padding-left:10px;color:${pick(['#e9ebe6', '#8a949a', '#9fd0f5', '#d23a2e'])}">${code(4)} ${pick(WORDS)} ${(rnd() * 9) | 0}</div>`).join('');
+</script>
+<script type="module">
+  import * as THREE from 'https://esm.sh/three@0.160.0';
+  import { GLTFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+  const W = 1440, H = 836, cv = document.getElementById('gl');
+  const R = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true }); R.setPixelRatio(Math.min(devicePixelRatio, 2)); R.setSize(W, H);
+  // ombre morbide e resa filmica: i modelli si appoggiano davvero sui loro strati
+  R.shadowMap.enabled = true; R.shadowMap.type = THREE.PCFSoftShadowMap; R.toneMapping = THREE.ACESFilmicToneMapping; R.toneMappingExposure = 1.1;
+  const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(26, W / H, 0.1, 100);
+  let redraw = true;
+  const cube = new THREE.Group(); scene.add(cube);
+  const X = 0.85, Y0 = -2, Y1 = 2; // mezzo lato e altezza del parallelepipedo
+  const line = (pts, col, op = 1) => { const g = new THREE.BufferGeometry().setFromPoints(pts.map((p) => new THREE.Vector3(...p)));
+    const m = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: op, toneMapped: false }); const l = new THREE.LineSegments(g, m); cube.add(l); return l; };
+  const rect = (y, s, col, op) => { const c = [[-s, y, -s], [s, y, -s], [s, y, s], [-s, y, s]]; return line([c[0], c[1], c[1], c[2], c[2], c[3], c[3], c[0]], col, op); };
+
+  // ECONOMIA: righe colorate impilate come nel riferimento, nei colori delle tre risorse (cibo, benzina, metallo)
+  const RES = [0x9dbf6b, 0xf2b84b, 0xa9bccb].map((c) => new THREE.Color(c));
+  for (let k = 0; k < 22; k++) { const f = k / 21, col = f < 0.5 ? RES[0].clone().lerp(RES[1], f * 2) : RES[1].clone().lerp(RES[2], f * 2 - 1); rect(-0.12 + f * 0.46, X - 0.02, col, 0.9);
+    line([[-X + 0.02, -0.12 + f * 0.46, 0], [X - 0.02, -0.12 + f * 0.46, 0]], col, 0.25); }
+  // modelli low-poly veri (Blender, concept-art/stili/cubo_modelli.py) al posto delle sagome piatte, con una luce fredda dall'alto
+  scene.add(new THREE.HemisphereLight(0xc8d8e8, 0x1a1d20, 1.4));
+  const sun = new THREE.DirectionalLight(0xe9f0f6, 2.4); sun.position.set(2, 5, 3); scene.add(sun);
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0008; sun.shadow.radius = 3;
+  Object.assign(sun.shadow.camera, { left: -2.2, right: 2.2, top: 2.6, bottom: -2.6, near: 1, far: 12 });
+  const glow = new THREE.PointLight(0xb57ad6, 2, 1.4); glow.position.set(0.5, 1.62, -0.4); cube.add(glow); // la luce viola della Caduta
+  // [modello, x, y, z, scala, rotazione]: alberi dietro, sacchi di sabbia davanti, il carro in mezzo (fitto come il giardino del riferimento)
+  const PLACE = [['abete', -0.55, 0.46, -0.55, 0.78, 0], ['betulla', 0.5, 0.46, -0.55, 0.84, 1], ['abete2', -0.6, 0.46, 0.25, 0.8, 2], ['betulla', 0.62, 0.46, 0.1, 0.66, 3],
+    ['abete', 0.05, 0.46, -0.62, 0.72, 4], ['abete2', -0.2, 0.46, -0.3, 0.75, 5], ['abete2', 0.62, 0.46, -0.2, 0.6, 1.5], ['betulla', -0.6, 0.46, 0.62, 0.55, 4],
+    ['sacchi', 0.0, 0.46, 0.58, 0.24, 1.57], ['sacchi', 0.58, 0.46, 0.45, 0.2, 0.5], ['sacchi', -0.4, 0.46, 0.0, 0.18, 2.6],
+    ['carro', 0.12, 0.46, 0.15, 0.3, -0.7], ['ostacolo', 0.62, 0.46, 0.65, 0.3, 0.4],
+    ['soldato', -0.08, 0.46, 0.42, 0.16, 0.5], ['soldato', 0.05, 0.46, 0.45, 0.16, -0.3], ['soldato', -0.22, 0.46, 0.38, 0.15, 1.2], ['soldato', 0.38, 0.46, 0.28, 0.16, -1.4],
+    ['nube', -0.12, 1.3, 0.05, 0.78, 0.3], ['scheggia', 0.5, 1.5, -0.4, 0.3, 0]];
+  new GLTFLoader().load('cubo/modelli.glb', (gltf) => {
+    PLACE.forEach(([n, x, y, z, k, r]) => { const src = gltf.scene.getObjectByName(n); if (!src) return;
+      const m = src.clone(); m.position.set(x, y, z); m.scale.setScalar(k); m.rotation.set(0, r, 0); cube.add(m); });
+    const shade = (o) => o.traverse((c) => { if (c.isMesh) { const glass = c.material.transparent; c.castShadow = !glass; c.receiveShadow = true; } });
+    // strati interi già al loro posto nel cubo: Difesa (teca di terra gelata col bunker), Logistica (ghiaccio e binari), terreno dell'Esercito
+    ['difesa', 'vetro', 'ghiaccio', 'binari', 'terreno'].forEach((n) => { const src = gltf.scene.getObjectByName(n); if (src) cube.add(src.clone().translateX(-src.position.x)); });
+    shade(cube);
+    redraw = true;
+  });
+  // LA CADUTA, in cima: reticolo a fil di ferro attorno alla nube e al Frammento
+  for (let k = 0; k <= 8; k++) { const v = -X + (2 * X * k) / 8; line([[v, 1.9, -X], [v, 1.9, X], [-X, 1.9, v], [X, 1.9, v]], 0x9fd0f5, 0.5); line([[v, 1.6, -X], [v, 1.6, X]], 0x9fd0f5, 0.25); }
+  for (let k = 0; k <= 6; k++) { const y = 1.0 + k * 0.16; rect(y, X, 0x9fd0f5, 0.35); }
+  rect(1.75, X * 0.55, 0x9fd0f5, 0.6); line([[-X * 0.55, 1.75, -X * 0.55], [-X * 0.55, 1.35, -X * 0.55], [X * 0.55, 1.75, X * 0.55], [X * 0.55, 1.35, X * 0.55]], 0x9fd0f5, 0.5);
+  // telaio esterno e montanti: tutta l'altezza, con le righe verticali sui fianchi come nel riferimento
+  const C = [[-X, -X], [X, -X], [X, X], [-X, X]];
+  C.forEach(([x, z]) => line([[x, Y0, z], [x, Y1, z]], 0x9fd0f5, 0.9)); rect(Y1, X, 0x9fd0f5, 0.9); rect(Y0, X, 0x9fd0f5, 0.9);
+  for (let k = 1; k < 6; k++) { const v = -X + (2 * X * k) / 6; line([[v, 0.5, X], [v, Y1, X], [X, 0.5, v], [X, Y1, v]], 0x9fd0f5, 0.3); }
+
+  // nomi dei rami accanto al loro strato
+  const TAGS = [['LA CADUTA', '#b57ad6', 1.5], ['ESERCITO', '#6cc7c2', 0.65], ['ECONOMIA', '#a9bccb', 0.12], ['LOGISTICA', '#9fd0f5', -0.42], ['DIFESA', '#d23a2e', -1.3]];
+  const tags = TAGS.map(([n, c]) => { const d = document.createElement('div'); d.className = 'tag'; d.style.color = c; d.textContent = n; document.getElementById('tags').appendChild(d); return d; });
+
+  // il cubo gira col mouse
+  let yaw = 0.78, aim = 0.78, pitch = 0.28, aimP = 0.28;
+  addEventListener('mousemove', (e) => { aim = 0.78 + (e.clientX / innerWidth - 0.5) * 1.6; aimP = 0.28 + (e.clientY / innerHeight - 0.5) * 0.3; });
+  function frame() {
+    requestAnimationFrame(frame);
+    // si ridisegna solo quando il cubo si muove o arriva un'immagine
+    if (!redraw && Math.abs(aim - yaw) + Math.abs(aimP - pitch) < 1e-4) return; redraw = false;
+    yaw += (aim - yaw) * 0.06; pitch += (aimP - pitch) * 0.06;
+    const d = 10.8; cam.position.set(Math.sin(yaw) * Math.cos(pitch) * d, Math.sin(pitch) * d + 0.1, Math.cos(yaw) * Math.cos(pitch) * d); cam.lookAt(0, 0.05, 0);
+    R.render(scene, cam);
+    TAGS.forEach(([, , y], i) => { // a destra del montante più vicino a destra sullo schermo
+      const v = C.map(([x, z]) => new THREE.Vector3(x, y, z).project(cam)).reduce((a, b) => (b.x > a.x ? b : a));
+      tags[i].style.transform = `translate(${(v.x + 1) / 2 * W + 14}px,${64 + (1 - v.y) / 2 * H - 12}px)`; });
+  }
+  frame();
+</script>
+</body>
+</html>

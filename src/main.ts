@@ -8,6 +8,7 @@ import { HudScene } from './scenes/HudScene';
 import { LoadScene } from './scenes/LoadScene';
 import { TreeScene } from './scenes/TreeScene';
 import { TitleScene } from './scenes/TitleScene';
+import { IntroScene } from './scenes/IntroScene';
 import { ResultScene } from './scenes/ResultScene';
 import { RunScene } from './scenes/RunScene';
 import { DevScene } from './scenes/dev/DevScene';
@@ -68,7 +69,7 @@ function boot() {
   if (w < MIN || h < MIN) return; // aspetta che la pagina abbia una misura vera
   // solo la prima scena dell'elenco si avvia da sola: ?debug=widgets apre la galleria al posto del gioco vero
   const debugWidgets = new URLSearchParams(location.search).get('debug') === 'widgets';
-  const scenes = [BootScene, CampScene, RunScene, HudScene, ResultScene, TreeScene, LoadScene, TitleScene, DevScene];
+  const scenes = [BootScene, CampScene, RunScene, HudScene, ResultScene, TreeScene, LoadScene, TitleScene, IntroScene, DevScene];
   if (debugWidgets) scenes.unshift(scenes.pop()!); // DevScene (ultima) va in testa
   game = new Phaser.Game({
     type: Phaser.AUTO,

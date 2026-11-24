@@ -1219,7 +1219,29 @@ export class RunScene extends Phaser.Scene {
       if (i >= 0) used.add(i);
       return i;
     });
-    const sent = this.state.pushOffensive(sorted, goals);
+    // tappe lungo la freccia, ogni ~3 caselle, spostate di lato come il posto della pedina nella fila (direzione locale
+    // del tratto): così la marcia segue il disegno invece di tagliare dritto verso la punta
+    const gap = step * 1.4, marks: { x: number; y: number; nx: number; ny: number }[] = [];
+    let acc = 0;
+    for (let k = 1; k < pts.length - 1; k++) {
+      const p = pts[k - 1], q = pts[k], d = Math.hypot(q.x - p.x, q.y - p.y);
+      acc += d;
+      if (acc < gap || !d) continue;
+      acc = 0;
+      const r = pts[k + 1], tx = r.x - p.x, ty = r.y - p.y, tl = Math.hypot(tx, ty) || 1;
+      marks.push({ x: q.x, y: q.y, nx: -ty / tl, ny: tx / tl });
+    }
+    const vias = sorted.map((u, k) => {
+      const off = (k - (sorted.length - 1) / 2) * step, out: number[] = [];
+      // solo le tappe dopo il punto della freccia più vicino alla pedina (quelle dietro la farebbero tornare indietro)
+      const c = center(u.tile), near = marks.reduce((best, m, j) => (Math.hypot(m.x - c.x, m.y - c.y) < Math.hypot(marks[best].x - c.x, marks[best].y - c.y) ? j : best), 0);
+      for (const m of marks.slice(near && Math.hypot(marks[near].x - c.x, marks[near].y - c.y) < step * 1.5 ? near + 1 : 0)) {
+        const i = pixelToIndex(m.x + m.nx * off, m.y + m.ny * off);
+        if (i >= 0 && this.map.tiles[i] && out[out.length - 1] !== i) out.push(i);
+      }
+      return out;
+    });
+    const sent = this.state.pushOffensive(sorted, goals, vias);
     if (!sent) return this.failFx(b.x, b.y, 'irraggiungibile');
     const ids = sorted.map((u) => u.id);
     for (const l of this.attackLines) l.ids = l.ids.filter((id) => !ids.includes(id)); // escono dalle linee vecchie
@@ -1763,7 +1785,7 @@ export class RunScene extends Phaser.Scene {
       this.syncUnits();
       sfx('deploy');
       this.conquestFx(x, y, this.state.unitCost(PLAYER, t), 0);
-      this.selectUnit(u.id);
+      this.selectUnit(null); // schierata e basta: niente selezione attiva (Nico)
       this.hud.tutorialSignal('deploy');
       this.usage.pedine++;
       analytics.design(['pedina', t]);

@@ -2,11 +2,15 @@
 // (ramo Armamenti), aperte subito dalla barra della base (Nico, 23 novembre 2026: "si dovrebbe vedere subito l'albero, ogni
 // immagine cliccabile che ti fa vedere tutti i perk"). Sta sotto la barra fissa della CampScene, che resta cliccabile; a
 // destra la scheda della ricerca scelta. Usa lo stesso profilo della CampScene (che chiude le ricerche finite e salva).
+// La Ricerca (Nico, 24 novembre 2026: "porta nel gioco") non è più un albero: al centro il cubo 3D a strati (`ResearchCube`), a
+// sinistra una colonna fitta di scritte coi dati veri, a destra un riquadro per ramo con le sue ricerche; si tocca uno strato o
+// una riga e la scheda di sempre mostra cosa serve e AVVIA. L'albero resta per l'Arsenale.
 import Phaser from 'phaser';
 import { BALANCE } from '../config/balance';
 import { PALETTE, hex } from '../config/palette';
 import buildingText from '../data/buildings.json';
-import { buildBlock, fmtTime, nextLevel, startBuild } from '../game/camp';
+import { buildBlock, fmtTime, nextLevel, startBuild, unitBoosts } from '../game/camp';
+import { UNITS, unitInfo } from '../game/units';
 import { BRANCHES, TECH_IDS, researchBlock, startResearch, techInfo, type ResearchBlock, type TechId } from '../game/tech';
 import { RESOURCES } from '../game/resources';
 import { analytics } from '../analytics/analytics';
@@ -14,10 +18,12 @@ import { saveProfile, type BuildingId, type Profile } from '../save/storage';
 import { Button } from '../ui/Button';
 import { coverImage, techImage } from '../ui/images';
 import { BRANCH_ICON } from '../ui/icons';
-import { textStyle } from '../ui/style';
+import { FONT_MONO, textStyle } from '../ui/style';
 import { uiCamera, view } from '../ui/screen';
-import { OPS, heading, icon, label as monoLabel, panel, value } from '../ui/ops';
+import { OPS, heading, icon, label as monoLabel, panel, tech, value } from '../ui/ops';
 import { activeCiv } from '../game/camp';
+import { BRANCH_COLOR, ResearchCube, type CubeBranch } from '../render/researchCube';
+import { FONT_TECH } from '../ui/style';
 
 // Albero alla Civilization/XCOM (Nico: "più pulito, più icone, niente puntini"): carte scure con l'immagine della ricerca
 // a sinistra (generata con Draw Things), nome e stato con icona; collegamenti a linea piena, più chiari se già fatti.
@@ -63,6 +69,10 @@ export class TreeScene extends Phaser.Scene {
   private detailBg!: Phaser.GameObjects.Graphics;
   private detailOpen = true;
   private upBtn!: Button;
+  private cube: ResearchCube | null = null; // Ricerca: il cubo 3D e dove sta sulla pagina
+  private cubeRect = { x: 0, y: 0, w: 0, h: 0 };
+  private cubeTex: Phaser.Textures.CanvasTexture | null = null;
+  private cubeTags: Phaser.GameObjects.Text[] = [];
 
   constructor() {
     super('Tree');
@@ -79,7 +89,8 @@ export class TreeScene extends Phaser.Scene {
     [...new Set(this.ids.map((id) => BALANCE.tech[id].row))].sort((a, b) => a - b).forEach((r, i) => this.rowOf.set(r, i));
     LABEL_W = 120; // nomi dei rami (Ricerca) o dei reparti (Arsenale)
     this.add.rectangle(0, TOP, width, height - TOP, BLUE, 1).setOrigin(0).setInteractive();
-    coverImage(this, arsenal ? 'room-arsenale' : 'room-laboratorio', 0, TOP, width, height - TOP, 0.5).setAlpha(0.22);
+    // Ricerca quasi al buio come nel riferimento: si legge il cubo, non la foto
+    coverImage(this, arsenal ? 'room-arsenale' : 'room-laboratorio', 0, TOP, width, height - TOP, 0.5).setAlpha(arsenal ? 0.22 : 0.07);
     // testata: titolo della sezione, stato, la stanza che decide fin dove si arriva (si tocca per migliorarla)
     value(this, 28, TOP + 22, arsenal ? 'Arsenale' : 'Ricerca', 40);
     this.header = monoLabel(this, 30, TOP + 74, '', CYAN, 11);
@@ -97,6 +108,7 @@ export class TreeScene extends Phaser.Scene {
     this.area = { x: 0, y: top, w: width - DETAIL_W - 16, h: height - top - 16 };
     const rows = this.rowOf.size, cols = Math.max(...this.ids.map((id) => BALANCE.tech[id].col)) + 1;
     this.size = { w: LABEL_W + cols * (NW + GX) + 24, h: rows * (NH + GY) + 24 };
+    if (!arsenal) this.setupCube(width);
     this.content = this.add.container(0, this.area.y);
     this.labels = this.add.container(0, this.area.y);
     this.maskG = this.make.graphics({}, false);
@@ -119,6 +131,7 @@ export class TreeScene extends Phaser.Scene {
     // trascina per spostarti, rotella per scorrere
     this.input.on('pointerdown', (ptr: Phaser.Input.Pointer) => {
       const x = ptr.x / (this.cameras.main.zoom), y = ptr.y / this.cameras.main.zoom;
+      if (this.cube) return; // la Ricerca non si trascina
       if (y < this.area.y || y > this.area.y + this.area.h) return;
       this.drag = { x, y, cx: this.content.x, cy: this.content.y };
       this.moved = false;
@@ -129,12 +142,17 @@ export class TreeScene extends Phaser.Scene {
       if (Math.hypot(x - this.drag.x, y - this.drag.y) > 6) this.moved = true;
       this.setPan(this.drag.cx + x - this.drag.x, this.drag.cy + y - this.drag.y);
     });
-    this.input.on('pointerup', () => (this.drag = null));
-    this.input.on('wheel', (_p: unknown, _o: unknown, dx: number, dy: number) => this.setPan(this.content.x - dx, this.content.y - dy));
+    this.input.on('pointerup', (ptr: Phaser.Input.Pointer) => {
+      this.drag = null;
+      if (this.cube) this.tapCube(ptr);
+    });
+    this.input.on('wheel', (_p: unknown, _o: unknown, dx: number, dy: number) => !this.cube && this.setPan(this.content.x - dx, this.content.y - dy));
+    this.events.once('shutdown', () => this.disposeCube());
     this.input.keyboard?.on('keydown-ESC', () => this.close(true));
   }
 
   update(_t: number, delta: number) {
+    this.renderCube();
     this.acc -= delta;
     if (this.acc > 0) return;
     this.acc = 250;
@@ -142,7 +160,7 @@ export class TreeScene extends Phaser.Scene {
     const k = this.stateKey();
     const r = p.research;
     this.header.setText(r ? `In corso: ${techInfo(r.id).name} · ${fmtTime(r.until - Date.now())}`
-      : 'Una ricerca alla volta, a tempo reale. Tocca una carta per vederla.').setColor(hex(r ? PALETTE.allerta : CYAN));
+      : this.cube ? 'Una ricerca alla volta, a tempo reale. Tocca uno strato del cubo o un ramo a destra.' : 'Una ricerca alla volta, a tempo reale. Tocca una carta per vederla.').setColor(hex(r ? PALETTE.allerta : CYAN));
     if (k !== this.key || r || p.construction) this.draw();
   }
 
@@ -158,6 +176,7 @@ export class TreeScene extends Phaser.Scene {
   }
 
   private setPan(x: number, y: number) {
+    if (this.cube) { this.content?.setPosition(0, this.area.y); this.labels?.setY(this.area.y); return; } // la Ricerca sta ferma
     const minX = Math.min(0, this.area.w - this.size.w), minY = Math.min(0, this.area.h - this.size.h);
     this.content.setPosition(Phaser.Math.Clamp(x, minX, 0), this.area.y + Phaser.Math.Clamp(y - this.area.y, minY, 0));
     this.labels.setY(this.content.y);
@@ -180,6 +199,12 @@ export class TreeScene extends Phaser.Scene {
     this.upBtn.setLabel(`${buildingText[room].name.toUpperCase()} LIV. ${lvl}/${max}${p.construction?.id === room ? ' · IN CANTIERE' : lvl < max ? ' · MIGLIORA' : ''}`);
     this.content.removeAll(true);
     this.labels.removeAll(true);
+    if (this.cube) {
+      this.drawCubePage();
+      this.children.bringToTop(this.upBtn);
+      this.drawDetail();
+      return;
+    }
     const g = this.add.graphics();
     this.content.add(g);
     this.labels.add(this.add.rectangle(0, 0, LABEL_W - 8, this.size.h, BLUE, 0.94).setOrigin(0));
@@ -275,9 +300,11 @@ export class TreeScene extends Phaser.Scene {
       this.add.rectangle(IN, IN, w, ih, 0, 0).setOrigin(0).setStrokeStyle(1, OPS.edge, 0.5),
       monoLabel(this, IN, IN + ih + 16, this.mode === 'arsenale' ? ARS_ROWS[t.row] ?? '' : BRANCHES[t.branch], CYAN, 10),
     ];
-    const name = heading(this, IN, IN + ih + 34, t.name, 24).setWordWrapWidth(w);
+    // Arsenale: titolo grande nel font tecnico (Nico, mockup del 24 novembre: "il titolo è molto figo col font")
+    const name = (this.mode === 'arsenale' ? tech(this, IN, IN + ih + 32, t.name, 30) : heading(this, IN, IN + ih + 34, t.name, 24)).setWordWrapWidth(w);
     items.push(name);
     let y = name.y + name.height + 10;
+    if (this.mode === 'arsenale') y = this.drawStats(items, IN, y, w);
     const desc = this.add.text(IN, y, t.desc, textStyle(14, PALETTE.carta, false)).setWordWrapWidth(w);
     items.push(desc);
     y = desc.y + desc.height + 12;
@@ -321,6 +348,50 @@ export class TreeScene extends Phaser.Scene {
       .on('pointerover', () => x.setTint(OPS.text)).on('pointerout', () => x.setTint(OPS.body)).on('pointerup', () => this.setDetailOpen(false));
     items.push(this.add.circle(W - 22, 22, 15, 0x05080d, 0.8), x);
     this.detail.add(items);
+  }
+
+  /**
+   * Scheda del reparto in stile dati (Nico, mockup del 24 novembre: "le statistiche del personaggio così sono molto fighe"):
+   * vita, danni e costo con barra a tacche e puntini di guida, chi batte e chi teme. Numeri coi potenziamenti già fatti; se la
+   * carta scelta è un potenziamento non ancora fatto, accanto il valore dopo ("→").
+   */
+  private drawStats(items: Phaser.GameObjects.GameObject[], x: number, y: number, w: number): number {
+    const p = this.host.profile, t = techInfo(this.sel as TechId);
+    const type = t.unit ?? t.boost?.unit ?? (t.unique ? BALANCE.civs[activeCiv(p)].unit : undefined);
+    if (!type) return y;
+    const U = BALANCE.units[type], now = unitBoosts(p.techs)[type] ?? { hp: 1, atk: 1, cost: 1 };
+    const after = t.boost && !p.techs.includes(t.id) ? unitBoosts([...p.techs, t.id])[type]! : null;
+    const max = { hp: Math.max(...UNITS.map((u) => BALANCE.units[u.id].hp)), atk: Math.max(...UNITS.map((u) => BALANCE.units[u.id].attack)), cost: Math.max(...UNITS.map((u) => BALANCE.units[u.id].cost)) };
+    const mono = (tx: number, ty: number, txt: string, col: number) => this.add.text(tx, ty, txt, { fontFamily: FONT_MONO, fontSize: '12px', color: hex(col) }).setOrigin(0, 0.5);
+    const rows: [string, number, number, number | null, number, string][] = [
+      ['VITA', U.hp * now.hp, max.hp, after && U.hp * after.hp, OPS.gain, ''],
+      ['DANNI', U.attack * now.atk, max.atk, after && U.attack * after.atk, 0x8fd3e8, ''],
+      ['COSTO', U.cost * now.cost, max.cost, after && U.cost * after.cost, 0xc8ccce, ' TRUPPE'],
+    ];
+    const g = this.add.graphics();
+    items.push(g);
+    y += 4;
+    const BX = x + 112, BW = 100, N = 10;
+    for (const [lab, v, m, nv, col, unit] of rows) {
+      items.push(mono(x, y + 6, `${lab} ${'.'.repeat(12 - lab.length)}`, OPS.label));
+      const on = Math.round((v / m) * N);
+      for (let k = 0; k < N; k++) {
+        if (k < on) g.fillStyle(col, 1).fillRect(BX + k * (BW / N), y, BW / N - 1, 12);
+        else for (let d = 0; d < 3; d++) for (let e = 0; e < 3; e++) g.fillStyle(OPS.label, 0.5).fillRect(BX + k * (BW / N) + 1 + d * 3, y + 2 + e * 4, 1, 1);
+      }
+      const txt = mono(BX + BW + 10, y + 6, `${Math.round(v)}${unit}`, OPS.body);
+      items.push(txt);
+      if (nv !== null && Math.round(nv) !== Math.round(v)) items.push(mono(txt.x + txt.width + 6, y + 6, `-> ${Math.round(nv)}`, OPS.gain));
+      y += 20;
+    }
+    const name = (u: string) => unitInfo(u as never).name.toUpperCase();
+    const beats = unitInfo(type).beats.map(name).join(', ') || '—';
+    const fears = UNITS.filter((u) => u.beats.includes(type) && BALANCE.units[u.id] && !['legionari', 'guardia', 'prototipo', 'infiltrati'].includes(u.id)).map((u) => u.name.toUpperCase()).join(', ') || '—';
+    items.push(mono(x, y + 6, 'BATTE .......', OPS.label), mono(BX, y + 6, beats, OPS.text));
+    y += 20;
+    items.push(mono(x, y + 6, 'TEME ........', OPS.label), mono(BX, y + 6, fears, OPS.loss));
+    void w;
+    return y + 28;
   }
 
   /** La Fanteria c'è già: prima carta della sua riga, senza ricerca (a destra i suoi potenziamenti). */
@@ -413,6 +484,123 @@ export class TreeScene extends Phaser.Scene {
       .on('pointerover', () => x.setTint(OPS.text)).on('pointerout', () => x.setTint(OPS.body)).on('pointerup', () => this.setDetailOpen(false));
     items.push(this.add.circle(W - 22, 22, 15, 0x05080d, 0.8), x);
     this.detail.add(items);
+  }
+
+  // ——— Ricerca: cubo 3D ———
+
+  /** Cubo al centro dell'area, tra la colonna delle scritte (sinistra) e quella dei rami (destra). */
+  private setupCube(width: number) {
+    const LW = 250, BW = 236, top = this.area.y, h = this.area.h, aw = width - DETAIL_W - 16;
+    this.cubeRect = { x: 16 + LW + 8, y: top, w: aw - BW - 16 - (16 + LW + 8), h };
+    const zoom = this.cameras.main.zoom;
+    this.cube = new ResearchCube(this.cubeRect.w, this.cubeRect.h, zoom);
+    if (this.textures.exists('research-cube')) this.textures.remove('research-cube');
+    this.cubeTex = this.textures.addCanvas('research-cube', this.cube.canvas);
+    this.add.image(this.cubeRect.x, this.cubeRect.y, 'research-cube').setOrigin(0).setDisplaySize(this.cubeRect.w, this.cubeRect.h);
+    this.cubeTags = this.cube.tags().map(([b]) => this.add.text(0, 0, BRANCHES[b]?.toUpperCase() ?? b,
+      { fontFamily: FONT_TECH, fontSize: '15px', fontStyle: '600', color: hex(BRANCH_COLOR[b]) }).setLetterSpacing(2).setOrigin(0, 0.5));
+  }
+
+  private renderCube() {
+    if (!this.cube || !this.cubeTex) return;
+    const p = this.host.profile, ptr = this.input.activePointer, z = this.cameras.main.zoom, { width, height } = view(this);
+    this.cube.setProgress(p.techs, p.research?.id ?? null);
+    this.cube.setPointer(ptr.x / z / width, ptr.y / z / height);
+    if (!this.cube.render()) return;
+    this.cubeTex.refresh();
+    const R = this.cubeRect;
+    this.cube.tags().forEach(([, nx, ny], i) => this.cubeTags[i].setPosition(R.x + nx * R.w + 14, R.y + ny * R.h));
+  }
+
+  /** Tocco sul cubo: lo strato sceglie la ricerca del suo ramo (quella in corso, la prossima, o l'ultima fatta). */
+  private tapCube(ptr: Phaser.Input.Pointer) {
+    const z = this.cameras.main.zoom, R = this.cubeRect, x = ptr.x / z - R.x, y = ptr.y / z - R.y;
+    if (x < 0 || y < 0 || x > R.w || y > R.h) return;
+    const b = this.cube!.pick(x / R.w, y / R.h);
+    if (b) this.selectBranch(b);
+  }
+
+  private selectBranch(b: string) {
+    const p = this.host.profile, ids = this.ids.filter((id) => BALANCE.tech[id].branch === b);
+    this.sel = ids.find((id) => p.research?.id === id) ?? ids.find((id) => !p.techs.includes(id)) ?? ids[ids.length - 1];
+    if (!this.detailOpen) this.setDetailOpen(true);
+    this.draw();
+  }
+
+  private disposeCube() {
+    this.cube?.dispose();
+    this.cube = null;
+    if (this.textures.exists('research-cube')) this.textures.remove('research-cube');
+    this.cubeTex = null;
+  }
+
+  /**
+   * Le due colonne attorno al cubo, come nel riferimento: a sinistra scritte fitte coi dati veri (rami, ricerche, stato, codici)
+   * nei colori del gioco; a destra un riquadro per ramo con le sue ricerche (si toccano) e la miniatura della prossima.
+   */
+  private drawCubePage() {
+    const p = this.host.profile, R = this.cubeRect, H = this.area.h;
+    const branches = Object.keys(BRANCH_COLOR) as CubeBranch[];
+    let seed = 11;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const code = (n: number) => Array.from({ length: n }, () => 'ABCDEFGHIKLMNOPRSTUVZ0123456789.:-'[(rnd() * 34) | 0]).join('');
+    const mono = (x: number, y: number, t: string, col: number, size = 12) => this.add.text(x, y, t, { fontFamily: FONT_MONO, fontSize: `${size}px`, color: hex(col) });
+    const big = (x: number, y: number, t: string, col: number, size: number) => this.add.text(x, y, t, { fontFamily: FONT_TECH, fontSize: `${size}px`, fontStyle: '600', color: hex(col) });
+    const state = (id: TechId): [string, string, number] => {
+      if (p.techs.includes(id)) return ['■', 'ATTIVA', OPS.gain];
+      if (p.research?.id === id) return ['▶', fmtTime(p.research.until - Date.now()), PALETTE.allerta];
+      return researchBlock(p, id) === null || researchBlock(p, id) === 'cost' || researchBlock(p, id) === 'busy' ? ['□', fmtTime(BALANCE.tech[id].timeSec * 1000), OPS.text] : ['·', 'BLOCCO', OPS.label];
+    };
+    const items: Phaser.GameObjects.GameObject[] = [];
+    // colonna sinistra: un blocco per ramo con le sue ricerche, tra righe di codici
+    const FILL = [0x9fd0f5, 0xe9ebe6, 0xb57ad6, 0xd23a2e, 0x8a949a, 0x6cc7c2];
+    let y = 4;
+    const lx = 16;
+    for (const b of branches) {
+      const ids = this.ids.filter((id) => BALANCE.tech[id].branch === b), done = ids.filter((id) => p.techs.includes(id)).length;
+      items.push(big(lx, y, `${(BRANCHES[b] ?? b).toUpperCase().replace(/ /g, '.')}.${done}/${ids.length}`, BRANCH_COLOR[b], 22));
+      y += 26;
+      for (const id of ids) {
+        const [sym, st, col] = state(id);
+        items.push(mono(lx + (rnd() * 18 | 0), y, `${sym} ${techInfo(id).name.toUpperCase()} ${code(4)}`, col, 13));
+        y += 15;
+        items.push(mono(lx + (rnd() * 30 | 0), y, `${code(6)} ${st} ${(rnd() * 9999) | 0}`, BRANCH_COLOR[b], 11).setAlpha(st === 'BLOCCO' ? 0.4 : 0.75));
+        y += 14;
+      }
+      const filler = Math.max(0, Math.floor((H / branches.length - 26 - ids.length * 29) / 14));
+      for (let k = 0; k < filler; k++) {
+        items.push(mono(lx + (rnd() * 40 | 0), y, code(8 + ((rnd() * 12) | 0)), FILL[(rnd() * FILL.length) | 0], rnd() < 0.2 ? 15 : 11).setAlpha(0.55));
+        y += 14;
+      }
+      y += 6;
+    }
+    // colonna destra: un riquadro per ramo, bordo spesso bianco e rosso alternati come nel riferimento
+    const bx = R.x + R.w + 16, bw = this.area.w - bx - 8, bh = Math.floor(H / branches.length);
+    const g = this.add.graphics();
+    items.push(g);
+    g.fillStyle(0xe9ebe6, 1).fillRect(bx, 0, 3, bh * branches.length);
+    branches.forEach((b, i) => {
+      const y0 = i * bh, ids = this.ids.filter((id) => BALANCE.tech[id].branch === b), x0 = bx + 14;
+      g.fillStyle(i % 2 ? 0xd23a2e : 0xe9ebe6, 1).fillRect(bx, y0 + bh - 3, bw, 3);
+      items.push(big(x0, y0 + 8, (BRANCHES[b] ?? b).toUpperCase(), BRANCH_COLOR[b], 15).setLetterSpacing(2));
+      let ry = y0 + 32;
+      for (const id of ids) {
+        const [sym, st, col] = state(id), sel = id === this.sel;
+        const row = mono(x0, ry, `${sym} ${techInfo(id).name}`, sel ? 0xffffff : col, 12);
+        const hit = this.add.rectangle(bx + 4, ry - 2, bw - 8, 17, 0xffffff, sel ? 0.08 : 0.001).setOrigin(0).setInteractive({ useHandCursor: true })
+          .on('pointerup', () => { this.sel = id; if (!this.detailOpen) this.setDetailOpen(true); this.draw(); });
+        items.push(hit, row, mono(bx + bw - 10, ry, st, col, 10).setOrigin(1, 0));
+        ry += 18;
+      }
+      // miniatura della ricerca da fare (o dell'ultima fatta)
+      const next = ids.find((id) => !p.techs.includes(id)) ?? ids[ids.length - 1], th = Math.min(64, bh - (ry - y0) - 14);
+      if (th > 28) {
+        const img = coverImage(this, this.art(next), x0, ry + 4, Math.round(th * 1.7), th, 0.45);
+        if (researchBlock(p, next) && !p.techs.includes(next) && p.research?.id !== next) img.setTint(0x4a5258);
+        items.push(img, mono(x0 + th * 1.7 + 10, ry + 4, `${code(3)}.${(rnd() * 99) | 0}`, OPS.label, 10));
+      }
+    });
+    this.content.add(items);
   }
 
   /** Immagine della ricerca: il reparto o l'abilità che sblocca, l'unità della tua potenza, o l'oggetto della ricerca. */

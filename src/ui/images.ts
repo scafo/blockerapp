@@ -35,7 +35,7 @@ export const civImage = (id: CivId) => `civ-${id}`;
 export function techImage(scene: Phaser.Scene, id: TechId, civ: CivId): string {
   const t = techInfo(id);
   if (t.unit) return `u-${t.unit}`;
-  if (t.boost) return `u-${t.boost.unit}`; // potenziamento: la foto del suo reparto
+  if (t.boost) return scene.textures.exists(`t-${id}`) ? `t-${id}` : `u-${t.boost.unit}`; // potenziamento: il soldato con l'equipaggiamento migliore
   if (t.ability) return `a-${t.ability}`;
   if (t.unique) return `u-${BALANCE.civs[civ].unit}`;
   return scene.textures.exists(`t-${id}`) ? `t-${id}` : 'room-laboratorio';

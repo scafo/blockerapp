@@ -1494,17 +1494,41 @@ export class RunState {
    * Offensiva alla HOI4 (freccia): ogni pedina riceve la sua casella d'arrivo e ci avanza insieme alle altre, fermandosi ad
    * assediare le province nemiche che incontra; arrivata, tiene la nuova posizione. Ritorna quante sono partite.
    */
-  pushOffensive(units: Unit[], goals: number[]): number {
+  pushOffensive(units: Unit[], goals: number[], vias: number[][] = []): number {
     let n = 0;
     units.forEach((u, k) => {
       if (isNaval(u.type) || k >= goals.length || goals[k] < 0) return;
       u.front = -1;
       u.post = -1;
       u.goal = goals[k];
-      if (this.order(u, u.goal)) n++;
-      else u.goal = -1;
+      u.via = [...(vias[k] ?? [])];
+      if (this.orderVia(u, true)) n++;
+      else { u.goal = -1; u.via = []; }
     });
     return n;
+  }
+
+  /**
+   * Marcia d'offensiva lungo la freccia (Nico: "segua meglio la freccia"): il percorso passa dalle tappe rimaste, una dopo
+   * l'altra, fino alla casella d'arrivo. Alla ripartenza (dopo un assedio) si saltano le tappe già superate: vicine, o più
+   * lontane dalla successiva di quanto lo sia la pedina; una tappa irraggiungibile si salta.
+   */
+  private orderVia(u: Unit, first = false): boolean {
+    const via = u.via ?? [];
+    while (via.length && (hexDistance(u.tile, via[0]) <= 1 || !first && hexDistance(u.tile, via[1] ?? u.goal) < hexDistance(via[0], via[1] ?? u.goal))) via.shift();
+    const ok = (i: number) => this.passable(i) && this.atWar(u.owner, this.owner[i]) || this.owner[i] === u.owner;
+    const path: number[] = [];
+    let from = u.tile;
+    for (const w of [...via, u.goal]) {
+      const seg = findPath(from, w, ok);
+      if (!seg.length) continue;
+      path.push(...seg);
+      from = w;
+    }
+    if (from !== u.goal) return this.order(u, u.goal); // l'arrivo non si raggiunge dalle tappe: strada più corta
+    u.path = path;
+    u.lastOrderMs = this.gameTimeMs;
+    return path.length > 0;
   }
 
   /** Province di `f` che confinano con `enemy` (la linea del fronte). */
@@ -1545,7 +1569,7 @@ export class RunState {
     const k = Math.floor(u.size / 2), share = k / u.size;
     const v: Unit = {
       id: this.nextUnitId++, type: u.type, owner: u.owner, tile: free, hp: u.hp * share, maxHp: u.maxHp * share,
-      path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs, size: k, stance: u.stance, front: u.front, supply: u.supply, post: u.post, goal: u.goal,
+      path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs, size: k, stance: u.stance, front: u.front, supply: u.supply, post: u.post, goal: u.goal, via: u.via && [...u.via],
     };
     u.size -= k;
     u.hp -= v.hp;
@@ -1610,7 +1634,7 @@ export class RunState {
       if (u.goal >= 0) {
         // offensiva: arrivata, tiene la nuova posizione; altrimenti riprende la marcia (dopo un assedio o se bloccata)
         if (u.tile === u.goal || hexDistance(u.tile, u.goal) <= 1) { u.post = u.tile; u.goal = -1; }
-        else if (!this.order(u, u.goal)) { u.post = u.tile; u.goal = -1; }
+        else if (!this.orderVia(u)) { u.post = u.tile; u.goal = -1; u.via = []; }
         continue;
       }
       if (u.post >= 0) {

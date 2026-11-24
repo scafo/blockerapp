@@ -14,6 +14,7 @@ import frontText from '../data/fronts.json';
 import { CIV_IDS, civInfo, civUnlocked } from '../game/civs';
 import { CIV_STYLE } from '../game/factions';
 import { settleResearch, techInfo } from '../game/tech';
+import { RegistryRadar, type RadarEntry } from '../render/registryRadar';
 import { unitInfo } from '../game/units';
 import type { CampaignId } from '../config/balance';
 import { RESOURCES, RESOURCE_INFO, type Bag } from '../game/resources';
@@ -28,7 +29,7 @@ import { recoverStake } from '../game/camp';
 import { Button } from '../ui/Button';
 import { buzz } from '../ui/haptics';
 import { safeInsets, uiCamera, view } from '../ui/screen';
-import { civImage, coverImage, fade } from '../ui/images';
+import { civImage, coverImage, fade, techImage } from '../ui/images';
 import { OPS, body, glass, heading, icon, label, panel, resIcon, resPhoto, rule, tech, value } from '../ui/ops';
 import { NAV_H, NavBar, type NavTab } from '../ui/navBar';
 import { lineIcon } from '../ui/lineIcons';
@@ -109,6 +110,7 @@ export class CampScene extends Phaser.Scene {
   private timerTexts = new Map<Spot, Phaser.GameObjects.Text>();
   private panel: Phaser.GameObjects.Container | null = null;
   private page: Phaser.GameObjects.Container | null = null; // pagina a tutto schermo della stanza (testata e pianta)
+  private radar: { view: RegistryRadar; tex: Phaser.Textures.CanvasTexture; x: number; y: number; w: number; h: number; card: Phaser.GameObjects.Text[]; hot: RadarEntry | null } | null = null; // registro 3D della Sala Radar
   private pageKey = '';
   private expKind: ExpeditionKind = 'breve'; // missione scelta nell'Estrazione
   private panelSpot: Spot | null = null;
@@ -129,6 +131,8 @@ export class CampScene extends Phaser.Scene {
   create(data?: CampData) {
     uiCamera(this);
     this.audioPanel = null;
+    this.radar = null;
+    this.events.once('shutdown', () => this.dropRadar()); // il registro 3D ha il suo contesto WebGL: si libera uscendo
     music.setMode('hq'); // musica della base: calma
     this.profile = loadProfile();
     // campagna lasciata a metà (app chiusa): la puntata rientra come in una ritirata
@@ -285,6 +289,7 @@ export class CampScene extends Phaser.Scene {
   }
 
   update(_t: number, delta: number) {
+    this.renderRadar();
     this.refreshAcc -= delta;
     if (this.refreshAcc > 0) return;
     this.refreshAcc = 250;
@@ -718,6 +723,7 @@ export class CampScene extends Phaser.Scene {
   private closePanel() {
     this.panel?.destroy();
     this.panel = null;
+    this.dropRadar();
     this.page?.destroy();
     this.page = null;
     this.pageKey = '';
@@ -770,19 +776,24 @@ export class CampScene extends Phaser.Scene {
     const key = `${spot}|${this.backTo}|${this.pageBg(spot)}|${JSON.stringify(st)}|${width}x${height}`;
     if (key !== this.pageKey) {
       const fresh = !this.page;
+      this.dropRadar();
       this.page?.destroy();
       this.pageKey = key;
       // fondo: la foto della stanza a tutto schermo (l'elicottero per l'Estrazione, come nel Figma), velata solo dietro
       // al titolo e al fascicolo
+      // Sala Radar: al posto della foto il registro in 3D, a sinistra del fascicolo
+      const radar = spot === 'radar' && !P;
       const objs: Phaser.GameObjects.GameObject[] = [
-        this.add.rectangle(0, 0, width, height, 0x07090c, 1).setOrigin(0).setInteractive(), // la base sotto non riceve i tocchi
-        coverImage(this, this.pageBg(spot), 0, 0, width, height, 0.5).setTint(0xd4dce4),
+        this.add.rectangle(0, 0, width, height, radar ? 0x05080d : 0x07090c, 1).setOrigin(0).setInteractive(), // la base sotto non riceve i tocchi
       ];
+      if (radar) objs.push(...this.makeRadar(0, T, x0 - 12, height - T));
+      else objs.push(coverImage(this, this.pageBg(spot), 0, 0, width, height, 0.5).setTint(0xd4dce4));
       {
         objs.push(fade(this, 0, 0, width, T + 120, 0x05080d, 0.8, 0));
         if (!info.room || spot === 'mercato' || spot === 'profilo') objs.push(this.add.rectangle(0, 0, width, height, 0x05080d, spot === 'profilo' ? 0.78 : spot === 'mercato' ? 0.7 : 0.55).setOrigin(0));
         else if (spot === 'gioca') { /* GIOCA disegna i suoi veli */ }
         else if (P) objs.push(fade(this, 0, y0 - 60, width, height - y0 + 60, 0x05080d, 0, 0.85));
+        else if (radar) objs.push(fade(this, 0, T, x0, 150, 0x05080d, 0.85, 0)); // solo dietro al titolo
         else {
           // stanze: la foto più scura, il contenuto conta più dell'immagine (Nico)
           objs.push(this.add.rectangle(0, 0, width, height, 0x05080d, 0.35).setOrigin(0), fade(this, x0 - 80, 0, width - x0 + 80, height, 0x05080d, 0, 0.6, 'h'));
@@ -1415,6 +1426,67 @@ export class CampScene extends Phaser.Scene {
         label(this, RX + RW * 0.78, ry + 14, num(r.timeMs) ? fmtTime(r.timeMs) : '—', OPS.body, 10).setOrigin(0, 0.5),
         label(this, RX + RW - 12, ry + 14, when, OPS.label, 10).setOrigin(1, 0.5));
     });
+  }
+
+  // ——— Sala Radar: registro in 3D ———
+
+  /** Voci del registro con la loro foto: ultime campagne, potenze, frammenti dell'archivio della Caduta. */
+  private radarEntries(): RadarEntry[] {
+    const p = this.profile, out: RadarEntry[] = [];
+    const img = (k: string) => (this.textures.exists(k) ? (this.textures.get(k).getSourceImage() as TexImageSource) : null);
+    const OUT: Record<string, string> = { victory: 'Vittoria', retreat: 'Ritirata', eliminated: 'Eliminato', timeout: 'Fine tempo' };
+    for (const r of p.history.slice(0, 3)) { // le ultime tre: di più sarebbero tante foto uguali dello stesso fronte
+      const fi = r.front ?? 0, i = img(this.frontImage(fi)), d = new Date(r.at);
+      const n = r.provinces ?? r.tiles;
+      if (i) out.push({ img: i, title: `Fronte ${ROMAN[fi] ?? fi + 1} · ${OUT[r.outcome] ?? r.outcome}`,
+        line: `${Number.isFinite(n) ? `${n} PROVINCE · ` : ''}${Number.isFinite(r.timeMs) ? `${fmtTime(r.timeMs)} · ` : ''}${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}` });
+    }
+    // potenze: la tua sempre, le rivali dopo la prima campagna
+    const mine = activeCiv(p);
+    for (const c of CIV_IDS) {
+      if (c !== mine && !p.runs) continue;
+      const i = img(`leader-${c}`) ?? img(civImage(c));
+      if (i) out.push({ img: i, title: civInfo(c).name, line: c === mine ? 'LA TUA POTENZA' : 'POTENZA RIVALE' });
+    }
+    // frammenti dell'archivio: ognuno con l'immagine della sua ricerca
+    for (const id of p.techs.filter((t) => techInfo(t).lore)) {
+      const i = img(techImage(this, id, mine));
+      if (i) out.push({ img: i, title: techInfo(id).name, line: 'ARCHIVIO DELLA CADUTA' });
+    }
+    return out;
+  }
+
+  /** Crea il registro 3D nell'area data; restituisce l'immagine e la didascalia da mettere nella pagina. */
+  private makeRadar(x: number, y: number, w: number, h: number): Phaser.GameObjects.GameObject[] {
+    const view3 = new RegistryRadar(w, h, this.cameras.main.zoom, this.radarEntries());
+    if (this.textures.exists('registry-radar')) this.textures.remove('registry-radar');
+    const tex = this.textures.addCanvas('registry-radar', view3.canvas)!;
+    const im = this.add.image(x, y, 'registry-radar').setOrigin(0).setDisplaySize(w, h);
+    // didascalia della voce sotto il mouse, in basso al centro
+    const t1 = heading(this, x + w / 2, y + h - 64, '', 22).setOrigin(0.5);
+    const t2 = label(this, x + w / 2, y + h - 36, 'SALA RADAR · REGISTRO', OPS.label, 10).setOrigin(0.5);
+    this.radar = { view: view3, tex, x, y, w, h, card: [t1, t2], hot: null };
+    return [im, t1, t2];
+  }
+
+  private renderRadar() {
+    const R = this.radar;
+    if (!R) return;
+    const ptr = this.input.activePointer, z = this.cameras.main.zoom, mx = ptr.x / z - R.x, my = ptr.y / z - R.y;
+    R.view.setPointer(mx, my, mx >= 0 && my >= 0 && mx <= R.w && my <= R.h);
+    if (R.view.render()) R.tex.refresh();
+    if (R.view.hot !== R.hot) {
+      R.hot = R.view.hot;
+      R.card[0].setText(R.hot?.title ?? '');
+      R.card[1].setText(R.hot?.line ?? 'SALA RADAR · REGISTRO');
+    }
+  }
+
+  private dropRadar() {
+    if (!this.radar) return;
+    this.radar.view.dispose();
+    this.radar = null;
+    if (this.textures.exists('registry-radar')) this.textures.remove('registry-radar');
   }
 
   /** Immagine del fronte (generata con Draw Things); finché non c'è, la sala operazioni. */

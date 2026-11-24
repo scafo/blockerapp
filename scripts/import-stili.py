@@ -72,9 +72,21 @@ jpg(st / 'ravvicinati' / 'g1-ritratto-finestra.png', img / 'people' / 'comandant
 print('pictures ok')
 
 # unit cards v2 (concept-art/stili/reparti.py): one clear subject per unit, the variant picked by eye
-for unit, v in [('fanteria', 'a'), ('ricognitori', 'a'), ('artiglieria', 'b'), ('corazzati', 'a'), ('genio', 'a'), ('cannoniera', 'b'),
-                ('legionari', 'a'), ('guardia', 'a'), ('prototipo', 'a'), ('infiltrati', 'a')]:
-    jpg(st / 'reparti' / f'{unit}-{v}.png', img / 'units' / f'u-{unit}.jpg', (576, 384))
+# v3 (ritratti.py, Nico 24 November 2026): one raw soldier portrait per unit looking right, face darkened by ombra.py; every
+# Arsenal upgrade shows the same man (same seed and variant) with better gear (t-<tech>)
+import sys, tempfile
+sys.path.insert(0, str(st))
+from ombra import shade
+UNIT_PICK = {'fanteria': 'a', 'ricognitori': 'b', 'artiglieria': 'b', 'corazzati': 'a', 'genio': 'b', 'cannoniera': 'a',
+             'legionari': 'a', 'guardia': 'b', 'prototipo': 'b', 'infiltrati': 'a'}
+UPGRADES = {'fanteria': ['vita', 'danni', 'costo'], 'ricognitori': ['vita', 'danni'], 'artiglieria': ['vita', 'danni'],
+            'corazzati': ['vita', 'danni'], 'genio': ['vita', 'danni'], 'cannoniera': ['vita', 'danni']}
+with tempfile.TemporaryDirectory() as tmp:
+    for unit, v in UNIT_PICK.items():
+        for key, dest in [(unit, img / 'units' / f'u-{unit}.jpg')] + [(f'{unit}_{u}', img / 'tech' / f't-{unit}_{u}.jpg') for u in UPGRADES.get(unit, [])]:
+            dark = Path(tmp) / f'{key}.png'
+            shade(str(st / 'ritratti' / f'{key}-{v}.png'), str(dark))
+            jpg(dark, dest, (576, 384) if key == unit else (704, 400))
 print('units ok')
 
 # supply bundles (pacchi.py, Nico liked them): cut out of the white studio background, used big in the Market

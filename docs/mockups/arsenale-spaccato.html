@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Arsenale · spaccato</title>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  /* Mockup dell'Arsenale sul riferimento di Nico (spaccato a strati in wireframe, colonne di dati colorati ai lati):
+     il reparto scelto è una torre a piani, un piano per livello d'equipaggiamento; a sinistra i reparti come dati,
+     a destra i livelli con miniatura, effetto e stato. */
+  :root { --ink: #04060a; --text: #e9ebe6; --dim: #6c757b; --wire: #8fd3e8; --ok: #6fd08a; --ko: #e0523f; --next: #e9ebe6; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--ink); color: var(--text); font-family: "Chakra Petch", sans-serif; width: 1440px; height: 900px; overflow: hidden; position: relative; }
+  body::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(0,0,0,.7) 100%); }
+  nav { position: absolute; top: 0; left: 0; right: 0; height: 64px; display: flex; align-items: center; gap: 34px; padding: 0 28px;
+    border-bottom: 1px solid rgba(255,255,255,.08); font-size: 13px; letter-spacing: .18em; color: var(--dim); background: rgba(4,6,10,.85); z-index: 5; }
+  nav b { color: var(--text); font-weight: 600; border-bottom: 2px solid var(--text); padding: 22px 0; }
+  nav .res { margin-left: auto; display: flex; gap: 22px; letter-spacing: 0; font-size: 15px; color: var(--text); }
+  .mono { font-family: "Share Tech Mono", monospace; }
+  /* colonna sinistra: i reparti come righe di dati */
+  .left { position: absolute; left: 28px; top: 96px; width: 300px; }
+  .left h1 { font-size: 13px; letter-spacing: .24em; color: var(--dim); font-weight: 400; margin-bottom: 14px; }
+  .unit { padding: 9px 0 9px 12px; border-left: 2px solid transparent; cursor: pointer; }
+  .unit .n { font-size: 20px; font-weight: 600; letter-spacing: .02em; }
+  .unit .s { font-size: 12px; margin-top: 2px; }
+  .unit.sel { border-left-color: var(--wire); background: linear-gradient(90deg, rgba(143,211,232,.12), transparent); }
+  .g { color: var(--ok); } .r { color: var(--ko); } .c { color: var(--wire); } .w { color: var(--text); } .d { color: var(--dim); }
+  .bars { margin-top: 26px; font-size: 11.5px; line-height: 1.55; }
+  /* torre al centro */
+  .stage { position: absolute; left: 360px; top: 80px; width: 640px; height: 800px; }
+  .title { position: absolute; left: 380px; top: 96px; z-index: 4; }
+  .title .k { font-size: 12px; letter-spacing: .24em; color: var(--wire); }
+  .title .t { font-size: 44px; font-weight: 600; line-height: 1; margin-top: 6px; }
+  .floor { position: absolute; left: 190px; width: 300px; height: 150px; overflow: hidden; transform: skewY(-14deg); transform-origin: 0 0;
+    border: 1px solid rgba(143,211,232,.55); box-shadow: 0 0 30px rgba(143,211,232,.12); }
+  .floor img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; transform: skewY(14deg) scale(1.25); }
+  .floor.lock img { filter: grayscale(1) brightness(.3); }
+  .floor.next { border-color: var(--text); box-shadow: 0 0 40px rgba(255,255,255,.25); }
+  .floor .lv { position: absolute; left: 8px; top: 6px; font-size: 11px; letter-spacing: .18em; transform: skewY(14deg); text-shadow: 0 1px 4px #000; }
+  svg.wire { position: absolute; inset: 0; overflow: visible; }
+  /* colonna destra: livelli con miniatura */
+  .right { position: absolute; right: 28px; top: 96px; width: 380px; border-left: 1px solid rgba(143,211,232,.3); padding-left: 22px; }
+  .lvl { display: grid; grid-template-columns: 96px 1fr; gap: 14px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.07); }
+  .lvl img { width: 96px; height: 64px; object-fit: cover; object-position: 50% 20%; }
+  .lvl.lock img { filter: grayscale(1) brightness(.35); }
+  .lvl .a { font-size: 11px; letter-spacing: .16em; }
+  .lvl .b { font-size: 16px; font-weight: 600; margin-top: 2px; }
+  .lvl .e { font-size: 12px; color: var(--dim); margin-top: 3px; }
+  .lvl.next { background: linear-gradient(90deg, rgba(255,255,255,.07), transparent); }
+  .cta { margin-top: 18px; display: block; text-align: center; font-size: 14px; letter-spacing: .16em; font-weight: 600; padding: 14px; background: #e6e9ea; color: #04060a; }
+  .cost { margin-top: 12px; font-size: 12px; line-height: 1.7; }
+  .tick { position: absolute; font-size: 10.5px; color: var(--wire); letter-spacing: .1em; opacity: .8; }
+</style>
+</head>
+<body>
+<nav>← HOME &nbsp; <span>GIOCA</span><span>BASE</span><span>RICERCA</span><b>ARSENALE</b><span>MERCATO</span>
+  <div class="res"><span>⚙ 476</span><span>⛽ 109</span><span>🌾 141</span></div></nav>
+
+<div class="left mono">
+  <h1>REPARTI · ARSENALE LIV 3/6</h1>
+  <div class="unit sel"><div class="n w">FANTERIA</div><div class="s g">IN DOTAZIONE · 1/3 POTENZIAMENTI</div></div>
+  <div class="unit"><div class="n w">RICOGNITORI</div><div class="s g">SBLOCCATI · 0/2</div></div>
+  <div class="unit"><div class="n w">ARTIGLIERIA</div><div class="s g">SBLOCCATA · 0/2</div></div>
+  <div class="unit"><div class="n w">CORAZZATI</div><div class="s c">DISPONIBILI · 3.600 METALLO</div></div>
+  <div class="unit"><div class="n d">GENIO</div><div class="s c">DISPONIBILE · 1H 36M</div></div>
+  <div class="unit"><div class="n d">CANNONIERA</div><div class="s r">ARSENALE LIV 4</div></div>
+  <div class="unit"><div class="n d">UNITÀ DELLA POTENZA</div><div class="s r">ARSENALE LIV 6</div></div>
+  <div class="bars d">
+    VITA ........ <span class="g">████████░░</span> 120<br>
+    DANNI ....... <span class="c">██████░░░░</span> 100<br>
+    COSTO ....... <span class="w">█████░░░░░</span> 40 TRUPPE<br>
+    BATTE ....... <span class="w">RICOGNITORI</span><br>
+    TEME ........ <span class="r">ARTIGLIERIA</span>
+  </div>
+</div>
+
+<div class="title"><div class="k mono">REPARTO · FANTERIA D'ASSALTO</div><div class="t">Fanteria</div></div>
+
+<div class="stage">
+  <!-- quattro piani, dal basso: dotazione → protezione → potenza di fuoco → veterani -->
+  <div class="floor lock" data-y="130" style="top:130px"><img src="img/fanteria_costo.jpg"><span class="lv mono d">IV · LEVA RAPIDA</span></div>
+  <div class="floor lock" data-y="290" style="top:290px"><img src="img/fanteria_danni.jpg"><span class="lv mono d">III · FUCILI A RIPETIZIONE</span></div>
+  <div class="floor next" data-y="450" style="top:450px"><img src="img/fanteria_vita.jpg"><span class="lv mono w">II · ELMETTI E GIUBBE</span></div>
+  <div class="floor" data-y="610" style="top:610px"><img src="img/fanteria.jpg"><span class="lv mono g">I · IN DOTAZIONE</span></div>
+  <!-- telaio della torre: spigoli e piani in prospettiva -->
+  <svg class="wire" id="wire" viewBox="0 0 640 800"></svg>
+        </div>
+
+<div class="right">
+  <div class="mono d" style="font-size:12px;letter-spacing:.22em;margin-bottom:6px">EQUIPAGGIAMENTO</div>
+  <div class="lvl"><img src="img/fanteria.jpg"><div><div class="a mono g">I · FATTO</div><div class="b">In dotazione</div><div class="e">Elmetto, cappotto, fucile</div></div></div>
+  <div class="lvl next"><img src="img/fanteria_vita.jpg"><div><div class="a mono w">II · PROSSIMO</div><div class="b">Elmetti e giubbe</div><div class="e">Fanteria +20% vita · piastra sul petto</div></div></div>
+  <div class="lvl lock"><img src="img/fanteria_danni.jpg"><div><div class="a mono r">III · ARSENALE LIV 2</div><div class="b">Fucili a ripetizione</div><div class="e">Fanteria +20% danni · cartuccere, bombe</div></div></div>
+  <div class="lvl lock"><img src="img/fanteria_costo.jpg"><div><div class="a mono r">IV · ARSENALE LIV 3</div><div class="b">Leva rapida</div><div class="e">Fanteria −15% truppe · veterani</div></div></div>
+  <div class="cost mono"><span class="g">✓</span> 200 METALLO · HAI 476<br><span class="g">✓</span> 60 BENZINA · HAI 109<br><span class="g">✓</span> NESSUN'ALTRA RICERCA<br><span class="d">⧗ DURATA 10:00</span></div>
+  <span class="cta">POTENZIA · 10:00</span>
+</div>
+<script>
+  // telaio della torre: per ogni piano la faccia davanti (inclinata come la foto) e la profondità verso destra in alto
+  const svg = document.getElementById('wire'), NS = 'http://www.w3.org/2000/svg', W = 300, H = 150, rise = W * Math.tan(14 * Math.PI / 180), dx = 110, dy = -34;
+  const line = (pts, op, dash) => { const p = document.createElementNS(NS, 'polyline'); p.setAttribute('points', pts.map((q) => q.join(',')).join(' '));
+    p.setAttribute('fill', 'none'); p.setAttribute('stroke', '#8fd3e8'); p.setAttribute('stroke-opacity', op); if (dash) p.setAttribute('stroke-dasharray', '3 5'); svg.appendChild(p); };
+  const ys = [...document.querySelectorAll('.floor')].map((f) => +f.dataset.y);
+  ys.forEach((y, i) => {
+    const A = [190, y], B = [190 + W, y - rise], C = [190 + W, y - rise + H], D = [190, y + H], d = (q) => [q[0] + dx, q[1] + dy];
+    line([A, d(A), d(B), B], .5); line([d(B), d(C), C], .5); line([d(A), d(D), D], .18, true);
+    const t = document.createElementNS(NS, 'text'); t.setAttribute('x', d(B)[0] + 8); t.setAttribute('y', d(B)[1] + 4); t.setAttribute('fill', '#8fd3e8');
+    t.setAttribute('font-size', '10.5'); t.setAttribute('font-family', 'Share Tech Mono'); t.textContent = ['−15% TRUPPE', '+20% DANNI', '+20% VITA', 'BASE'][i]; svg.appendChild(t);
+  });
+  // verticali che legano i piani
+  const y0 = ys[0], bot = ys[ys.length - 1] + H;
+  line([[190 + W + dx, y0 - rise + dy], [190 + W + dx, bot - rise + dy]], .35); line([[190 + dx, y0 + dy], [190 + dx, bot + dy]], .15, true);
+</script>
+</body>
+</html>

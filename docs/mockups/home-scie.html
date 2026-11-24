@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Home · scie</title>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  /* Mockup della home sul riferimento di Nico (blocchi di luce che sfrecciano dal centro con scie di puntini): le foto del
+     gioco (fronti, stanze, reparti) sono riquadri di luce che escono dal punto di fuga a velocità diverse, con scie
+     fredde; il menu resta a sinistra. Con il mouse il punto di fuga si sposta un poco. */
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #030409; color: #e9ebe6; font-family: "Chakra Petch", sans-serif; width: 1440px; height: 900px; overflow: hidden; position: relative; }
+  canvas { position: absolute; inset: 0; }
+  /* il menu resta pulito: le scie si spengono verso sinistra */
+  .veil { position: absolute; inset: 0; background: linear-gradient(90deg, #030409 0%, rgba(3,4,9,.85) 28%, transparent 55%); z-index: 1; pointer-events: none; }
+  .brand { position: absolute; left: 64px; top: 72px; font-size: 22px; letter-spacing: .5em; font-weight: 600; z-index: 2; }
+  .brand small { display: block; font-size: 11px; letter-spacing: .3em; color: #7f888e; font-weight: 400; margin-top: 6px; }
+  .menu { position: absolute; left: 64px; top: 330px; z-index: 2; }
+  .menu div { font-size: 44px; font-weight: 600; color: #7f888e; line-height: 1.25; letter-spacing: .02em; }
+  .menu div.on { color: #fff; font-size: 70px; text-shadow: 0 0 30px rgba(159,208,245,.35); }
+  .menu small { display: block; font-size: 13px; color: #9aa3a8; font-weight: 400; margin: -4px 0 14px; letter-spacing: .06em; }
+  .menu div:not(.on):hover { color: #e9ebe6; }
+  .hud { position: absolute; right: 48px; top: 64px; z-index: 2; font-family: "Share Tech Mono", monospace; font-size: 12px; color: #7f888e; text-align: right; line-height: 1.8; }
+  .hud b { color: #e9ebe6; font-weight: 400; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1440" height="900"></canvas><div class="veil"></div>
+<div class="brand">ARCHEON<small>IL MONDO DOPO LA CADUTA</small></div>
+<div class="menu">
+  <div class="on">GIOCA</div><small>Prossimo: Fronte III · Terre di cenere</small>
+  <div>BASE</div><div>RICERCA</div><div>ARSENALE</div><div>MERCATO</div>
+</div>
+<div class="hud">COMANDANTE · <b>NICOLO</b><br>⚙ <b>476</b> · ⛽ <b>109</b> · 🌾 <b>141</b><br>CANTIERE LIBERO · ESTRAZIONE <b>5:03</b></div>
+<script>
+  const c = document.getElementById('c'), g = c.getContext('2d'), W = c.width, H = c.height;
+  const SRC = ['fronts/front-1', 'fronts/front-2', 'fronts/front-3', 'fronts/front-4', 'fronts/front-5', 'fronts/front-6', 'rooms/room-comando',
+    'rooms/room-radar', 'rooms/room-arsenale', 'rooms/room-laboratorio', 'units/u-fanteria', 'units/u-corazzati', 'units/u-artiglieria',
+    'events/ev-nebbia', 'events/ev-convoglio', 'events/ev-frequenza'].map((k) => { const i = new Image(); i.src = `../../src/assets/img/${k}.jpg`; return i; });
+  // punto di fuga a destra del menu, un po' sopra il centro; si sposta col mouse
+  const vp = { x: W * 0.62, y: H * 0.46 }, aim = { ...vp };
+  addEventListener('mousemove', (e) => { aim.x = W * 0.62 + (e.clientX / innerWidth - 0.5) * 120; aim.y = H * 0.46 + (e.clientY / innerHeight - 0.5) * 80; });
+  const COLS = ['159,208,245', '233,235,230', '120,150,200'];
+  const tiles = [];
+  const spawn = (z) => {
+    const a = Math.random() * Math.PI * 2, r = 0.15 + Math.random() * 0.9;
+    tiles.push({ dx: Math.cos(a) * r, dy: Math.sin(a) * r * 0.7, z: z ?? 0.02 + Math.random() * 0.05, v: 0.0016 + Math.random() * 0.0035,
+      img: SRC[(Math.random() * SRC.length) | 0], col: COLS[(Math.random() * COLS.length) | 0], kind: Math.random() < 0.45 ? 'dots' : Math.random() < 0.5 ? 'lines' : 'photo',
+      w: 0.9 + Math.random() * 0.8, h: 0.6 + Math.random() * 0.6 });
+  };
+  for (let i = 0; i < 30; i++) spawn(Math.random());
+  const proj = (t, z) => { const s = 1 / (1.05 - z); return { x: vp.x + t.dx * s * 260, y: vp.y + t.dy * s * 260, s }; };
+  function frame() {
+    vp.x += (aim.x - vp.x) * 0.04; vp.y += (aim.y - vp.y) * 0.04;
+    g.fillStyle = 'rgba(3,4,9,0.55)'; g.fillRect(0, 0, W, H);
+    tiles.sort((a, b) => a.z - b.z);
+    for (const t of tiles) {
+      t.z += t.v;
+      const p = proj(t, t.z), q = proj(t, Math.max(0, t.z - 0.22)); // testa e coda della scia
+      const w = 34 * p.s * t.w, h = 28 * p.s * t.h, fade = Math.min(1, t.z * 3) * (t.z > 0.9 ? (1 - t.z) * 10 : 1);
+      // scia: righe o puntini dalla coda alla testa
+      const n = t.kind === 'dots' ? 9 : 6;
+      for (let k = 0; k < n; k++) {
+        const o = (k / (n - 1) - 0.5) * h * 0.8;
+        const grad = g.createLinearGradient(q.x, q.y, p.x, p.y);
+        grad.addColorStop(0, `rgba(${t.col},0)`); grad.addColorStop(1, `rgba(${t.col},${0.8 * fade})`);
+        if (t.kind === 'dots') {
+          for (let m = 0; m < 10; m++) { const f = m / 9, x = q.x + (p.x - q.x) * f, y = q.y + (p.y - q.y) * f + o * f;
+            g.fillStyle = `rgba(${t.col},${0.7 * f * fade})`; g.beginPath(); g.arc(x, y, 0.6 + f * 1.6 * Math.min(p.s, 3), 0, 7); g.fill(); }
+        } else { g.strokeStyle = grad; g.lineWidth = 0.6 + Math.min(p.s, 3) * 0.5; g.beginPath(); g.moveTo(q.x, q.y + o * 0.3); g.lineTo(p.x, p.y + o); g.stroke(); }
+      }
+      // testa: riquadro di luce, a volte con la foto dentro
+      g.save(); g.globalAlpha = fade * 0.9; g.filter = t.kind === 'photo' ? 'blur(0.6px)' : 'blur(2px)'; g.shadowColor = `rgba(${t.col},0.9)`; g.shadowBlur = 26;
+      if (t.kind === 'photo' && t.img.complete && t.img.naturalWidth) { g.drawImage(t.img, p.x - w / 2, p.y - h / 2, w, h); }
+      else { g.fillStyle = `rgba(${t.col},${t.kind === 'dots' ? 0.18 : 0.32})`; g.fillRect(p.x - w / 2, p.y - h / 2, w, h); }
+      g.restore();
+      if (t.z > 1) { tiles.splice(tiles.indexOf(t), 1); spawn(); }
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+</script>
+</body>
+</html>

@@ -37,6 +37,8 @@ export class BootScene extends Phaser.Scene {
       return;
     }
     const d: LoadData = seed || first ? { boot: true, next: 'Run', data: { seed: seed ?? randomSeed() } } : { boot: true, next: 'Camp' };
-    this.scene.start('Title', d);
+    // intro con le finestre solo entrando nella home (non nella run guidata né con ?seed=)
+    if (seed || first) this.scene.start('Title', d);
+    else this.scene.start('Intro', { key: 'Title', data: d });
   }
 }

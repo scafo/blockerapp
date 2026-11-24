@@ -175,7 +175,21 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   dell'Arsenale. **Arsenale e Laboratorio si migliorano dalla loro pagina** (tasto in alto = scheda della stanza a destra, cosa
   apre il prossimo livello, MIGLIORA), senza la pagina dei livelli. ESC nell'albero = Home. Mappa della home: mare più chiaro e
   blu della terra, rilievo in grigio tenue. Foto nuove di stanze, potenze ed eventi da `concept-art/stili/stanze.py` (vecchie in
-  `concept-art/old/v1`). In attesa: le reference di Nico per le truppe.
+  `concept-art/old/v1`).
+- **Reparti** (24 novembre 2026, reference TikTok di Nico): ritratto crudo di un soldato per reparto, dalla vita in su, busto
+  verso sinistra e sguardo a destra, ombra forte e fondo nero (`concept-art/stili/ritratti.py`; vecchie in `old/v2`). Schierare una
+  pedina non la seleziona. Offensiva a freccia: tappe ogni ~3 caselle lungo il tracciato (`Unit.via`, `RunState.orderVia`),
+  la pedina segue la freccia invece di tagliare dritto verso la punta.
+- **Ricerca a cubo e Radar in 3D** (Nico, 24 novembre 2026, dai suoi riferimenti: spaccato a strati e riquadri di luce con
+  scie): three.js (dipendenza `three`) disegna su un canvas a parte, copiato in un canvas 2D che Phaser usa come texture.
+  **Ricerca** (`TreeScene` in modalità ricerca, `src/render/researchCube.ts`): niente più albero; al centro un parallelepipedo a fil
+  di ferro che gira col mouse, uno strato per ramo (La Caduta in cima, Esercito, Economia, Logistica, Difesa in fondo); ogni
+  ricerca fatta accende i suoi modelli low-poly (Blender: `../concept-art/stili/cubo_modelli.py` → `src/assets/models/cubo.glb`,
+  `PIECES`/`PLACE` dicono quale ricerca accende cosa), quella in corso si vede in trasparenza. A sinistra scritte fitte coi dati
+  veri, a destra un riquadro per ramo con le ricerche (si toccano); tocco su uno strato = la ricerca del suo ramo nella scheda di
+  sempre. L'Arsenale resta ad albero. **Sala Radar** (`src/render/registryRadar.ts`, `CampScene.makeRadar`): al posto della foto il
+  registro in 3D (blocchi smussati con scie, bagliore, lente col mouse e nome della voce sotto); le foto sono le ultime tre
+  campagne, le potenze (le rivali dopo la prima campagna) e i frammenti dell'archivio. Mockup in `docs/mockups/`.
 - **Base in sezione alla XCOM 2** (Nico, novembre 2026: "UI migliore ispirata da altri giochi", scelta XCOM 2): la home è la montagna
   della base di notte con tre piani di stanze illustrate (`FLOORS` in `CampScene.ts`; in verticale Comando largo + due colonne);
   ogni stanza si tocca e apre la sua pagina, dove la foto della stanza fa da fondo (niente più pianta). A destra "In corso"
