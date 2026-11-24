@@ -925,20 +925,22 @@ export class RunState {
     const bag = this.player.loot, S = this.opts.stake;
     const k = outcome === 'victory' ? 1 + BALANCE.victory.bonus
       : outcome === 'retreat' ? 1 - this.opts.exitFee : outcome === 'timeout' ? 1 : 1 - this.opts.eliminatedLoss;
-    // la puntata torna com'è (se finisci senza vincere ne perdi una parte); il guadagno oltre la puntata rende di più
+    // puntata: in vittoria torna com'è, in ritirata paga la tassa come lo zaino, se non vinci (fine tempo o eliminato) si perde
+    // tranne l'assicurazione del Deposito. Il guadagno oltre la puntata rende di più (moltiplicatore della puntata e bonus di vittoria).
     const gain = this.opts.stakeMult * this.opts.campaignLootMult;
     const staked = S.metallo + S.benzina + S.cibo > 0;
-    const stakeK = outcome === 'timeout' && staked ? 1 - BALANCE.stake.lossShare : 1;
+    const lost = outcome === 'timeout' || outcome === 'eliminated';
+    const stakeK = !staked ? k : outcome === 'victory' ? 1 : lost ? 1 - BALANCE.stake.lossShare * (1 - this.opts.stakeInsurance) : k;
     const kept = {} as Bag;
     const SS = this.opts.tutorial ? emptyBag() : BALANCE.economy.startStock; // la scorta di guerra torna al Comando, non è bottino
     for (const r of Object.keys(bag) as Resource[]) {
       const b = Math.max(0, bag[r] - SS[r]);
-      kept[r] = Math.floor((Math.min(b, S[r]) * stakeK + Math.max(0, b - S[r]) * gain) * k);
+      kept[r] = Math.floor(Math.min(b, S[r]) * stakeK + Math.max(0, b - S[r]) * gain * k);
     }
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
       maxTiles: this.player.maxTiles, maxProvinces: this.player.maxProvinces, backpack: { ...bag }, kept, stake: { ...S },
-      gainMult: gain, feePct: Math.round((k < 1 ? 1 - k : 0) * 100), stakeLossPct: Math.round((1 - stakeK) * 100),
+      gainMult: gain, feePct: Math.round((k < 1 ? 1 - k : 0) * 100), stakeLossPct: staked && lost ? Math.round((1 - stakeK) * 100) : 0,
       tutorial: this.opts.tutorial, civ: this.opts.civ, campaign: this.opts.campaign, front: this.opts.frontIndex,
       world: this.worldOutcome(),
     };
@@ -1375,7 +1377,7 @@ export class RunState {
 
   /** Costo in truppe di un'unità (bonus del giocatore compresi). */
   unitCost(f: number, type: UnitType): number {
-    return Math.round(BALANCE.units[type].cost * (f === PLAYER ? this.opts.mods.unitCostMult : 1));
+    return Math.round(BALANCE.units[type].cost * (f === PLAYER ? this.opts.mods.unitCostMult * (this.opts.unitBoost?.[type]?.cost ?? 1) : 1));
   }
 
   /** Perché non si può schierare (null = si può). */
@@ -1404,7 +1406,7 @@ export class RunState {
       if (f === PLAYER) { const c = this.unitRes(type); this.backpack[c.res] -= c.n; }
       if (f !== PLAYER) this.cooldowns[f][type] = this.gameTimeMs + BALANCE.units.cooldownMs; // il giocatore: nessuna ricarica (neanche la barra sulla carta)
     }
-    const maxHp = BALANCE.units[type].hp * (f === PLAYER ? this.opts.unitHpMult : this.opts.front.aiUnitHpMult);
+    const maxHp = BALANCE.units[type].hp * (f === PLAYER ? this.opts.unitHpMult * (this.opts.unitBoost?.[type]?.hp ?? 1) : this.opts.front.aiUnitHpMult);
     const tile = isNaval(type) ? this.seaSpawn(i) : i;
     if (tile < 0) return null;
     const u: Unit = {
@@ -1695,7 +1697,7 @@ export class RunState {
         }
       }
       u.inCombat = !!target || this.units.some((v) => v.owner !== u.owner && this.atWar(u.owner, v.owner) && hexDistance(u.tile, v.tile) <= U[v.type].range);
-      const atk = U[u.type].attack * u.size * (u.owner === PLAYER ? this.opts.mods.unitAttackMult : 1); // munizioni perforanti, reparti uniti
+      const atk = U[u.type].attack * u.size * (u.owner === PLAYER ? this.opts.mods.unitAttackMult * (this.opts.unitBoost?.[u.type]?.atk ?? 1) : 1); // munizioni perforanti, potenziamenti dell'Arsenale, reparti uniti
       if (target) {
         dmg.set(target, (dmg.get(target) ?? 0) + atk * best);
         this.events.push({ type: 'hit', from: u.id, to: target.id, fromTile: u.tile, toTile: target.tile, dmg: atk * best, owner: u.owner });

@@ -5,7 +5,7 @@
 export const PALETTE = {
   ocra: 0x6cc7c2, // accento verde acqua: titoli, etichette, valori importanti
   ruggine: 0xd23a2e, // rosso dei punti critici
-  allerta: 0xe0b04a, // timer, cantieri, avvisi
+  allerta: 0x9fd0f5, // timer, cantieri, avvisi: azzurro freddo (prima ambra; Nico, 23 novembre 2026: "arancio rimasto, togli")
   carta: 0xeeeee4, // avorio: testo e fili dei riquadri
   inchiostro: 0x1f2830, // ardesia: fondo e pannelli
   pannello: 0x232d36, // pannelli

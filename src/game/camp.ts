@@ -17,9 +17,11 @@ export interface RunOptions {
   stake: Bag; // risorse messe in gioco (già tolte dal Deposito all'avvio)
   stakeMult: number; // moltiplicatore del guadagno oltre la puntata
   exitFee: number; // ritirata: quota dello zaino persa
+  stakeInsurance: number; // quota della puntata che torna se non vinci (Deposito)
   playerName: string; // nome del comandante ('' = TU)
   units: UnitType[];
   unitHpMult: number;
+  unitBoost: Partial<Record<UnitType, UnitBoost>>; // potenziamenti dell'Arsenale per reparto
   events: number; // 0 nessuno, 1 comuni, 2 anche rari
   eliminatedLoss: number;
   retreatBonus: number;
@@ -39,6 +41,23 @@ export interface RunOptions {
   world?: WorldCarry; // impero persistente: cosa riporti dalla campagna precedente in questo mondo
 }
 
+/** Moltiplicatori di un reparto solo (vita, danni, costo in truppe). */
+export interface UnitBoost { hp: number; atk: number; cost: number }
+
+/** Potenziamenti per reparto dalle ricerche fatte dell'Arsenale (si moltiplicano). */
+export function unitBoosts(techs: string[]): Partial<Record<UnitType, UnitBoost>> {
+  const out: Partial<Record<UnitType, UnitBoost>> = {};
+  for (const id of techs) {
+    const b = BALANCE.tech[id]?.boost;
+    if (!b) continue;
+    const o = (out[b.unit] ??= { hp: 1, atk: 1, cost: 1 });
+    o.hp *= b.hp ?? 1;
+    o.atk *= b.atk ?? 1;
+    o.cost *= b.cost ?? 1;
+  }
+  return out;
+}
+
 /** Quello che una campagna eredita dalla precedente nello stesso mondo. */
 export interface WorldCarry {
   campaign: number; // campagne già chiuse in questo mondo (cambia il caso delle IA e degli eventi)
@@ -48,9 +67,9 @@ export interface WorldCarry {
 
 /** Tutto sbloccato, niente eventi: usato dal simulatore e come ripiego. */
 export const DEFAULT_OPTIONS: RunOptions = {
-  units: ['fanteria', 'ricognitori', 'artiglieria'], unitHpMult: 1, events: 0,
+  units: ['fanteria', 'ricognitori', 'artiglieria'], unitHpMult: 1, unitBoost: {}, events: 0,
   eliminatedLoss: BALANCE.end.eliminatedLoss, retreatBonus: 0, tutorial: false, fog: false,
-  civ: 'republica', campaign: 'standard', playerName: '', stake: { metallo: 0, benzina: 0, cibo: 0 }, stakeMult: 1, exitFee: 0, endMs: BALANCE.campaigns.standard.durationMs, campaignLootMult: 1, mods: BASE_MODS,
+  civ: 'republica', campaign: 'standard', playerName: '', stake: { metallo: 0, benzina: 0, cibo: 0 }, stakeMult: 1, exitFee: 0, stakeInsurance: 0, endMs: BALANCE.campaigns.standard.durationMs, campaignLootMult: 1, mods: BASE_MODS,
   front: BALANCE.fronts[0], frontIndex: 0, techs: [],
   abilities: [], maxUnitsBonus: 0, abilityCdMult: 1,
 };
@@ -81,7 +100,9 @@ export const campaignChoice = (p: Profile) => p.runs >= BALANCE.progression.camp
 export const activeCiv = (p: Profile): CivId => (civChoice(p) && civUnlocked(p, p.civ) ? p.civ : 'republica');
 export const activeCampaign = (p: Profile): CampaignId => (campaignChoice(p) ? p.campaign : 'standard');
 /** Fronte scelto (mai oltre l'ultimo sbloccato). */
-export const activeFront = (p: Profile): number => Math.max(0, Math.min(p.front ?? 0, p.frontMax ?? 0, BALANCE.fronts.length - 1));
+export const activeFront = (p: Profile): number => Math.max(0, Math.min(p.front ?? 0, frontOpen(p), BALANCE.fronts.length - 1));
+/** Ultimo fronte giocabile: sbloccato vincendo il precedente, e serve il Centro di Comando almeno al numero del fronte − 1. */
+export const frontOpen = (p: Profile): number => Math.min(p.frontMax ?? 0, Math.max(0, p.buildings.comando));
 
 /** Potenza del giocatore: livelli delle postazioni e ricerche fatte (si confronta con quella consigliata del fronte). */
 export function playerPower(p: Profile): number {
@@ -144,15 +165,16 @@ export function stakeIndex(p: Profile): number {
   return k;
 }
 
-/** Risorse di una puntata: divise in parti uguali tra le tre risorse. */
-export function stakeOf(k: number): Bag {
-  const n = Math.floor(BALANCE.stake.options[k] / 3);
+/** Risorse di una puntata: divise in parti uguali tra le tre risorse, cresce col bottino del fronte e della durata. */
+export function stakeOf(k: number, p: Profile): Bag {
+  const mult = BALANCE.fronts[activeFront(p)].lootMult * BALANCE.campaigns[activeCampaign(p)].lootMult;
+  const n = Math.floor((BALANCE.stake.options[k] * mult) / 3);
   return { metallo: n, benzina: n, cibo: n };
 }
 
-export const canStake = (p: Profile, k: number) => canAfford(p.stash, stakeOf(k));
+export const canStake = (p: Profile, k: number) => canAfford(p.stash, stakeOf(k, p));
 
-export const stakeBag = (p: Profile): Bag => stakeOf(stakeIndex(p));
+export const stakeBag = (p: Profile): Bag => stakeOf(stakeIndex(p), p);
 
 export function runOptions(p: Profile): RunOptions {
   const { arsenale, comando, deposito, radar } = p.buildings;
@@ -171,6 +193,7 @@ export function runOptions(p: Profile): RunOptions {
     civ, campaign, mods, playerName: p.name ?? '',
     stake: tutorial ? emptyStake() : stakeBag(p), stakeMult: tutorial ? 1 : BALANCE.stake.mult[stakeIndex(p)],
     exitFee: tutorial ? 0 : Math.max(0, BALANCE.stake.exitFee - C.depositoRetreatBonus[deposito]),
+    stakeInsurance: C.depositoStakeInsurance[deposito],
     endMs: BALANCE.campaigns[campaign].durationMs + C.comandoTimeBonusMs[comando],
     campaignLootMult: BALANCE.campaigns[campaign].lootMult * BALANCE.fronts[front].lootMult,
     front: BALANCE.fronts[front],
@@ -178,6 +201,7 @@ export function runOptions(p: Profile): RunOptions {
     techs: tutorial ? [] : [...p.techs],
     units,
     unitHpMult: C.arsenaleHpMult[arsenale] * mods.unitHpMult,
+    unitBoost: tutorial ? {} : unitBoosts(p.techs),
     events: C.comandoEvents[comando],
     eliminatedLoss: C.depositoLoss[deposito],
     retreatBonus: C.depositoRetreatBonus[deposito],
@@ -228,7 +252,8 @@ export function startExpedition(p: Profile, kind: ExpeditionKind, now: number, r
   const E = C.expeditions[kind];
   if (p.expedition || p.stash.cibo < E.cost) return false;
   p.stash.cibo -= E.cost;
-  const roll = (r: readonly [number, number]) => r[0] + Math.floor(rnd() * (r[1] - r[0] + 1));
+  const m = BALANCE.fronts[activeFront(p)].lootMult; // le squadre tornano con di più nei fronti avanzati
+  const roll = (r: readonly [number, number]) => Math.round((r[0] + Math.floor(rnd() * (r[1] - r[0] + 1))) * m);
   p.expedition = { kind, until: now + (p.test ? 0 : expeditionTimeSec(p, kind) * 1000), reward: { metallo: roll(E.metallo), benzina: roll(E.benzina), cibo: roll(E.cibo) } };
   return true;
 }
@@ -273,13 +298,16 @@ export function buySupply(p: Profile, k: SupplyId): boolean {
   return true;
 }
 
+/** Col metallo si finiscono solo i lavori a cui manca poco (`shop.rushMaxMin`); quelli lunghi col Lume. */
+export const rushable = (until: number, now: number) => until - now <= BALANCE.shop.rushMaxMin * 60_000;
+
 /** Metallo per finire subito un lavoro che finisce a `until`. */
 export const rushCost = (until: number, now: number) => Math.max(1, Math.ceil((until - now) / 60_000)) * BALANCE.shop.rushPerMin;
 
 /** Finisce subito il cantiere o la ricerca pagando metallo (poi settle/settleResearch li chiudono). */
 export function rush(p: Profile, what: 'construction' | 'research', now: number): boolean {
   const job = p[what];
-  if (!job || job.until <= now) return false;
+  if (!job || job.until <= now || !rushable(job.until, now)) return false;
   const cost = rushCost(job.until, now);
   if (p.stash.metallo < cost) return false;
   p.stash.metallo -= cost;

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archeon · flussi</title>
+<style>
+  :root { --bg: #0b0f15; --panel: #121821; --text: #e9ebe6; --muted: #8a949a; --ok: #6fd08a; --ko: #e0523f; --warn: #f2b84b; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 30px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 36px 0 10px; }
+  p.sub { color: var(--muted); margin: 0 0 24px; }
+  .chart { background: var(--panel); border: 1px solid #2a3440; padding: 16px; overflow-x: auto; }
+  ul { padding-left: 20px; }
+  li { margin: 6px 0; }
+  .ok { color: var(--ok); } .ko { color: var(--ko); } .warn { color: var(--warn); }
+  code { color: #b9c0c2; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Archeon · mappa dei flussi</h1>
+  <p class="sub">Dalla home e dalla barra fissa ogni sezione è a un clic; qui sotto il percorso dentro le sezioni. Tutte le schermate dell'alfa (desktop) e come si passa dall'una all'altra, 23 novembre 2026. Le frecce tratteggiate sono i ritorni ("←", ESC).</p>
+
+  <div class="chart"><pre class="mermaid">
+flowchart TD
+  boot([Avvio]) -- prima volta --> tut[Run guidata]
+  boot --> title[HOME · carta e menu]
+  title --> gioca & base & ric & ars & merc & prof
+  gioca[GIOCA · fronte e durata] --> load[Caricamento] --> run[Campagna]
+  tut --> run
+  run --> res[Rapporto di fine campagna]
+  res -- TORNA ALLA HOME --> title
+  res -- RIVINCITA --> load
+  base[BASE · Comando, Radar, Cantiere] --> lvl[Livelli di una stanza]
+  ric[RICERCA · albero, Laboratorio nella scheda]
+  ars[ARSENALE · righe per reparto, Arsenale nella scheda]
+  merc[MERCATO · Deposito, scambi, Estrazione] -- migliora Deposito --> lvl
+  prof[PROFILO · dati, account, Frammenti, estetiche]
+  lvl -. ← torna da dove sei venuto .-> base & merc
+</pre></div>
+
+  <h2>Punti ciechi trovati e sistemati</h2>
+  <ul>
+    <li class="ok">Laboratorio stava nella Base ma "←" riportava in Ricerca. Ora il Laboratorio sta solo in Ricerca (come l'Arsenale nell'Arsenale e il Deposito nel Mercato), e "←" torna sempre da dove sei venuto: dalla Base alla Base, dall'albero all'albero, dal Mercato al Mercato.</li>
+    <li class="ok">La sezione accesa nella barra segue da dove sei venuto (prima i livelli del Laboratorio accendevano Ricerca anche se arrivavi dalla Base).</li>
+    <li class="ok">Il riquadro del comandante in home cambiava solo il nome: ora apre il Profilo (nome, potenza, registro).</li>
+    <li class="ok">In home l'Arsenale era chiuso prima della prima campagna, ma dalla barra si apriva: ora è aperto ovunque. Il Mercato resta chiuso in entrambi.</li>
+    <li class="ok">Gli avvisi ("ricerca completata", "cantiere finito") con Ricerca o Arsenale aperti finivano sotto l'albero e non si vedevano: ora compaiono sopra.</li>
+    <li class="ok">ESC nell'albero riportava in Base anche arrivando dalla home: ora fa come "← Home".</li>
+    <li class="ok">Arsenale e Laboratorio si migliorano dalla loro pagina (scheda a destra), senza una schermata a parte.</li>
+  </ul>
+
+  <h2>Punti ciechi ancora aperti (da decidere)</h2>
+  <ul>
+    <li class="warn">Al primo avvio GIOCA (anche dalla barra) lancia subito la run guidata, senza mostrare la schermata del fronte.</li>
+    <li class="warn">Il Cantiere (una costruzione alla volta) si vede intero solo nella Base; dalle altre sezioni vedi solo la tua stanza.</li>
+    <li class="warn">I Frammenti (acquisti) compaiono solo con i pagamenti accesi: in locale non si vede da nessuna parte come si comprano.</li>
+    <li class="warn">"Test" in basso a destra resta visibile in sviluppo (non nella versione pubblicata).</li>
+  </ul>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { fontFamily: 'Helvetica Neue, Arial', fontSize: '18px' }, flowchart: { curve: 'basis' } });
+</script>
+</body>
+</html>

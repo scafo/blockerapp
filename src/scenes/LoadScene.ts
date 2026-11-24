@@ -17,15 +17,20 @@ export interface LoadData {
   quick?: boolean;
 }
 
+// immagini che possono girare nel B-roll del caricamento (quelle che non esistono vengono saltate)
+const BROLL = ['load-nave', 'load-radar', 'load-ghiaccio', 'load-statua', 'load-tornado', 'load-deserto', 'load-mediterraneo', 'load-citta',
+  'front-1', 'front-2', 'front-3', 'front-4', 'front-5', 'front-6', 'u-artiglieria', 'u-corazzati', 't-ferrovie', 't-caduta', 't-radar',
+  'room-arsenale', 'room-radar', 'bg-estrazione', 'civ-imperium', 'civ-republica', 'ev-convoglio', 'ev-disertori', 'ev-nebbia']; // foto nuove di stanze.py
 const CHAR_MS = 22; // velocità della telescrivente
-const MIN_MS = 6500; // durata minima (si allunga col testo, fino a MAX_MS)
-const MAX_MS = 11000;
+const MIN_MS = 2500; // durata minima (si allunga col testo, fino a MAX_MS; Nico 23 novembre 2026: "caricamento più veloce")
+const MAX_MS = 5000;
 
 /** Una riga del registro: sigla nella colonna di sinistra e testo (rientrato nei blocchi della lore). */
 interface LogLine { gut: string; text: string; indent: number }
 
 export class LoadScene extends Phaser.Scene {
   private launched = false;
+  private needWorld = false;
   private ready = false;
   private leaving = false;
   private startAt = -1; // primo fotogramma (il tempo della scena in create era ancora quello vecchio: il testo partiva a metà)
@@ -64,16 +69,19 @@ export class LoadScene extends Phaser.Scene {
     this.registry.set('lastLoad', k);
     const sc = screens[k];
 
-    // fotografia a tutto schermo, un po' spenta perché il registro si legga
-    // l'immagine scorre lentamente (Nico): un po' più grande dello schermo, va da un lato all'altro per tutta la schermata
-    const img = this.add.image(width / 2, height / 2, sc.img).setTint(0xb8c0c4);
-    const zoom = Math.max(width / img.width, height / img.height) * 1.18;
-    img.setScale(zoom);
-    const freeX = (img.displayWidth - width) / 2, freeY = (img.displayHeight - height) / 2;
-    const dir = Math.random() < 0.5 ? 1 : -1, dy = (Math.random() - 0.5) * 2;
-    img.setPosition(width / 2 + dir * freeX * 0.9, height / 2 + dy * freeY * 0.9);
-    this.tweens.add({ targets: img, x: width / 2 - dir * freeX * 0.9, y: height / 2 - dy * freeY * 0.9, duration: MAX_MS + 1500, ease: 'Sine.easeInOut' });
-    this.add.rectangle(0, 0, width, height, 0x000000, 0.38).setOrigin(0);
+    // B-roll (Nico: "un dataset di immagini che girano una sopra l'altra con l'opacità, scorrimento lento, non a caso"):
+    // la foto della schermata e poi altre dell'archivio, ognuna con un avvicinamento lentissimo e sempre uguale, che sfumano
+    // l'una nell'altra
+    const pool = Phaser.Utils.Array.Shuffle(BROLL.filter((key) => key !== sc.img && this.textures.exists(key)));
+    const reel = [sc.img, ...pool.slice(0, 2)], slot = (MAX_MS + 1500) / reel.length;
+    reel.forEach((key, i) => {
+      const img = this.add.image(width / 2, height / 2, key).setTint(0xb8c0c4).setAlpha(i ? 0 : 1);
+      const z = Math.max(width / img.width, height / img.height) * 1.04;
+      img.setScale(z);
+      this.tweens.add({ targets: img, scale: z * 1.07, duration: slot + 1600, delay: Math.max(0, i * slot - 800), ease: 'Linear' });
+      if (i) this.tweens.add({ targets: img, alpha: 1, duration: 1000, delay: i * slot - 500, ease: 'Sine.easeInOut' });
+    });
+    this.add.rectangle(0, 0, width, height, 0x000000, 0.42).setOrigin(0);
 
     // registro: colonna delle sigle, poi il testo; la lore va a capo a mano così le sigle restano allineate
     const size = P ? 11 : Math.round(Math.min(15, Math.max(12, width / 90)));
@@ -147,6 +155,7 @@ export class LoadScene extends Phaser.Scene {
     this.minMs = Phaser.Math.Clamp(this.total * this.charMs + 1800, MIN_MS, MAX_MS);
     if (d.quick) this.minMs = 400;
     this.time.addEvent({ delay: 420, loop: true, callback: () => { this.cursor = !this.cursor; this.shown = -1; } });
+    this.scatter(width, height, x0, y0, blockW, L.length * lineH, size);
 
     // tocco: salta solo quando il documento è scritto e la scena dopo è pronta
     this.add.zone(0, 0, width, height).setOrigin(0).setInteractive().on('pointerup', () => {
@@ -154,7 +163,53 @@ export class LoadScene extends Phaser.Scene {
     });
     this.cameras.main.fadeIn(450, 0, 0, 0);
 
-    if (d.boot) this.time.delayedCall(200, () => this.registry.set('world', loadWorld())); // carta già pronta: solo decodifica
+    // la carta serve solo alla campagna: si decodifica al primo caricamento che porta in partita (la base ci arriva senza caricamento)
+    this.needWorld = d.next === 'Run' && !this.registry.get('world');
+    if (this.needWorld) this.time.delayedCall(200, () => this.registry.set('world', loadWorld())); // carta già pronta: solo decodifica
+  }
+
+  /**
+   * Frammenti di dati sparsi in altri punti dello schermo (Nico: "più scritte in posti diversi, più random"): coordinate,
+   * frequenze, orari, che compaiono a scatti in momenti a caso e si spengono, lontano dal documento principale.
+   */
+  private scatter(W: number, H: number, bx: number, by: number, bw: number, bh: number, size: number) {
+    const pick = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+    const frag = () => pick([
+      () => `LAT ${(30 + Math.random() * 40).toFixed(2)} N · LON ${(Math.random() * 50 - 10).toFixed(2)} E`,
+      () => `FREQ ${(2 + Math.random() * 12).toFixed(3)} MHz · ${Math.round(-60 + Math.random() * 40)} dB`,
+      () => `SEGNALE ${String(Math.floor(Math.random() * 9999)).padStart(4, '0')} · ricevuto`,
+      () => `${String(Math.floor(Math.random() * 24)).padStart(2, '0')}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')} · turno di notte`,
+      () => `SETTORE ${String.fromCharCode(65 + Math.floor(Math.random() * 8))}-${Math.floor(Math.random() * 90 + 10)} · nessun contatto`,
+      () => `ARCHIVIO ${Math.floor(Math.random() * 900 + 100)}/${Math.floor(Math.random() * 90 + 10)} · protetto`,
+    ])();
+    // lontano dal documento e dagli altri frammenti (prima finivano uno sull'altro)
+    const taken: [number, number, number, number][] = [[bx - 20, by - 20, bw + 40, bh + 40]];
+    const free = (x: number, y: number, w: number) => taken.every(([tx, ty, tw, th]) => x + w < tx || x > tx + tw || y + 30 < ty || y > ty + th);
+    const count = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < count; i++) {
+      const text = frag();
+      let x = 0, y = 0;
+      for (let tries = 0; tries < 20; tries++) {
+        x = 24 + Math.random() * (W - 340);
+        y = 24 + Math.random() * (H - 80);
+        if (free(x, y, 320)) break;
+      }
+      if (!free(x, y, 320)) continue;
+      taken.push([x, y, 320, 30]);
+      const t = this.add.text(x, y, '', { fontFamily: FONT_PIXEL, fontSize: `${Math.max(10, size - 2)}px`, color: '#cfe3f0', resolution: 2 }).setAlpha(0.55);
+      // a scatti: pezzi di parola che arrivano di colpo, poi resta un po' e sparisce
+      let n = 0;
+      this.time.delayedCall(300 + Math.random() * (MAX_MS - 1500), () => {
+        const ev = this.time.addEvent({
+          delay: 60, loop: true, callback: () => {
+            if (Math.random() < 0.45) return; // pause irregolari
+            n = Math.min(text.length, n + 1 + Math.floor(Math.random() * 5));
+            t.setText(text.slice(0, n) + (n < text.length ? '█' : ''));
+            if (n >= text.length) { ev.remove(); this.tweens.add({ targets: t, alpha: 0, delay: 1200 + Math.random() * 1500, duration: 500 }); }
+          },
+        });
+      });
+    }
   }
 
   /** Registro scritto fino al carattere n, con l'avanzamento sull'ultima riga. */
@@ -197,7 +252,7 @@ export class LoadScene extends Phaser.Scene {
       this.draw(n, pct);
     }
     // la scena successiva parte sotto, coperta da questa (che resta in cima)
-    if (!this.launched && t > 0.5 && (!this.target.boot || this.registry.get('world'))) {
+    if (!this.launched && t > 0.5 && (!this.needWorld || this.registry.get('world'))) {
       this.launched = true;
       const key = this.target.next;
       this.scene.get(key).events.once('create', () => this.time.delayedCall(50, () => (this.ready = true)));

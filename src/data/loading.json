@@ -54,6 +54,50 @@
         "Ogni volta l'intervallo si accorcia di qualche secondo. I matematici del Senato non dormono più.",
         "Non era una punizione. Era una prova. E il tempo per superarla sta finendo."
       ]
+    },
+    {
+      "img": "load-tornado",
+      "title": "IL CIELO STORTO",
+      "quote": "Dopo la Caduta il vento ha cambiato direzione. Non è più tornato quello di prima.",
+      "source": "stazione meteo di pianura · registro 4",
+      "lines": [
+        "Sulle pianure del grano si alzano trombe d'aria fuori stagione, sempre verso i punti di caduta.",
+        "I contadini le chiamano le dita degli Alati. Le strade si spostano, i raccolti si perdono in una notte.",
+        "Le colonne viaggiano col bollettino in mano: chi resta allo scoperto non arriva al fronte."
+      ]
+    },
+    {
+      "img": "load-deserto",
+      "title": "LA BENZINA",
+      "quote": "Un pozzo che brucia si vede da cento chilometri. Anche dagli aerei nemici.",
+      "source": "rapporto del Genio · settore sud",
+      "lines": [
+        "Senza benzina non si muovono carri, camion, navi. Le potenze lo sanno e colpiscono prima i pozzi.",
+        "Nel deserto si combatte di notte, tra torri in fiamme e convogli a luci spente.",
+        "Ogni tanica che torna al Deposito è una campagna in più."
+      ]
+    },
+    {
+      "img": "load-mediterraneo",
+      "title": "LE COSTE",
+      "quote": "Dal mare arrivano i rifornimenti. E i bombardamenti, quando il vento è giusto.",
+      "source": "batteria costiera · diario di guardia",
+      "lines": [
+        "I paesi bianchi sulle scogliere sono diventati fortezze. Le cannoniere pattugliano fino all'alba.",
+        "Chi tiene i porti tiene le rotte, e chi tiene le rotte decide chi mangia.",
+        "Le sentinelle contano le navi. Quelle senza bandiera non rispondono mai al segnale."
+      ]
+    },
+    {
+      "img": "load-citta",
+      "title": "LE CAPITALI",
+      "quote": "Il Senato si riunisce ancora. Fuori, i camion non spengono mai il motore.",
+      "source": "cronaca di una capitale · censurata",
+      "lines": [
+        "Nelle città le classi dirigenti governano come se la Concordia non fosse finita.",
+        "Sotto la pioggia sfilano colonne, ministri, folle con gli ombrelli: nessuno guarda il cielo.",
+        "Chi prende una capitale prende i suoi archivi. E negli archivi c'è il conto alla rovescia."
+      ]
     }
   ],
   "status": [
@@ -68,6 +112,6 @@
     "Tocca una provincia lontana: il fronte avanza da solo.",
     "In pausa tocca più province: il piano parte alla ripresa.",
     "Le montagne si difendono quasi il doppio: aggirale, o portaci l'artiglieria.",
-    "Ritirata: lasci il 25% del bottino. Eliminato: il 70%. La puntata si gioca fino alla fine."
+    "Ritirata: lasci il 25% del bottino. Eliminato: il 70%. La puntata si vince solo vincendo: punta se vinci più di 2 volte su 5."
   ]
 }

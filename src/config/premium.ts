@@ -17,9 +17,9 @@ export const PREMIUM = {
   /** Finire un timer: 1 Lume ogni `rushMinPerLume` minuti che mancano, minimo `rushMin`. */
   rushMinPerLume: 10,
   rushMin: 5,
-  rushMaxMinutes: 8 * 60, // il timer più lungo del gioco (spedizione lunga): oltre, il server non accetta
-  /** Pacchetto di risorse: `amount` di ogni risorsa per `cost` Lume (può superare la capienza del Deposito). */
-  resources: { amount: 300, cost: 30 },
+  rushMaxMinutes: 24 * 60, // il timer più lungo del gioco (stanze e ricerche fino a 24 h): oltre, il server non accetta
+  /** Pacchetto di risorse: `amount` di ogni risorsa per `cost` Lume, una volta al giorno (può superare la capienza del Deposito). */
+  resources: { amount: 500, cost: 40, perDay: 1 },
   /** Oggetti estetici: chiave → costo in Lume. Vuoto finché Nico non decide quali (60–150 Lume l'uno). */
   cosmetics: {} as Record<string, number>,
 };

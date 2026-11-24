@@ -1,0 +1,4 @@
+{"front":0,"level":0,"minutes":10,"run":0,"outcome":"timeout","t":600,"raw":388,"rawBag":{"m":200,"b":103,"c":85},"prov":49,"maxProv":94,"pos":15,"emp15":45,"perMin":[6,46,79,159,216,281,317,355,378]}
+{"front":0,"level":0,"minutes":10,"run":1,"outcome":"victory","t":600,"raw":852,"rawBag":{"m":437,"b":156,"c":259},"prov":310,"maxProv":338,"pos":1,"emp15":29,"perMin":[20,72,148,253,339,438,558,648,753]}
+{"front":0,"level":0,"minutes":10,"run":2,"outcome":"timeout","t":600,"raw":487,"rawBag":{"m":147,"b":81,"c":259},"prov":158,"maxProv":174,"pos":2,"emp15":36,"perMin":[10,16,54,102,208,274,329,381,432]}
+{"front":0,"level":0,"minutes":10,"run":3,"outcome":"victory","t":600,"raw":644,"rawBag":{"m":456,"b":110,"c":78},"prov":229,"maxProv":235,"pos":1,"emp15":75,"perMin":[2,45,77,174,225,340,395,459,541]}

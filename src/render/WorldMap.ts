@@ -24,7 +24,7 @@ const LEVELS = [
 const SPARSE_MAX = 96; // riquadri tenuti in memoria nel livello da vicino (i più lontani si buttano)
 const TILE = 512;
 
-const ELEV = [0, 1.15, 2.4, 0.55]; // pianura, colline, montagne, deserto
+export const ELEV = [0, 1.15, 2.4, 0.55]; // pianura, colline, montagne, deserto
 const LAND_SHADES = ['#1b2331', '#1f283a', '#253046', '#2c3953', '#354463', '#405176', '#4d6089'];
 // mare (Nico: "tre colori, contrasto decente, profondità reale, sfumato come il terreno")
 const SEA_SHADES = ['#d0d8e1', '#b5c0cc', '#9aa7b7'];
@@ -270,9 +270,11 @@ export class WorldMap {
       ct.getContext().putImageData(new ImageData(new Uint8ClampedArray(buf.buffer as ArrayBuffer), w, h), 0, 0);
       ct.refresh();
       ct.setFilter(Phaser.Textures.FilterMode.NEAREST);
+      this.clampEdges(ct);
       L.base.push(this.scene.add.image(x0 / d, y0 / d, key).setOrigin(0).setScale(1 / d).setDepth(this.depth).setVisible(false));
       const ot = tm.createCanvas(okey, w, h)!;
       ot.setFilter(Phaser.Textures.FilterMode.NEAREST);
+      this.clampEdges(ot);
       L.ovlTex.push(ot);
       L.ovlBuf.push(new Uint32Array(w * h));
       L.ovl.push(this.scene.add.image(x0 / d, y0 / d, okey).setOrigin(0).setScale(1 / d).setDepth(this.depth + 0.01).setVisible(false));
@@ -351,10 +353,12 @@ export class WorldMap {
     ct.getContext().putImageData(new ImageData(new Uint8ClampedArray(buf.buffer as ArrayBuffer), w, h), 0, 0);
     ct.refresh();
     ct.setFilter(Phaser.Textures.FilterMode.NEAREST);
+    this.clampEdges(ct);
     const vis = this.levels[this.cur] === L;
     L.base[ti] = this.scene.add.image(x0 / d, y0 / d, key).setOrigin(0).setScale(1 / d).setDepth(this.depth + 0.012).setVisible(vis);
     const ot = tm.createCanvas(okey, w, h)!;
     ot.setFilter(Phaser.Textures.FilterMode.NEAREST);
+    this.clampEdges(ot);
     L.ovlTex[ti] = ot;
     L.ovlBuf[ti] = new Uint32Array(w * h);
     L.ovl[ti] = this.scene.add.image(x0 / d, y0 / d, okey).setOrigin(0).setScale(1 / d).setDepth(this.depth + 0.014).setVisible(vis);
@@ -384,8 +388,26 @@ export class WorldMap {
       if (!tex || !buf) continue;
       tex.getContext().putImageData(new ImageData(new Uint8ClampedArray(buf.buffer as ArrayBuffer), tex.width, tex.height), 0, 0);
       tex.refresh();
+      this.clampEdges(tex);
     }
     L.dirtyTiles.clear();
+  }
+
+  /**
+   * Bordo fermo (CLAMP) sui riquadri: Phaser carica i canvas con lato potenza di 2 (512 × 512) in REPEAT e, col filtro
+   * lineare, il bordo di un riquadro si mescolava col lato opposto: una riga sottile su ogni giuntura. Dopo ogni caricamento.
+   */
+  private clampEdges(tex: Phaser.Textures.CanvasTexture) {
+    const gt = tex.source[0].glTexture;
+    if (!gt) return; // canvas 2D: niente texture
+    const gl = gt.gl;
+    gl.activeTexture(gl.TEXTURE0);
+    const cur = gl.getParameter(gl.TEXTURE_BINDING_2D);
+    gl.bindTexture(gl.TEXTURE_2D, gt.webGLTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, cur);
+    gt.wrapS = gt.wrapT = gl.CLAMP_TO_EDGE;
   }
 
   /**

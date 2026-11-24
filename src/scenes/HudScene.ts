@@ -18,6 +18,7 @@ import { analytics } from '../analytics/analytics';
 import { fpsEnabled } from '../ui/debug';
 import { Button } from '../ui/Button';
 import { AbilityCard, CARD_H, CARD_W, UnitCard } from '../ui/UnitCard';
+import { cloudTextures } from '../ui/titleMap';
 import { MapLabels } from '../render/MapLabels';
 import { icon, resIcon } from '../ui/ops';
 import { coverImage } from '../ui/images';
@@ -73,6 +74,8 @@ export class HudScene extends Phaser.Scene {
   private pauseFrame!: Phaser.GameObjects.Graphics;
   private stormText!: Phaser.GameObjects.Text;
   private incTexts: Phaser.GameObjects.Text[] = [];
+  private clouds: { t: Phaser.GameObjects.TileSprite; vx: number; vy: number; par: number }[] = [];
+  private camPrev = { x: 0, y: 0 };
   private incAcc = 0;
   private seed!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
@@ -146,6 +149,14 @@ export class HudScene extends Phaser.Scene {
     this.clockKey = ''; // il tempo sul tasto si riscrive alla nuova campagna
     this.retreatArmed = null;
     this.eventCard = null;
+    // nuvole come nella home (Nico): due strati leggeri sopra la carta e sotto l'interfaccia, che scorrono piano e seguono
+    // lo spostamento della carta (più lente di lei: sembrano più in alto)
+    cloudTextures(this);
+    const { width: cw0, height: ch0 } = view(this);
+    this.clouds = [['title-clouds-a', 3.2, 0.24, 6, 1.5, 0.5], ['title-clouds-b', 2.1, 0.15, 11, -2, 0.8]].map(([key, sc, a, vx, vy, par]) => ({
+      t: this.add.tileSprite(0, 0, cw0, ch0, key as string).setOrigin(0).setTileScale(sc as number).setAlpha(a as number).setTint(0xc4ccd6).setDepth(-20),
+      vx: vx as number, vy: vy as number, par: par as number,
+    }));
 
     // pannello sinistro: truppe, territorio/obiettivi, zaino, tempo di campagna
     // (le posizioni le decide layout(): verticale e orizzontale hanno disposizioni diverse)
@@ -156,7 +167,7 @@ export class HudScene extends Phaser.Scene {
     this.troopsLbl = this.add.text(0, 0, 'TRUPPE', termStyle(11, PALETTE.ocra));
     this.troops = this.add.text(0, 0, '0', termStyle(28, PALETTE.carta));
     this.troopIcon = this.add.image(0, 0, 'ico-truppe').setDisplaySize(20, 20).setOrigin(0, 0.5); // uomini dell'esercito
-    this.rate = this.add.text(0, 0, '', termStyle(11, PALETTE.radioattivo));
+    this.rate = this.add.text(0, 0, '', termStyle(11, 0x7f888e)); // crescita: grigio scuro, non verde fluo (Nico)
     this.food = this.add.text(0, 0, '', termStyle(11, PALETTE.radioattivo)).setVisible(false); // rancio: tolto dalla barra (Nico: non si capiva)
     this.stats = this.add.text(0, 0, '', termStyle(13, PALETTE.carta)).setLineSpacing(2);
     this.resIcons = RESOURCES.map((r) => resIcon(this, r, 0, 0, 18));
@@ -166,7 +177,7 @@ export class HudScene extends Phaser.Scene {
     this.resLabel = this.add.text(0, 0, stake ? ` Bottino · puntata ${stake} ` : ' Bottino ', termLabel(11))
       .setBackgroundColor(hex(TCOL.bg));
     // entrate al minuto sotto ogni risorsa: si vede cosa rende l'impero
-    this.incTexts = RESOURCES.map(() => this.add.text(0, 0, '', termStyle(11, PALETTE.radioattivo, false)).setOrigin(0, 0));
+    this.incTexts = RESOURCES.map(() => this.add.text(0, 0, '', termStyle(11, 0x7f888e, false)).setOrigin(0, 0));
     this.stormText = this.add.text(0, 0, '', termStyle(11, PALETTE.ocra));
     this.clockIcon = this.add.image(0, 0, 'ico-tempo').setDisplaySize(12, 12).setOrigin(0, 0.5).setTint(TCOL.label).setVisible(!this.run.state.opts.tutorial);
 
@@ -202,8 +213,8 @@ export class HudScene extends Phaser.Scene {
     this.pauseBtn = new Button(this, '❚❚', 56, 44, () => this.togglePause());
     // in alto a destra (Nico): MAPPA (viste della carta: politica, terreno, logistica) e COSTRUISCI (scegli l'edificio e
     // trascini sulle tue province, come il vecchio muro). I comandi restano sul tasto H.
-    this.mapBtn = new Button(this, 'MAPPA', 124, 32, () => this.toggleMenu('mappa'), 12, { icon: 'ico-mappa' });
-    this.buildBtn = new Button(this, 'COSTRUISCI', 124, 32, () => this.toggleBuildMenu(), 12, { icon: 'ico-costruisci' });
+    this.mapBtn = new Button(this, 'MAPPA', 150, 34, () => this.toggleMenu('mappa'), 12, { icon: 'li-map' }); // più largo: COSTRUISCI non stava (Nico)
+    this.buildBtn = new Button(this, 'COSTRUISCI', 150, 34, () => this.toggleBuildMenu(), 12, { icon: 'li-hammer' });
     this.buildBtn.setVisible(!this.run.state.opts.tutorial);
     // tempo che manca sul tasto stesso (prima si vedeva solo aprendo il pannello); nella guida resta la medaglia
     const tut = this.run.state.opts.tutorial;
@@ -516,7 +527,8 @@ export class HudScene extends Phaser.Scene {
     const f = this.frames.clear().setVisible(true);
     const box = (x: number, y: number, w: number, h: number, label: Phaser.GameObjects.Text | null) => {
       f.fillStyle(TCOL.bg, 0.94).fillRect(x, y, w, h).lineStyle(1, TCOL.edge, 0.6).strokeRect(x, y, w, h);
-      label?.setPosition(x + 8, y).setOrigin(0, 0.5).setVisible(true);
+      // etichetta dentro il riquadro, in alto a sinistra (Nico: sul bordo era centrata male)
+      label?.setPosition(x + 10, y + 7).setOrigin(0, 0).setBackgroundColor('rgba(0,0,0,0)').setVisible(true);
     };
     if (portrait) {
       // verticale: una barra in alto (esercito | fronte), sotto il bottino; tasti a destra sotto la barra
@@ -536,8 +548,8 @@ export class HudScene extends Phaser.Scene {
       const pb = height - PAD - STATUS_H; // fondo utile: sopra la barra di stato della carta
       this.speedBtn.setPosition(width - PAD - 56, pb - 44);
       this.pauseBtn.setPosition(width - PAD - 56, this.topBottom + 8); // in alto a destra: in basso ci sono le carte
-      this.mapBtn.setPosition(width - PAD - 124, this.topBottom + 8 + 44 + 6);
-      this.buildBtn.setPosition(width - PAD - 124, this.topBottom + 8 + 44 + 6 + 38);
+      this.mapBtn.setPosition(width - PAD - 150, this.topBottom + 8 + 44 + 6);
+      this.buildBtn.setPosition(width - PAD - 150, this.topBottom + 8 + 44 + 6 + 38);
       this.retreatBtn.setPosition(width - PAD - 112, pb - this.portraitCardH() - 8 - 44); // sulla riga delle leve, sopra le carte
       this.seed.setPosition(width - PAD, pb - 2 * 44 - 8 - 6);
       this.hint.setPosition(width / 2 - 34, this.topBottom + 8).setWordWrapWidth(width - 2 * PAD - 140);
@@ -554,15 +566,15 @@ export class HudScene extends Phaser.Scene {
       this.notches[1].setVisible(false);
       this.medalBtn.setPosition(bx, topPad);
       this.audioBtn.setPosition(bx + this.medalBtn.width + 6, topPad);
-      this.troopIcon.setPosition(PAD + 12, topPad + 30);
-      this.troops.setPosition(PAD + 38, topPad + 14);
-      this.layoutResources(cx + 14, topPad + 32, (cW - 24) / 3);
+      this.troopIcon.setPosition(PAD + 12, topPad + 44);
+      this.troops.setPosition(PAD + 38, topPad + 27);
+      this.layoutResources(cx + 14, topPad + 40, (cW - 24) / 3);
       this.topBottom = topPad + BAR_H;
       this.symPos = this.rows.map(() => ({ x: 0, y: 0 }));
       this.unitPos = this.rows.map(() => null);
-      const tx = width - PAD - 124;
+      const tx = width - PAD - 150;
       this.mapBtn.setPosition(tx, topPad);
-      this.buildBtn.setPosition(tx, topPad + 38);
+      this.buildBtn.setPosition(tx, topPad + 40);
       const by = height - PAD - STATUS_H - 44; // comandi sopra la barra di stato della carta
       this.speedBtn.setPosition(width - PAD - 56, by);
       this.pauseBtn.setPosition(width - PAD - 56 - 8 - 56, by);
@@ -573,10 +585,10 @@ export class HudScene extends Phaser.Scene {
       // Le abilità in un riquadro sopra; se lo schermo è stretto si rimpiccioliscono
       const g = this.dockGrid();
       this.dockG.clear().fillStyle(TCOL.bg, 0.94).fillRect(PAD, g.uY, g.uW, g.uH).lineStyle(1, TCOL.edge, 0.6).strokeRect(PAD, g.uY, g.uW, g.uH);
-      this.notches[3].setPosition(PAD + 8, g.uY).setOrigin(0, 0.5).setVisible(true);
+      this.notches[3].setPosition(PAD + 10, g.uY + 6).setOrigin(0, 0).setBackgroundColor('rgba(0,0,0,0)').setVisible(true);
       if (this.abilityCards.length) {
         this.dockG.fillStyle(TCOL.bg, 0.94).fillRect(PAD, g.aY, g.aW, g.aH).lineStyle(1, TCOL.edge, 0.6).strokeRect(PAD, g.aY, g.aW, g.aH);
-        this.notches[4].setPosition(PAD + 8, g.aY).setOrigin(0, 0.5).setVisible(true);
+        this.notches[4].setPosition(PAD + 10, g.aY + 6).setOrigin(0, 0).setBackgroundColor('rgba(0,0,0,0)').setVisible(true);
       } else this.notches[4].setVisible(false);
     }
     for (const o of [this.stats, this.stormText, this.clockIcon]) o.setVisible(false); // ora nel pannello della medaglia
@@ -598,7 +610,7 @@ export class HudScene extends Phaser.Scene {
     const cy = height - PAD - STATUS_H - CARD_H * sc, cx0 = PAD;
     const grid = portrait ? null : this.dockGrid();
     this.cards.forEach((c, k) => {
-      const x = grid ? PAD + DOCK_PAD + (k % grid.cols) * step : cx0 + k * step, y = grid ? grid.uY + DOCK_PAD + 4 + Math.floor(k / grid.cols) * step : cy;
+      const x = grid ? PAD + DOCK_PAD + (k % grid.cols) * step : cx0 + k * step, y = grid ? grid.uY + DOCK_PAD + 18 + Math.floor(k / grid.cols) * step : cy;
       c.baseY = y;
       c.baseX = x;
       c.setScale(sc).setPosition(x, y);
@@ -606,7 +618,7 @@ export class HudScene extends Phaser.Scene {
     // abilità: dopo le carte in orizzontale; in verticale a destra, sopra il tasto RITIRATA
     this.abilityCards.forEach((c, k) => {
       const x = grid ? PAD + DOCK_PAD + k * step : width - PAD - (k + 1) * step + 6;
-      c.baseY = grid ? grid.aY + DOCK_PAD + 4 : this.portraitAbilityY();
+      c.baseY = grid ? grid.aY + DOCK_PAD + 18 : this.portraitAbilityY();
       c.baseX = x;
       c.setScale(sc).setPosition(x, c.baseY);
     });
@@ -617,7 +629,7 @@ export class HudScene extends Phaser.Scene {
     const { width, height } = view(this), bottom = height - PAD - STATUS_H;
     const cols = Math.max(1, Math.ceil(this.cards.length / 2)), na = this.abilityCards.length;
     const boxW = (n: number, sc: number) => n * (CARD_W * sc + 6) - 6 + 2 * DOCK_PAD;
-    const boxH = (rows: number, sc: number) => (rows ? rows * (CARD_H * sc + 6) - 6 + 2 * DOCK_PAD + 8 : 0);
+    const boxH = (rows: number, sc: number) => (rows ? rows * (CARD_H * sc + 6) - 6 + 2 * DOCK_PAD + 22 : 0); // spazio in alto per l'etichetta dentro il riquadro
     const avail = (width - 470) / 2 - PAD - 8; // la scheda della provincia è larga al massimo 470, al centro
     const sc = Phaser.Math.Clamp(avail / Math.max(1, boxW(Math.max(cols, na), 1)), 0.6, 1);
     const uH = boxH(Math.min(2, this.cards.length), sc), uY = bottom - uH, aH = boxH(na ? 1 : 0, sc), aY = uY - ABIL_GAP - aH;
@@ -656,12 +668,19 @@ export class HudScene extends Phaser.Scene {
   update(_t: number, delta: number) {
     const st = this.run.state;
     if (!st) return;
+    const cam = this.run.cameras?.main;
+    for (const c of this.clouds) {
+      c.t.tilePositionX += (c.vx * delta) / 1000;
+      c.t.tilePositionY += (c.vy * delta) / 1000;
+      if (cam) c.t.setTilePosition(c.t.tilePositionX + (cam.scrollX - this.camPrev.x) * cam.zoom * c.par / UI(), c.t.tilePositionY + (cam.scrollY - this.camPrev.y) * cam.zoom * c.par / UI());
+    }
+    if (cam) this.camPrev = { x: cam.scrollX, y: cam.scrollY };
     if ((this.incAcc -= delta) <= 0) {
       this.incAcc = 1000;
       const inc = st.incomePerMin();
       // entrata netta (mantenimento delle pedine compreso): in rosso se si consuma più di quanto si produce
       RESOURCES.forEach((r, k) => this.incTexts[k].setText(Math.abs(inc[r]) >= 0.05 ? `${inc[r] > 0 ? '+' : '−'}${Math.abs(inc[r]).toFixed(1).replace('.', ',')}/min` : '')
-        .setColor(hex(inc[r] < 0 ? TCOL.alert : TCOL.ok)));
+        .setColor(hex(inc[r] < 0 ? TCOL.alert : 0x7f888e))); // guadagno in grigio scuro, perdita in rosso
     }
     this.drawGroupBar();
     if (!this.buildHint && !st.opts.tutorial && st.gameTimeMs > 40_000) {

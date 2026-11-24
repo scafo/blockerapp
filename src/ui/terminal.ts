@@ -7,7 +7,7 @@ import { FONT } from './style';
 import { UI } from './screen';
 
 // Sistema dei colori dell'interfaccia (Nico: troppi colori a caso). Ogni colore ha un solo significato:
-// bianco = valori · grigio = etichette e testo secondario · verde = va bene / guadagno · ambra = avviso, timer, in corso ·
+// bianco = valori · grigio = etichette e testo secondario · verde = va bene / guadagno · azzurro = avviso, timer, in corso ·
 // rosso = problema, manca qualcosa. Più i colori delle fazioni. Nient'altro.
 export const TCOL = {
   bg: 0x0a1018, // fondo dei riquadri (vetro scuro)
@@ -15,7 +15,7 @@ export const TCOL = {
   edge: 0x7f8c98, // filo dei riquadri: grigio, non compete coi valori
   label: 0x8a949a, // etichette
   text: 0xe9ebe6, // valori
-  accent: 0xe0b04a, // avvisi, timer, cose in corso
+  accent: 0x9fd0f5, // avvisi, timer, cose in corso: azzurro freddo (niente arancio, Nico)
   alert: 0xe0473a, // problemi
   ok: 0x7fd18b, // va bene, guadagni
   dim: 0x5d646b, // spento / non disponibile

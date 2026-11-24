@@ -6,6 +6,8 @@ export const FONT = '"Helvetica Neue", Helvetica, Arial, sans-serif';
 /** Leggibilità: nessun testo sotto 12 punti e tutto un po' più grande dei valori scritti nel codice. */
 export const textSize = (size: number) => Math.round(Math.max(12, size * 1.2));
 export const FONT_TITLE = FONT;
+/** Tecnico e moderno, per controbilanciare l'Helvetica (Nico, 23 novembre 2026): menu, sezioni, didascalie, numeri delle scorte. */
+export const FONT_TECH = '"Chakra Petch", "Helvetica Neue", Arial, sans-serif';
 /** Font da terminale (archivio e flussi di dati nei caricamenti, come le scritte sull'immagine della nave). */
 export const FONT_MONO = '"Share Tech Mono", "Courier New", monospace';
 /** Carta (STYLE.md): serif classico per i nomi dell'atlante, mono tecnico per numeri e sigle sulla mappa. */

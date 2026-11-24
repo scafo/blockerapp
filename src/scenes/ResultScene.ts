@@ -11,7 +11,7 @@ import { loadProfile } from '../save/storage';
 import { profileStore } from '../save/profileStore';
 import { analytics } from '../analytics/analytics';
 import { Button } from '../ui/Button';
-import { OPS, body, chip, icon, label, panel, resIcon, rule, value } from '../ui/ops';
+import { OPS, body, label, panel, resIcon, resPhoto, rule, tech, value } from '../ui/ops';
 import { uiCamera, view } from '../ui/screen';
 import { civImage, coverImage, fade } from '../ui/images';
 
@@ -24,7 +24,8 @@ const TITLES: Record<RunSummary['outcome'], string> = {
 
 const REASONS = { map: 'I tre imperi rivali sono caduti', time: 'Più province di tutti a fine campagna', tutorial: 'Il primo pezzo di mondo è tuo' };
 
-/** Schermata finale stile manifesto: esito, bollettino comando, bottino portato a casa, rivincita. */
+/** Rapporto di fine campagna: a sinistra l'esito e la campagna, a destra il bottino portato a casa con le foto, in basso
+ *  a destra TORNA ALLA BASE e la rivincita. */
 export class ResultScene extends Phaser.Scene {
   constructor() {
     super('Result');
@@ -39,150 +40,119 @@ export class ResultScene extends Phaser.Scene {
     analytics.runEnd(sum.outcome, sum.reason, sum.maxTiles, sum.timeMs, sum.seed);
     analytics.resources('source', sum.kept, 'run', sum.outcome);
 
-    const { width, height, portrait: P } = view(this);
+    const { width, height } = view(this);
     this.cameras.main.setBackgroundColor(PALETTE.inchiostro);
-    // fondo cinematografico: la potenza in vittoria, un'immagine dell'archivio della Caduta negli altri casi, scurita
-    const bg = sum.outcome === 'victory' ? civImage(sum.civ) : ({ retreat: 'load-nave', eliminated: 'load-croce', timeout: 'load-ghiaccio' } as Record<string, string>)[sum.outcome];
-    const img = coverImage(this, bg, 0, 0, width, height, 0.4).setTint(0x9dbcdf).setAlpha(0.8);
-    this.tweens.add({ targets: img, alpha: 0.62, duration: 4000, yoyo: true, repeat: -1 });
-    this.add.rectangle(0, 0, width, height, 0x05080d, 0.32).setOrigin(0);
-    fade(this, 0, 0, width * 0.6, height, 0x05070a, 0.75, 0, 'h');
+    // fondo: la potenza in vittoria, altrimenti la foto del fronte dove si è combattuto (le vecchie immagini del Figma
+    // avevano scritte da terminale stampate sopra)
+    const bg = sum.outcome === 'victory' ? civImage(sum.civ) : this.textures.exists(`front-${sum.front + 1}`) ? `front-${sum.front + 1}` : 'load-nave';
+    coverImage(this, bg, 0, 0, width, height, 0.45).setTint(0xb8c4d0);
+    this.add.rectangle(0, 0, width, height, 0x05080d, 0.35).setOrigin(0);
+    fade(this, 0, 0, width * 0.62, height, 0x05070a, 0.85, 0, 'h');
+    fade(this, 0, height * 0.6, width, height * 0.4, 0x05070a, 0, 0.8);
     const g = this.add.graphics();
-
-    // cornice con i crocini
-    const M = P ? 16 : 28, fx = M, fy = M, fw = width - 2 * M, fh = height - 2 * M;
-    const pad = P ? 14 : 26, L = fx + pad, R = fx + fw - pad;
-
-    // intestazione: numero del rapporto a sinistra, codice della mappa a destra; sotto, potenza/fronte/durata in riquadri
+    const M = Math.max(48, width * 0.04), L = M, R = width - M;
     const roman = ['I', 'II', 'III', 'IV', 'V', 'VI'];
-    label(this, L, fy + pad - 4, `Rapporto dal fronte · N° ${profile.runs}`);
-    let cx = L;
-    for (const c of [sum.civ, `fronte ${roman[sum.front]}`, sum.campaign]) cx += chip(this, g, cx, fy + pad + 18, c) + 6;
+    const civName = sum.civ.charAt(0).toUpperCase() + sum.civ.slice(1);
+    const camp = { breve: 'Breve', standard: 'Standard', lunga: 'Lunga' }[sum.campaign] ?? sum.campaign;
 
-    // colonne: esito a sinistra, bottino a destra (in verticale una sotto l'altra)
-    const colW = P ? R - L : Math.min(440, (R - L) * 0.5);
-    const panW = P ? R - L : Math.min(380, (R - L) - colW - 40);
-    const panX = P ? L : R - panW;
-    let y = fy + pad + 62;
-
-    // esito: icona del suo colore (alloro, bandiera bianca, teschio = guerra, clessidra) + parola grande
+    // sinistra: di che campagna si parla (testo semplice, non riquadri che sembrano tasti), esito grande, una frase, due numeri
+    let y = M + 8;
+    label(this, L, y, `Rapporto dal fronte · N° ${profile.runs}`, OPS.label, 10);
+    label(this, L, y + 18, `Fronte ${roman[sum.front]} · ${BALANCE.fronts[sum.front].name} · ${civName} · ${camp}`, OPS.body, 11);
+    y += 62;
     const tone = sum.outcome === 'victory' ? OPS.gain : sum.outcome === 'retreat' ? PALETTE.allerta : sum.outcome === 'eliminated' ? OPS.loss : OPS.label;
-    icon(this, ({ victory: 'ui-trofeo', retreat: 'ui-ritirata', eliminated: 'ui-guerra', timeout: 'ui-tempo' } as Record<string, string>)[sum.outcome], L + 8, y + 7, 16, tone);
-    label(this, L + 22, y, 'Esito', tone);
-    y += 20;
-    const title = value(this, L - 2, y, TITLES[sum.outcome], P ? 40 : 64).setWordWrapWidth(colW);
-    this.tweens.add({ targets: title, alpha: { from: 0, to: 1 }, x: { from: L - 14, to: L - 2 }, duration: 380, ease: 'Quad.easeOut' });
+    const colW = Math.min(560, width * 0.42);
+    const title = value(this, L - 3, y, TITLES[sum.outcome], 76, tone === OPS.label ? OPS.text : tone).setWordWrapWidth(colW);
+    this.tweens.add({ targets: title, alpha: { from: 0, to: 1 }, x: { from: L - 15, to: L - 3 }, duration: 380, ease: 'Quad.easeOut' });
     y += title.height + 6;
     const lines = bulletins[sum.outcome];
     const reason = sum.reason ? `${REASONS[sum.reason]}. ` : '';
-    const bul = body(this, L, y, reason + lines[Math.floor(Math.random() * lines.length)], 14, OPS.body, colW);
-    y += bul.height + (P ? 16 : 26);
-
-    // due dati della campagna, separati da un filo verticale
+    const bul = body(this, L, y, reason + lines[Math.floor(Math.random() * lines.length)], 16, OPS.body, colW);
+    y += bul.height + 30;
     const sec = Math.floor(sum.timeMs / 1000);
-    const stats: [string, string, string][] = [['Province max', `${sum.maxProvinces}`, 'ui-province'], ['Durata', `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`, 'ui-tempo']];
-    stats.forEach(([k, v, ic], i) => {
-      const sx = L + i * 140;
-      if (i) g.lineStyle(1, OPS.edge, 0.5).lineBetween(sx - 20, y + 2, sx - 20, y + 50);
-      icon(this, ic, sx + 7, y + 7, 13, OPS.label);
-      label(this, sx + 18, y, k);
-      value(this, sx, y + 16, v, 30);
+    ([['Province', `${sum.maxProvinces}`], ['Durata', `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`]] as [string, string][]).forEach(([k, v], i) => {
+      label(this, L + i * 170, y, k, OPS.label, 11);
+      tech(this, L + i * 170, y + 18, v, 34);
     });
-    y += 66;
-
-    // fronte nuovo: una riga d'avviso con il suo puntino
+    y += 76;
     if (unlocked > 0) {
-      icon(this, 'st-operazioni', L + 8, y + 7, 15, OPS.accent);
-      label(this, L + 22, y, `Nuovo fronte sbloccato · ${roman[unlocked]}`, OPS.accent);
-      body(this, L, y + 18, `${BALANCE.fronts[unlocked].name}: nemici più forti, potenzia l'HQ.`, 13, OPS.body, colW);
-      y += 52;
+      label(this, L, y, `Nuovo fronte sbloccato · ${roman[unlocked]} · ${BALANCE.fronts[unlocked].name}`, OPS.gain, 11);
+      y += 30;
     }
-    const leftEnd = y;
 
-    // ---------- pannello del bottino ----------
-    const py0 = P ? leftEnd + 4 : fy + pad + 62;
-    const ip = 16, IL = panX + ip, IR = panX + panW - ip;
-    const items: (() => void)[] = []; // si disegna dopo aver misurato l'altezza
-    let py = py0 + ip;
-    const at = (h: number) => { const v = py; py += h; return v; };
-    const ty = at(26);
-    items.push(() => { label(this, IL, ty, 'bottino portato a casa'); });
-    // tre risorse: icona, nome, valore grande a destra; "di N" se è cambiato rispetto allo zaino
-    RESOURCES.forEach((r) => {
-      const ry = at(40);
-      items.push(() => {
-        resIcon(this, r, IL + 10, ry + 14, 20);
-        body(this, IL + 28, ry + 14, RESOURCE_INFO[r].name, 13, OPS.body).setOrigin(0, 0.5);
-        const v = value(this, IR, ry + 14, `${sum.kept[r]}`, 24).setOrigin(1, 0.5);
-        if (sum.kept[r] !== sum.backpack[r]) label(this, IR - v.width - 8, ry + 14, `di ${sum.backpack[r]}`).setOrigin(1, 0.5);
-      });
-    });
-    // cosa ha cambiato il bottino: una riga per voce, col suo colore
+    // destra: il bottino portato a casa, grande, con le foto delle risorse
+    const panW = Math.min(520, R - L - colW - 60), panX = R - panW, ip = 24;
+    let py = M + 70;
+    const items: (() => void)[] = [];
+    const top = py;
+    py += ip;
+    const hy = py;
+    items.push(() => label(this, panX + ip, hy, 'Portato a casa', OPS.label, 11));
+    py += 26;
+    const cw = (panW - 2 * ip) / 3, cy = py;
+    items.push(() => RESOURCES.forEach((r, i) => {
+      const x = panX + ip + i * cw + cw / 2;
+      resPhoto(this, r, x, cy + 40, 72);
+      tech(this, x, cy + 96, `+${sum.kept[r]}`, 30, sum.kept[r] ? OPS.text : OPS.label).setOrigin(0.5);
+      label(this, x, cy + 122, RESOURCE_INFO[r].name, OPS.label, 10).setOrigin(0.5);
+      // raccolti in campagna, se diversi da quelli portati a casa
+      if (sum.kept[r] !== sum.backpack[r]) label(this, x, cy + 140, `raccolti ${sum.backpack[r]}`, OPS.label, 9).setOrigin(0.5);
+    }));
+    py += 162;
+    // perché è cambiato: una riga per voce
     const mods: [string, string, number][] = [];
     if (sum.outcome === 'victory') mods.push(['Bonus vittoria', `+${Math.round(BALANCE.victory.bonus * 100)}%`, OPS.gain]);
     if (sum.feePct) mods.push([sum.outcome === 'retreat' ? 'Tassa di ritirata' : 'Eliminato', `−${sum.feePct}%`, OPS.loss]);
-    const gm = Math.round(sum.gainMult * 100) / 100;
-    if (gm !== 1 && RESOURCES.some((r) => sum.backpack[r] > sum.stake[r])) mods.push(['Guadagno oltre la puntata', `×${String(gm).replace('.', ',')}`, OPS.gain]);
-    if (sum.stakeLossPct) mods.push(['Puntata persa', `−${sum.stakeLossPct}%`, OPS.loss]);
+    if (bagTotal(sum.stake) > 0) {
+      const gm = Math.round(sum.gainMult * 100) / 100;
+      if (gm !== 1) mods.push(['Guadagno oltre la puntata', `×${String(gm).replace('.', ',')}`, OPS.gain]);
+      if (sum.stakeLossPct) mods.push(['Puntata persa', `−${sum.stakeLossPct}%`, OPS.loss]);
+    }
     if (mods.length) {
-      const ry = at(14);
-      items.push(() => rule(g, IL, IR, ry + 6));
+      const ry = py;
+      items.push(() => rule(g, panX + ip, panX + panW - ip, ry));
+      py += 10;
       for (const [k, v, c] of mods) {
-        const my = at(28);
+        const my = py;
         items.push(() => {
-          body(this, IL, my + 12, k, 13, OPS.body).setOrigin(0, 0.5);
-          value(this, IR, my + 12, v, 16, c).setOrigin(1, 0.5);
+          body(this, panX + ip, my + 14, k, 14, OPS.body).setOrigin(0, 0.5);
+          tech(this, panX + panW - ip, my + 14, v, 18, c).setOrigin(1, 0.5);
         });
+        py += 30;
       }
     }
-    // puntata: messa in gioco → portata a casa, differenza in verde o rosso
-    const staked = bagTotal(sum.stake), kept = bagTotal(sum.kept);
-    if (staked) {
-      const ry = at(14);
-      items.push(() => rule(g, IL, IR, ry + 6));
-      const sy = at(34);
-      const diff = kept - staked;
-      items.push(() => {
-        label(this, IL, sy + 2, 'puntata');
-        body(this, IL, sy + 16, `${staked} → ${kept}`, 14, OPS.text);
-        value(this, IR, sy + 16, `${diff >= 0 ? '+' : '−'}${Math.abs(diff)}`, 22, diff >= 0 ? OPS.gain : OPS.loss).setOrigin(1, 0.5);
-      });
+    // il Deposito dopo la campagna, piccolo
+    const dyy = py + 8, st = profile.stash;
+    items.push(() => {
+      rule(g, panX + ip, panX + panW - ip, dyy);
+      label(this, panX + ip, dyy + 18, 'Nel Deposito ora', OPS.label, 10).setOrigin(0, 0.5);
+      let dx = panX + panW - ip;
+      for (const r of [...RESOURCES].reverse()) {
+        const t = label(this, dx, dyy + 18, `${st[r]}`, OPS.body, 11).setOrigin(1, 0.5);
+        resIcon(this, r, t.x - t.width - 10, dyy + 18, 14);
+        dx = t.x - t.width - 28;
+      }
+    });
+    py += 40;
+    if (lostCap) {
+      const ly = py;
+      items.push(() => body(this, panX + ip, ly, `Deposito pieno: perse ${lostCap} (capienza ${stashCap(profile)})`, 12, OPS.loss, panW - 2 * ip));
+      py += 24;
     }
     py += ip;
-    const ph = py - py0;
-    panel(g, panX, py0, panW, ph);
+    panel(g, panX, top, panW, py - top);
     items.forEach((f) => f());
 
-    // Deposito: sotto il pannello, piccolo (è lo stato della base, non il risultato)
-    const s = profile.stash;
-    let dy = py0 + ph + 12;
-    label(this, panX, dy, 'Deposito');
-    let dx = panX + 84;
-    for (const r of RESOURCES) {
-      resIcon(this, r, dx + 7, dy + 7, 15);
-      const t = body(this, dx + 18, dy + 7, `${s[r]}`, 12, OPS.body).setOrigin(0, 0.5);
-      dx += 18 + t.width + 16;
-    }
-    if (lostCap) body(this, panX, dy + 20, `Deposito pieno: perse ${lostCap} (capienza ${stashCap(profile)})`, 12, OPS.loss, panW);
-    dy += lostCap ? 40 : 22;
-
-    // pulsanti: in basso a sinistra (in verticale in fondo, larghi per il pollice)
-    const bh = 48, bw1 = P ? R - L : 240, bw2 = P ? R - L : 190;
-    const by = P ? Math.max(dy + 16, fy + fh - pad - bh * 2 - 10) : fy + fh - pad - bh;
-    const again = new Button(this, 'RIVINCITA', bw1, bh, () => {
-      analytics.design(['run', 'rivincita', sum.outcome]); // % rivincita dopo una sconfitta
-      this.scene.start('Load', { next: 'Run', data: { seed: sum.seed } });
-    }).setPrimary();
-    const fresh = new Button(this, 'ACCAMPAMENTO', bw2, bh, () => this.scene.start('Camp'));
-    again.setPosition(L, by);
-    fresh.setPosition(P ? L : L + bw1 + 12, P ? by + bh + 10 : by);
-    const cap = label(this, L, by - 18, 'Rivincita: stessa mappa');
-    if (sum.tutorial) {
-      // dopo la run guidata si va a scoprire l'accampamento (la rivincita genererebbe un'altra mappa)
-      again.destroy();
-      cap.destroy();
-      fresh.setPosition(L, P ? by + bh + 10 : by).setPrimary();
-      this.tweens.add({ targets: fresh, scale: 1.06, duration: 600, yoyo: true, repeat: -1 });
+    // tasti in basso a destra, staccati dal bordo: tornare alla home è l'azione principale, la rivincita accanto
+    const bh = 56, bw = 260, by = height - M - bh;
+    const base = new Button(this, 'TORNA ALLA HOME', bw, bh, () => this.scene.start('Title', { next: 'Camp' }), 16).setPrimary(); // in home, non nella base (Nico)
+    base.setPosition(R - bw, by);
+    if (!sum.tutorial) {
+      const again = new Button(this, 'RIVINCITA · STESSA MAPPA', bw, bh, () => {
+        analytics.design(['run', 'rivincita', sum.outcome]); // % rivincita dopo una sconfitta
+        this.scene.start('Load', { next: 'Run', data: { seed: sum.seed } });
+      }, 13);
+      again.setPosition(R - 2 * bw - 12, by);
     }
   }
 }

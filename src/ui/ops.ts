@@ -7,7 +7,7 @@
 // e ai nomi, mai da sole senza senso; niente puntini, tacche o crocini decorativi.
 import Phaser from 'phaser';
 import { hex } from '../config/palette';
-import { FONT, FONT_TITLE, textSize } from './style';
+import { FONT, FONT_TECH, FONT_TITLE, textSize } from './style';
 import { UI } from './screen';
 import { RESOURCE_INFO } from '../game/resources';
 import type { Resource } from '../config/balance';
@@ -16,25 +16,30 @@ export const OPS = {
   panel: 0x0a1018, // fondo dei pannelli
   edge: 0x7f8c98, // filo dei pannelli e delle righe
   row: 0x35424e, // vetro delle righe
-  cta: 0x5e3722, // ruggine dell'azione principale
+  cta: 0xe6e9ea, // azione principale: bianco pieno, etichetta scura (prima ruggine; Nico, 23 novembre 2026)
   label: 0x8a949a, // didascalie
   text: 0xe9ebe6, // valori e testo principale
   body: 0xb9c0c2, // testo di lettura
   gain: 0x6fd08a, // guadagni, stati positivi
   loss: 0xe0523f, // perdite, stati negativi
-  accent: 0xd3a585, // testi e collegamenti da evidenziare (la ruggine sul nero non si legge)
+  accent: 0xc8d0d6, // testi e collegamenti da evidenziare: grigio chiaro (prima ruggine chiara, tolta)
 };
 
-/** Etichetta: testo spaziato con la prima lettera maiuscola, grigio. */
+/** Etichetta: testo spaziato con la prima lettera maiuscola, grigio, nel carattere tecnico. */
 export function label(scene: Phaser.Scene, x: number, y: number, text: string, color: number = OPS.label, size = 10) {
   return scene.add.text(x, y, text.charAt(0).toUpperCase() + text.slice(1), {
-    fontFamily: FONT, fontSize: `${textSize(size)}px`, color: hex(color), resolution: UI(),
+    fontFamily: FONT_TECH, fontSize: `${textSize(size)}px`, color: hex(color), resolution: UI(),
   }).setLetterSpacing(0.6);
 }
 
 /** Valore grande (titoli, numeri). */
 export function value(scene: Phaser.Scene, x: number, y: number, text: string, size: number, color: number = OPS.text) {
   return scene.add.text(x, y, text, { fontFamily: FONT_TITLE, fontSize: `${Math.round(size)}px`, fontStyle: '500', color: hex(color), resolution: UI() });
+}
+
+/** Scritta tecnica grande (menu, sezioni della barra, numeri delle scorte): Chakra Petch. */
+export function tech(scene: Phaser.Scene, x: number, y: number, text: string, size: number, color: number = OPS.text) {
+  return scene.add.text(x, y, text, { fontFamily: FONT_TECH, fontSize: `${Math.round(size)}px`, fontStyle: '600', color: hex(color), resolution: UI() });
 }
 
 /** Intestazione di sezione o nome di una voce: bianca, media, senza spaziatura. */
@@ -47,8 +52,19 @@ export function icon(scene: Phaser.Scene, name: string, x: number, y: number, si
   return scene.add.image(x, y, `ic-${name}`).setDisplaySize(size, size).setTint(color);
 }
 
-/** Icona della risorsa nel suo colore. */
-export const resIcon = (scene: Phaser.Scene, r: Resource, x: number, y: number, size: number) => icon(scene, `res-${r}`, x, y, size, RESOURCE_INFO[r].color);
+/** Icone stilizzate delle risorse (Nico: "piccole e semplici; le foto per le schermate grandi"): spiga, ingranaggio, pompa. */
+const RES_LINE: Partial<Record<Resource, string>> = { cibo: 'li-wheat', metallo: 'li-cog', benzina: 'li-fuel' };
+
+/** Icona piccola della risorsa: il segno a linea nel colore della risorsa (le truppe restano la loro icona). */
+export const resIcon = (scene: Phaser.Scene, r: Resource, x: number, y: number, size: number) => {
+  const k = RES_LINE[r];
+  return k && scene.textures.exists(k) ? scene.add.image(x, y, k).setDisplaySize(size, size).setTint(RESOURCE_INFO[r].color)
+    : icon(scene, `res-${r}`, x, y, size, RESOURCE_INFO[r].color);
+};
+
+/** Foto della risorsa scontornata (sacco, ingranaggio, fusto): per premi e schermate grandi. */
+export const resPhoto = (scene: Phaser.Scene, r: Resource, x: number, y: number, size: number) =>
+  scene.textures.exists(`rp-${r}`) ? scene.add.image(x, y, `rp-${r}`).setDisplaySize(size, size) : resIcon(scene, r, x, y, size);
 
 /** Testo di lettura. */
 export function body(scene: Phaser.Scene, x: number, y: number, text: string, size = 13, color: number = OPS.body, wrap = 0) {

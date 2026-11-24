@@ -1,0 +1,3 @@
+{"front":2,"level":0,"minutes":20,"run":0,"outcome":"eliminated","t":191,"raw":53,"rawBag":{"m":40,"b":13,"c":0},"prov":0,"maxProv":37,"pos":57,"emp15":30,"perMin":[62,65,53]}
+{"front":2,"level":0,"minutes":20,"run":1,"outcome":"timeout","t":1200,"raw":1246,"rawBag":{"m":862,"b":225,"c":159},"prov":203,"maxProv":203,"pos":4,"emp15":33,"perMin":[37,116,98,139,186,263,308,352,400,427,452,493,527,562,597,631,666,728,977]}
+{"front":2,"level":0,"minutes":20,"run":2,"outcome":"timeout","t":1200,"raw":670,"rawBag":{"m":318,"b":104,"c":248},"prov":56,"maxProv":70,"pos":21,"emp15":40,"perMin":[22,96,153,203,234,258,283,447,481,515,546,577,602,623,641,662,664,669,675]}

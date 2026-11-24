@@ -19,13 +19,13 @@
   }
  },
  "lume": {
-  "title": "Lume",
+  "title": "Frammenti",
   "desc": "La luce fredda dei Frammenti. Si compra con soldi veri e si spende per finire i timer, avere risorse o oggetti estetici.",
   "login": "ACCEDI CON EMAIL",
-  "loginNote": "Ti mandiamo un codice di 6 cifre. Il Lume resta legato all'email, su qualsiasi dispositivo.",
+  "loginNote": "Ti mandiamo un codice di 6 cifre. I Frammenti restano legati all'email, su qualsiasi dispositivo.",
   "codeTitle": "Codice di accesso",
   "codeNote": "Scrivi il codice arrivato a {email}.",
-  "resources": "{amount} DI OGNI RISORSA · {cost} LUME",
+  "resources": "{amount} DI OGNI RISORSA · {cost} FRAMMENTI · 1 AL GIORNO",
   "out": "Esci"
  }
 }

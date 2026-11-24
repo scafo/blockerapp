@@ -85,7 +85,7 @@
     "lore": "Le anomalie non sono crateri: sono Frammenti degli Alati. Emettono lo stesso segnale registrato la notte della Caduta, a intervalli regolari. Come un battito."
   },
   "frammenti": {
-    "name": "Frammenti",
+    "name": "Il Lume",
     "desc": "Bottino +10%",
     "lore": "Il Lume, la luce fredda dei Frammenti, muove motori, radio e armi. Chi lo maneggia troppo a lungo smette di sentire il freddo. Poi smette di sentire."
   },
@@ -114,5 +114,57 @@
   "fortezze": {
     "name": "Fortezze",
     "desc": "Fortificazioni +40% e province +10% di difesa"
+  },
+  "fanteria_vita": {
+    "name": "Elmetti e giubbe",
+    "desc": "Fanteria: +20% vita"
+  },
+  "fanteria_danni": {
+    "name": "Fucili a ripetizione",
+    "desc": "Fanteria: +20% danni"
+  },
+  "ricognitori_vita": {
+    "name": "Telai rinforzati",
+    "desc": "Ricognitori: +20% vita"
+  },
+  "ricognitori_danni": {
+    "name": "Mitragliatrici leggere",
+    "desc": "Ricognitori: +20% danni"
+  },
+  "artiglieria_vita": {
+    "name": "Affusti blindati",
+    "desc": "Artiglieria: +20% vita"
+  },
+  "artiglieria_danni": {
+    "name": "Granate ad alto esplosivo",
+    "desc": "Artiglieria: +20% danni"
+  },
+  "corazzati_vita": {
+    "name": "Piastre spesse",
+    "desc": "Corazzati: +20% vita"
+  },
+  "corazzati_danni": {
+    "name": "Cannoni lunghi",
+    "desc": "Corazzati: +20% danni"
+  },
+  "genio_vita": {
+    "name": "Scudi da cantiere",
+    "desc": "Genio: +20% vita"
+  },
+  "genio_danni": {
+    "name": "Cariche da demolizione",
+    "desc": "Genio: +20% danni"
+  },
+  "cannoniera_vita": {
+    "name": "Scafo corazzato",
+    "desc": "Cannoniera: +20% vita"
+  },
+  "cannoniera_danni": {
+    "name": "Pezzi navali",
+    "desc": "Cannoniera: +20% danni"
+  },
+  "fanteria_costo": {
+    "name": "Leva rapida",
+    "desc": "Fanteria: -15% truppe per schierarla"
   }
 }

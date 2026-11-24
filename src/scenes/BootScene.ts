@@ -4,6 +4,7 @@ import { loadProfile } from '../save/storage';
 import { restoreIfEmpty, requestPersistence } from '../save/backup';
 import { preloadImages } from '../ui/images';
 import { preloadIcons } from '../ui/icons';
+import { preloadLineIcons } from '../ui/lineIcons';
 import type { LoadData } from './LoadScene';
 import { takeResume } from '../save/devResume';
 
@@ -16,6 +17,7 @@ export class BootScene extends Phaser.Scene {
   preload() {
     preloadImages(this);
     preloadIcons(this);
+    preloadLineIcons(this);
   }
 
   async create() {

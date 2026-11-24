@@ -17,8 +17,13 @@ import bgEstrazione from '../assets/img/bg-estrazione.jpg';
 const ROOMS = Object.fromEntries(Object.entries(import.meta.glob<string>('../assets/img/*/*.jpg', { eager: true, import: 'default' }))
   .map(([path, url]) => [path.split('/').pop()!.replace('.jpg', ''), url]));
 
+// oggetti delle risorse scontornati (scripts/import-stili.py): texture `rp-<risorsa>`, a colori
+const PNGS = Object.fromEntries(Object.entries(import.meta.glob<string>('../assets/img/res/*.png', { eager: true, import: 'default' }))
+  .map(([path, url]) => [path.split('/').pop()!.replace('.png', ''), url]));
+
 const URLS: Record<string, string> = {
   ...ROOMS,
+  ...PNGS,
   'load-nave': nave, 'load-croce': croce, 'load-festa': festa, 'load-ghiaccio': ghiaccio, 'load-radar': radar,
   'load-statua': statua, 'load-arpanet': arpanet,
   'title-bg': titleBg, 'bg-estrazione': bgEstrazione,
@@ -30,6 +35,7 @@ export const civImage = (id: CivId) => `civ-${id}`;
 export function techImage(scene: Phaser.Scene, id: TechId, civ: CivId): string {
   const t = techInfo(id);
   if (t.unit) return `u-${t.unit}`;
+  if (t.boost) return `u-${t.boost.unit}`; // potenziamento: la foto del suo reparto
   if (t.ability) return `a-${t.ability}`;
   if (t.unique) return `u-${BALANCE.civs[civ].unit}`;
   return scene.textures.exists(`t-${id}`) ? `t-${id}` : 'room-laboratorio';

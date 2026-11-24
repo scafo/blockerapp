@@ -51,7 +51,7 @@ export class Button extends Phaser.GameObjects.Container {
       .on('pointerdown', () => { if (!this.disabled_) this.squash(0.94, 60, 'Quad.easeOut'); })
       .on('pointerover', () => {
         if (this.disabled_) { if (this.disabledReason) this.showReason(); return; }
-        if (this.active_ && !this.term) this.bg.setFillStyle(0x74462d, 1);
+        if (this.active_ && !this.term) this.bg.setFillStyle(0xffffff, 1);
         else if (!this.active_) this.bg.setFillStyle(this.term ? 0x16181c : OPS.row, this.term ? 0.98 : 0.95);
       })
       .on('pointerout', () => {
@@ -109,10 +109,10 @@ export class Button extends Phaser.GameObjects.Container {
 
   setOn(on: boolean): this {
     this.active_ = on;
-    if (!this.term) { // vetro o ruggine: etichetta sempre bianca
+    if (!this.term) { // vetro, oppure bianco pieno con etichetta scura per l'azione principale (Nico: niente ruggine)
       this.bg.setFillStyle(on ? OPS.cta : OPS.row, on ? 1 : 0.72);
-      this.label.setColor('#ffffff');
-      this.icon?.clearTint();
+      this.label.setColor(on ? '#0a0f16' : '#ffffff');
+      if (on) this.icon?.setTint(0x0a0f16); else this.icon?.clearTint();
       return this;
     }
     this.bg.setFillStyle(on ? 0xd8dadc : 0x000000, on ? 1 : 0.92);

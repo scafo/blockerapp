@@ -121,7 +121,7 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   attraverso un cancello), colori freddi e spenti, grana (`VIBE`, `PORTRAIT`, `OBJECT` nel manifest). Le vecchie in `concept-art/old/v1/`.
 - **Lume, acquisti con soldi veri** (Nico, 20 novembre 2026: gioco gratis, si paga dentro il gioco): moneta Lume venduta a pacchetti
   con Stripe Checkout (100/330/875 Lume a 1,99/4,99/9,99 €), spesa per finire timer (1 Lume ogni 10 min, minimo 5; anche
-  l'Estrazione), 300 di ogni risorsa per 30 Lume (possono superare la capienza del Deposito) ed estetica (`PREMIUM.cosmetics`,
+  l'Estrazione), 500 di ogni risorsa per 40 Lume una volta al giorno (possono superare la capienza del Deposito) ed estetica (`PREMIUM.cosmetics`,
   vuoto finché Nico non sceglie gli oggetti). Catalogo in `src/config/premium.ts`. **Il server decide tutto**: funzioni Vercel in
   `api/` (`checkout`, `stripe-webhook` con firma verificata e importo controllato, `spend`, `wallet`), saldo e consegne in Supabase
   (`supabase/schema.sql`, scrittura solo dal service role); il gioco (`src/online/premium.ts`) accede con email e codice di 6 cifre,
@@ -129,6 +129,53 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   Spento senza `VITE_SUPABASE_*` e nell'app (Google Play vuole il suo sistema di pagamento). Chiavi: `.env.example`; in locale
   `npm run dev` serve anche `api/` (plugin in `vite.config.ts`). Limite: risorse e timer stanno ancora nel salvataggio locale, chi
   lo modifica può darsi risorse; proteggere anche quelle = seconda fase (bottino controllato dal server).
+- **Economia rifatta** (Nico, 23 novembre 2026, analisi in `docs/economia.md`; ricerche anche in `docs/ui-ricerca.md` e
+  `docs/viralita.md`): prima la base intera costava 13.355 risorse e 3,9 h di timer (tutto al massimo al giorno 7). Ora stanze
+  ×2,5–5 a livello e timer da 1 minuto a 24 ore, ricerche ×8–110 per grado (15 min–16 h), `depositoCap` 3.000/10.000/24.000/60.000,
+  bottino dei fronti ×1–2,5 e potenza consigliata 0–170, breve ×1,5 (modalità da telefono), lunga ×1,25, spedizioni ~150/600/1.100
+  × fronte. **Fronte giocabile** solo se vinto il precedente **e** Centro di Comando ≥ numero del fronte − 1 (`frontOpen`).
+  **Puntata** 180/450/900 × bottino del fronte e della durata (`stakeOf`), moltiplicatore 1,1/1,25/1,5 solo sul guadagno; se non vinci
+  (fine tempo o eliminato) si perde tutta tranne l'assicurazione del Deposito (`depositoStakeInsurance` 0/10/20/30%); conviene da
+  ~40% di vittorie. Metallo per finire i lavori solo sotto i 60 min (`shop.rushMaxMin`), oltre col Lume (fino a 24 h); pacchetto di
+  risorse Lume 500 di ognuna per 40 Lume, una volta al giorno (controllo in `api/spend.ts`). Da fare: `aiGrowthMult` dei fronti V–VI
+  con la sim, rendita del Comando, ordini del giorno, bonus prima vittoria e serie.
+- **Home e navigazione** (Nico, 23 novembre 2026: "non ci si può muovere, rifai la gerarchia, niente doppioni", desktop browser
+  prima di tutto). **Home**: carta scura dell'Europa senza nomi, rilievo in ombreggiatura morbida dal terreno vero (non i toni
+  della carta di gioco), segue il mouse, poche nuvole, niente luci; marchio piccolo; le cinque sezioni nello stesso ordine della
+  barra (OPERAZIONI più grande, poi Base, Ricerca, Arsenale, Mercato), voci grigie e quella scelta bianca con una riga sotto;
+  niente arancione. **Barra fissa** nella base (`src/ui/navBar.ts`): ← Home, le cinque sezioni, scorte, Lume (risorsa speciale,
+  azzurro freddo), audio. Font tecnico **Chakra Petch** (`FONT_TECH`, `tech()`, tutte le `label()`) accanto all'Helvetica.
+  **Pagine (23 novembre 2026, "ogni pagina la sua gerarchia, distruggi le schermate vecchie")**: **GIOCA** = la partita a tutto
+  schermo sulla foto del fronte (nome enorme, una frase, tre numeri, chi schiera il nemico; in basso la fila dei fronti, la durata
+  e il tasto GIOCA; **niente puntata**: `p.stake` resta 0). **Base** = sei stanze (Radar, Comando, Laboratorio, Arsenale,
+  Deposito, Estrazione) + colonna del Cantiere; ogni stanza apre i suoi livelli, l'Estrazione le sue missioni. **Ricerca** e
+  **Arsenale** aprono subito l'albero (`TreeScene` con `mode`: Ricerca = rami non armamenti, Arsenale = ramo Armamenti), sotto
+  la barra, carte grandi, a destra la scheda della ricerca scelta con tutti gli effetti. **Mercato** al centro sulla sua stanza.
+  **Profilo** (icona nella barra) = comandante, potenza, registro. Tolte: schede Operazioni/Registro/Comando, Archivio,
+  Alloggi, Cantiere, Reparti, scelta della potenza e dei fronti come sotto-pagine. La moneta a pagamento nell'interfaccia si
+  chiama **Frammenti** (nel codice resta `lume`; la ricerca "Frammenti" ora si chiama "Il Lume"). Tasti principali bianchi.
+  Mappa della home: rilievo a puntini come il mare, leggero (niente ombreggiatura).
+  Poi: **Base** = Centro di Comando grande a sinistra + Laboratorio, Radar, Estrazione (Arsenale e Deposito tolti dalla base:
+  l'Arsenale si migliora dal tasto in cima al suo albero, il **Deposito sta nel Mercato** con le barre delle scorte e
+  "Migliora il deposito"). Pagine dei livelli = prossimo livello + "Cosa serve" con spunte + tasto che dice cosa manca; il
+  ritorno porta alla sezione madre (Deposito → Mercato, Arsenale → Arsenale, Laboratorio → Ricerca). Scheda della ricerca
+  chiudibile (X) con "Cosa serve". Mercato: scambi su colonne con i pacchi fotografati (`pk-*`, `scripts/import-stili.py`).
+- **Ultimo giro (23 novembre 2026, risposte di Nico alla lista)**: Base = Centro di Comando (livelli + **potenza**, che non sta
+  più nel Profilo) e Sala Radar; ogni pagina dei livelli mostra "Adesso" (cosa fa la stanza oggi) prima del prossimo livello.
+  **Estrazione nel Mercato** (due colonne: Deposito e scambi | Estrazione; rifornimenti sotto). **Profilo** = dati, account e
+  Frammenti, estetiche. Home: in alto a destra una riga sola (icona e nome → Profilo, scorte accanto). GIOCA: ogni carta dei
+  fronti si tocca (aperti = scelti, chiusi = anteprima col motivo). Rapporto: TORNA ALLA HOME. **Niente arancio**:
+  `PALETTE.allerta` e `TCOL.accent` azzurri, `OPS.accent` grigio. Caricamento: B-roll di tre foto che sfumano con avvicinamento
+  lento, frammenti di dati sparsi che compaiono a scatti. Campagna: etichette dentro i riquadri, crescita in grigio, MAPPA e
+  COSTRUISCI più larghi con icone a linea, **nuvole** della home sopra la carta (`cloudTextures`, HudScene).
+- **Arsenale per reparto** (23 novembre 2026, "diviso per categoria, a destra si migliora, non si sblocca"): una riga per
+  reparto (Fanteria in dotazione, Ricognitori, Artiglieria, Corazzati, Genio, Cannoniera, unità della potenza, Tutti i reparti,
+  Supporto aereo); la prima carta sblocca il reparto, a destra i potenziamenti dello stesso reparto (`tech.*.boost`: vita, danni,
+  costo solo per quel reparto, `unitBoosts` in `camp.ts`, applicati in `RunState`). Righe indipendenti: decide il livello
+  dell'Arsenale. **Arsenale e Laboratorio si migliorano dalla loro pagina** (tasto in alto = scheda della stanza a destra, cosa
+  apre il prossimo livello, MIGLIORA), senza la pagina dei livelli. ESC nell'albero = Home. Mappa della home: mare più chiaro e
+  blu della terra, rilievo in grigio tenue. Foto nuove di stanze, potenze ed eventi da `concept-art/stili/stanze.py` (vecchie in
+  `concept-art/old/v1`). In attesa: le reference di Nico per le truppe.
 - **Base in sezione alla XCOM 2** (Nico, novembre 2026: "UI migliore ispirata da altri giochi", scelta XCOM 2): la home è la montagna
   della base di notte con tre piani di stanze illustrate (`FLOORS` in `CampScene.ts`; in verticale Comando largo + due colonne);
   ogni stanza si tocca e apre la sua pagina, dove la foto della stanza fa da fondo (niente più pianta). A destra "In corso"

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { PALETTE } from '../../config/palette';
 import { textStyle } from '../style';
-import { drawResourceIcon } from '../resourceIcons';
+import { resIcon } from '../ops';
 import type { Resource } from '../../config/balance';
 import type { Bag } from '../../game/resources';
 
@@ -13,8 +13,7 @@ export function costChips(scene: Phaser.Scene, x: number, y: number, cost: Parti
     const g = scene.add.graphics();
     g.fillStyle(PALETTE.pannello, 1).fillRoundedRect(cx, y, chipW, chipH, 4)
       .lineStyle(1, ok ? PALETTE.linea : PALETTE.ko, 1).strokeRoundedRect(cx, y, chipW, chipH, 4);
-    drawResourceIcon(g, r, cx + 14, y + chipH / 2, 7);
-    items.push(g, scene.add.text(cx + 26, y + chipH / 2, String(need), textStyle(12, ok ? PALETTE.carta : PALETTE.ko)).setOrigin(0, 0.5));
+    items.push(g, resIcon(scene, r, cx + 14, y + chipH / 2, 16), scene.add.text(cx + 26, y + chipH / 2, String(need), textStyle(12, ok ? PALETTE.carta : PALETTE.ko)).setOrigin(0, 0.5));
   });
   return items;
 }

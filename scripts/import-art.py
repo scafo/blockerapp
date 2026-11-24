@@ -35,3 +35,7 @@ for folder, dest, size, q in [('rooms', 'rooms', (1408, 768), 80), ('portraits',
         Image.open(src).convert('RGB').resize(size, Image.LANCZOS).save(img / dest / (name + '.jpg'), quality=q, optimize=True, progressive=True)
         n += 1
     print(dest, n)
+
+# title screen background
+Image.open(art / 'title/title.png').convert('RGB').save(img / 'title-bg.jpg', quality=82, optimize=True, progressive=True)
+print('title-bg')

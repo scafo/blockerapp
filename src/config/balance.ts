@@ -249,10 +249,13 @@ export const BALANCE = {
   // Uscire prima della fine costa una tassa (il Deposito liv. 3 la riduce), farsi eliminare costa quasi tutto,
   // finire la campagna senza vincere costa una parte della puntata (come al tavolo: la puntata si può perdere).
   stake: {
-    options: [0, 60, 180, 450], // risorse in gioco (divise tra metallo, benzina, cibo)
-    mult: [1, 1.25, 1.6, 2], // moltiplicatore del guadagno oltre la puntata
+    // Economia (23 novembre 2026, docs/economia.md): una scommessa vera, conviene se vinci più di 2 volte su 5.
+    // Si perde tutta se non vinci (fine tempo o eliminato), meno l'assicurazione del Deposito; in vittoria torna ×1 e solo il
+    // guadagno oltre la puntata rende di più. La puntata cresce col bottino del fronte e della durata (stakeOf in camp.ts).
+    options: [0, 180, 450, 900], // risorse in gioco al Fronte I standard (divise tra metallo, benzina, cibo)
+    mult: [1, 1.1, 1.25, 1.5], // moltiplicatore del guadagno oltre la puntata
     exitFee: 0.25, // ritirata: quota dello zaino lasciata sul campo
-    lossShare: 0.25, // fine campagna senza vincere: quota della puntata persa
+    lossShare: 1, // fine campagna senza vincere o eliminato: quota della puntata persa (meno l'assicurazione del Deposito)
     recruitCost: 10, // ARRUOLA: risorse dallo zaino...
     recruitTroops: 30, // ...per queste truppe subito
   },
@@ -275,13 +278,14 @@ export const BALANCE = {
   // Mercato della base: solo risorse di gioco (niente soldi veri, niente casse a sorpresa). Scambi in perdita, rifornimenti
   // per la prossima campagna (uno per tipo, si consumano quando parte), cantiere e ricerca finiti subito pagando metallo.
   shop: {
-    trade: { give: 50, get: 30 }, // 50 di una risorsa → 30 di un'altra
+    trade: { give: 50, get: 35 }, // 50 di una risorsa → 35 di un'altra
     supplies: {
       truppe: { cost: { metallo: 0, benzina: 20, cibo: 60 }, mods: { startTroops: 80 } },
       mappe: { cost: { metallo: 20, benzina: 50, cibo: 0 }, mods: { fogIntel: 10 } },
       sabbia: { cost: { metallo: 60, benzina: 0, cibo: 20 }, mods: { ownedDefenseMult: 1.1 } },
     },
     rushPerMin: 8, // metallo per ogni minuto che manca (arrotondato in su)
+    rushMaxMin: 60, // col metallo solo i lavori a cui mancano al massimo 60 minuti; quelli lunghi col Lume
   },
   // Prima run guidata: 1 sola IA che non attacca, senza limite di tempo né eventi, si vince con goalProvinces province.
   tutorial: {
@@ -300,36 +304,37 @@ export const BALANCE = {
   },
   // Accampamento: 1 cantiere alla volta, timer in tempo reale (secondi). I timer non bloccano mai le run.
   camp: {
+    // Economia (23 novembre 2026, docs/economia.md): costi ×2,5–5 a livello, timer da 1 minuto a 24 ore (il Lume vale lì)
     buildings: {
       arsenale: [
         { cost: { metallo: 40, benzina: 10, cibo: 0 }, timeSec: 60 },
-        { cost: { metallo: 120, benzina: 40, cibo: 0 }, timeSec: 180 },
-        { cost: { metallo: 250, benzina: 90, cibo: 0 }, timeSec: 300 },
-        { cost: { metallo: 380, benzina: 160, cibo: 40 }, timeSec: 600 }, // liv. 4–6: timer più lunghi (spec: fino a 2 h)
-        { cost: { metallo: 520, benzina: 240, cibo: 80 }, timeSec: 1200 },
-        { cost: { metallo: 700, benzina: 320, cibo: 140 }, timeSec: 1800 },
+        { cost: { metallo: 450, benzina: 150, cibo: 0 }, timeSec: 600 },
+        { cost: { metallo: 2206, benzina: 794, cibo: 0 }, timeSec: 3600 },
+        { cost: { metallo: 6552, benzina: 2759, cibo: 690 }, timeSec: 14400 },
+        { cost: { metallo: 16095, benzina: 7429, cibo: 2476 }, timeSec: 43200 },
+        { cost: { metallo: 36207, benzina: 16552, cibo: 7241 }, timeSec: 86400 },
       ],
       comando: [
         { cost: { metallo: 30, benzina: 0, cibo: 15 }, timeSec: 60 },
-        { cost: { metallo: 90, benzina: 20, cibo: 40 }, timeSec: 180 },
-        { cost: { metallo: 200, benzina: 60, cibo: 80 }, timeSec: 300 },
-        { cost: { metallo: 340, benzina: 120, cibo: 140 }, timeSec: 600 },
-        { cost: { metallo: 480, benzina: 200, cibo: 200 }, timeSec: 1200 },
+        { cost: { metallo: 480, benzina: 107, cibo: 213 }, timeSec: 900 },
+        { cost: { metallo: 2353, benzina: 706, cibo: 941 }, timeSec: 7200 },
+        { cost: { metallo: 6800, benzina: 2400, cibo: 2800 }, timeSec: 28800 },
+        { cost: { metallo: 16364, benzina: 6818, cibo: 6818 }, timeSec: 86400 },
       ],
       deposito: [
-        { cost: { metallo: 50, benzina: 0, cibo: 20 }, timeSec: 90 },
-        { cost: { metallo: 140, benzina: 0, cibo: 60 }, timeSec: 240 },
-        { cost: { metallo: 260, benzina: 60, cibo: 120 }, timeSec: 300 },
+        { cost: { metallo: 50, benzina: 0, cibo: 20 }, timeSec: 120 },
+        { cost: { metallo: 1680, benzina: 0, cibo: 720 }, timeSec: 3600 },
+        { cost: { metallo: 8273, benzina: 1909, cibo: 3818 }, timeSec: 28800 },
       ],
       laboratorio: [
-        { cost: { metallo: 60, benzina: 30, cibo: 20 }, timeSec: 90 },
-        { cost: { metallo: 150, benzina: 70, cibo: 50 }, timeSec: 240 },
-        { cost: { metallo: 280, benzina: 120, cibo: 100 }, timeSec: 300 },
+        { cost: { metallo: 60, benzina: 30, cibo: 20 }, timeSec: 120 },
+        { cost: { metallo: 1667, benzina: 778, cibo: 556 }, timeSec: 3600 },
+        { cost: { metallo: 10080, benzina: 4320, cibo: 3600 }, timeSec: 43200 },
       ],
       radar: [
         { cost: { metallo: 40, benzina: 20, cibo: 0 }, timeSec: 60 },
-        { cost: { metallo: 110, benzina: 50, cibo: 0 }, timeSec: 180 },
-        { cost: { metallo: 220, benzina: 90, cibo: 0 }, timeSec: 300 },
+        { cost: { metallo: 1100, benzina: 500, cibo: 0 }, timeSec: 2700 },
+        { cost: { metallo: 6387, benzina: 2613, cibo: 0 }, timeSec: 21600 },
       ],
     },
     radarFogBonus: [0, 1, 2, 3], // vista in più nelle campagne
@@ -344,12 +349,14 @@ export const BALANCE = {
     comandoGrowthMult: [1, 1.04, 1.08, 1.12, 1.16, 1.2], // il Comando organizza la leva: crescita truppe in campagna
     comandoAbilityCdMult: [1, 1, 1, 1, 1, 0.75], // liv. 5: abilità -25% ricarica
     depositoLoss: [0.7, 0.4, 0.25, 0.25],
-    depositoCap: [500, 1000, 2000, 4000], // capienza per risorsa (alla Clash): oltre si perde
+    depositoCap: [3000, 10_000, 24_000, 60_000], // capienza per risorsa (alla Clash): oltre si perde
+    depositoStakeInsurance: [0, 0.1, 0.2, 0.3], // quota della puntata che torna se non vinci
     depositoRetreatBonus: [0, 0, 0, 0.1], // +10% zaino in ritirata al liv. 3
     expeditions: {
-      breve: { timeSec: 30 * 60, cost: 0, metallo: [15, 30], benzina: [3, 8], cibo: [5, 10] },
-      media: { timeSec: 4 * 3600, cost: 15, metallo: [80, 140], benzina: [20, 40], cibo: [10, 25] },
-      lunga: { timeSec: 8 * 3600, cost: 30, metallo: [160, 260], benzina: [45, 80], cibo: [25, 50] },
+      // bottino × lootMult del fronte (startExpedition); la lunga vale ~1/3 di campagna: si torna la mattina
+      breve: { timeSec: 30 * 60, cost: 0, metallo: [85, 115], benzina: [20, 30], cibo: [25, 35] },
+      media: { timeSec: 4 * 3600, cost: 60, metallo: [330, 450], benzina: [90, 130], cibo: [50, 90] },
+      lunga: { timeSec: 8 * 3600, cost: 120, metallo: [600, 820], benzina: [170, 250], cibo: [90, 150] },
     },
     tentsBase: 2, // tende all'inizio; +1 ogni 2 run, fino a tentsMax
     tentsMax: 7,
@@ -363,9 +370,9 @@ export const BALANCE = {
   speeds: [1, 2, 4],
   // Campagne a durata scelta (Figma: "campagne di durata più lunga portano più risorse")
   campaigns: {
-    breve: { durationMs: 600_000, lootMult: 0.7 },
+    breve: { durationMs: 600_000, lootMult: 1.5 }, // la breve rende al minuto come la standard: modalità da telefono
     standard: { durationMs: 1_200_000, lootMult: 1 },
-    lunga: { durationMs: 1_800_000, lootMult: 1.4 },
+    lunga: { durationMs: 1_800_000, lootMult: 1.25 },
   },
   // Impero persistente: sullo stesso fronte il mondo resta tra una campagna e l'altra (stessa mappa, stessi rivali) finché non vinci.
   world: {
@@ -378,11 +385,11 @@ export const BALANCE = {
   // (2026-10-27, Nico: imperi che si espandono subito e sempre, gioco difficile) azioni ×2,5, crescita ×1,3, truppe iniziali ×1,5, +2 pedine
   fronts: [
     { name: 'Prima linea', power: 0, lootMult: 1, aiGrowthMult: 0.85, aiStartTroops: 78, aiActChance: 0.168, aiUnits: ['fanteria'], aiUnitHpMult: 1.03, aiDefenseMult: 1, aiBunkers: 0, aiBunkerEveryMs: 0, graceMs: 120_000, offensiveFirstMs: 252_000, offensiveEveryMs: 126_000, maxAiUnits: 7, aiDistance: [34, 60] },
-    { name: 'Valichi del Nord', power: 20, lootMult: 1.3, aiGrowthMult: 1.38, aiStartTroops: 107, aiActChance: 0.205, aiUnits: ['fanteria', 'ricognitori'], aiUnitHpMult: 1.15, aiDefenseMult: 1.05, aiBunkers: 1, aiBunkerEveryMs: 0, graceMs: 105_000, offensiveFirstMs: 228_000, offensiveEveryMs: 114_000, maxAiUnits: 8, aiDistance: [28, 52] },
-    { name: 'Terre di cenere', power: 45, lootMult: 1.7, aiGrowthMult: 1.95, aiStartTroops: 195, aiActChance: 0.3, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio'], aiUnitHpMult: 1.26, aiDefenseMult: 1.12, aiBunkers: 2, aiBunkerEveryMs: 180_000, graceMs: 90_000, offensiveFirstMs: 198_000, offensiveEveryMs: 99_000, maxAiUnits: 8, aiDistance: [22, 42] },
-    { name: 'Fronte del Lume', power: 75, lootMult: 2.2, aiGrowthMult: 2.07, aiStartTroops: 273, aiActChance: 0.352, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.38, aiDefenseMult: 1.2, aiBunkers: 4, aiBunkerEveryMs: 140_000, graceMs: 75_000, offensiveFirstMs: 168_000, offensiveEveryMs: 87_000, maxAiUnits: 9, aiDistance: [20, 38] },
-    { name: 'Cielo aperto', power: 110, lootMult: 2.8, aiGrowthMult: 2.44, aiStartTroops: 370, aiActChance: 0.4, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.55, aiDefenseMult: 1.3, aiBunkers: 6, aiBunkerEveryMs: 110_000, graceMs: 60_000, offensiveFirstMs: 144_000, offensiveEveryMs: 75_000, maxAiUnits: 9, aiDistance: [18, 34] },
-    { name: "L'Avvento", power: 150, lootMult: 3.5, aiGrowthMult: 2.54, aiStartTroops: 468, aiActChance: 0.448, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.72, aiDefenseMult: 1.4, aiBunkers: 9, aiBunkerEveryMs: 90_000, graceMs: 50_000, offensiveFirstMs: 120_000, offensiveEveryMs: 66_000, maxAiUnits: 10, aiDistance: [16, 30] },
+    { name: 'Valichi del Nord', power: 30, lootMult: 1.25, aiGrowthMult: 1.38, aiStartTroops: 107, aiActChance: 0.205, aiUnits: ['fanteria', 'ricognitori'], aiUnitHpMult: 1.15, aiDefenseMult: 1.05, aiBunkers: 1, aiBunkerEveryMs: 0, graceMs: 105_000, offensiveFirstMs: 228_000, offensiveEveryMs: 114_000, maxAiUnits: 8, aiDistance: [28, 52] },
+    { name: 'Terre di cenere', power: 60, lootMult: 1.5, aiGrowthMult: 1.95, aiStartTroops: 195, aiActChance: 0.3, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio'], aiUnitHpMult: 1.26, aiDefenseMult: 1.12, aiBunkers: 2, aiBunkerEveryMs: 180_000, graceMs: 90_000, offensiveFirstMs: 198_000, offensiveEveryMs: 99_000, maxAiUnits: 8, aiDistance: [22, 42] },
+    { name: 'Fronte del Lume', power: 100, lootMult: 1.8, aiGrowthMult: 2.07, aiStartTroops: 273, aiActChance: 0.352, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.38, aiDefenseMult: 1.2, aiBunkers: 4, aiBunkerEveryMs: 140_000, graceMs: 75_000, offensiveFirstMs: 168_000, offensiveEveryMs: 87_000, maxAiUnits: 9, aiDistance: [20, 38] },
+    { name: 'Cielo aperto', power: 140, lootMult: 2.1, aiGrowthMult: 2.44, aiStartTroops: 370, aiActChance: 0.4, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.55, aiDefenseMult: 1.3, aiBunkers: 6, aiBunkerEveryMs: 110_000, graceMs: 60_000, offensiveFirstMs: 144_000, offensiveEveryMs: 75_000, maxAiUnits: 9, aiDistance: [18, 34] },
+    { name: "L'Avvento", power: 170, lootMult: 2.5, aiGrowthMult: 2.54, aiStartTroops: 468, aiActChance: 0.448, aiUnits: ['fanteria', 'ricognitori', 'artiglieria', 'genio', 'corazzati'], aiUnitHpMult: 1.72, aiDefenseMult: 1.4, aiBunkers: 9, aiBunkerEveryMs: 90_000, graceMs: 50_000, offensiveFirstMs: 120_000, offensiveEveryMs: 66_000, maxAiUnits: 10, aiDistance: [16, 30] },
   ] as FrontDef[],
   // Potenza del giocatore: punti per livello di postazione e per ricerca (si confronta con quella consigliata del fronte)
   power: { arsenale: 8, comando: 6, laboratorio: 4, deposito: 3, radar: 2, tech: 3 },
@@ -470,33 +477,50 @@ export const BALANCE = {
   // Albero della ricerca (Laboratorio + Arsenale): una ricerca alla volta, a tempo reale.
   // req = ricerche richieste; col/row = posizione nell'albero; arsenale = livello dell'Arsenale richiesto (ramo Armamenti),
   // tier = grado per il livello del Laboratorio (altri rami). unit/ability/unique = cosa sblocca in campagna.
+  // costi e tempi × grado (23 novembre 2026, docs/economia.md): da 15 minuti a 16 ore
   tech: {
-    ricognitori: { branch: 'armamenti', col: 0, row: 0, req: [], arsenale: 1, cost: { metallo: 30, benzina: 10, cibo: 0 }, timeSec: 45, unit: 'ricognitori' },
-    artiglieria: { branch: 'armamenti', col: 1, row: 0, req: ['ricognitori'], arsenale: 2, cost: { metallo: 60, benzina: 20, cibo: 0 }, timeSec: 90, unit: 'artiglieria' },
-    corazzati: { branch: 'armamenti', col: 2, row: 0, req: ['artiglieria'], arsenale: 3, cost: { metallo: 120, benzina: 50, cibo: 0 }, timeSec: 150, unit: 'corazzati' },
-    munizioni: { branch: 'armamenti', col: 3, row: 0, req: ['corazzati'], arsenale: 3, cost: { metallo: 140, benzina: 40, cibo: 0 }, timeSec: 180, mods: { unitAttackMult: 1.15 } },
-    ricognizione: { branch: 'armamenti', col: 4, row: 0, req: ['munizioni'], arsenale: 5, cost: { metallo: 180, benzina: 100, cibo: 0 }, timeSec: 240, ability: 'ricognizione' },
-    bombardamento: { branch: 'armamenti', col: 5, row: 0, req: ['ricognizione'], arsenale: 5, cost: { metallo: 240, benzina: 140, cibo: 0 }, timeSec: 300, ability: 'bombardamento' },
-    unica: { branch: 'armamenti', col: 6, row: 0, req: ['bombardamento', 'corazze'], arsenale: 6, cost: { metallo: 300, benzina: 160, cibo: 60 }, timeSec: 360, unique: true },
-    genio: { branch: 'armamenti', col: 2, row: 1, req: ['artiglieria'], arsenale: 3, cost: { metallo: 90, benzina: 20, cibo: 20 }, timeSec: 120, unit: 'genio' },
-    cannoniera: { branch: 'armamenti', col: 3, row: 1, req: ['genio'], arsenale: 4, cost: { metallo: 160, benzina: 80, cibo: 0 }, timeSec: 200, unit: 'cannoniera' },
-    corazze: { branch: 'armamenti', col: 4, row: 1, req: ['cannoniera'], arsenale: 4, cost: { metallo: 200, benzina: 60, cibo: 20 }, timeSec: 240, mods: { unitHpMult: 1.1 } },
-    addestramento: { branch: 'esercito', col: 0, row: 2, req: [], tier: 1, cost: { metallo: 40, benzina: 20, cibo: 20 }, timeSec: 120, mods: { unitHpMult: 1.15 } },
-    elite: { branch: 'esercito', col: 1, row: 2, req: ['addestramento'], tier: 2, cost: { metallo: 110, benzina: 50, cibo: 40 }, timeSec: 240, mods: { unitCostMult: 0.85 } },
-    assalto: { branch: 'esercito', col: 2, row: 2, req: ['elite'], tier: 3, cost: { metallo: 220, benzina: 90, cibo: 80 }, timeSec: 360, mods: { attackCostMult: 0.85 } },
-    strade: { branch: 'logistica', col: 0, row: 3, req: [], tier: 1, cost: { metallo: 40, benzina: 30, cibo: 10 }, timeSec: 120, mods: { flowSpeedMult: 1.25 } },
-    rifornimenti: { branch: 'logistica', col: 1, row: 3, req: ['strade'], tier: 2, cost: { metallo: 80, benzina: 40, cibo: 70 }, timeSec: 240, mods: { startTroops: 40 } },
-    ferrovie: { branch: 'logistica', col: 2, row: 3, req: ['rifornimenti'], tier: 3, cost: { metallo: 200, benzina: 120, cibo: 60 }, timeSec: 360, mods: { growthMult: 1.12 } },
-    estrazione: { branch: 'economia', col: 0, row: 4, req: [], tier: 1, cost: { metallo: 30, benzina: 20, cibo: 30 }, timeSec: 120, mods: { expeditionTimeMult: 0.75 } },
-    industria: { branch: 'economia', col: 1, row: 4, req: ['estrazione'], tier: 2, cost: { metallo: 120, benzina: 40, cibo: 40 }, timeSec: 240, mods: { capitalTroopsMult: 1.5 } },
-    pianificazione: { branch: 'economia', col: 2, row: 4, req: ['industria'], tier: 3, cost: { metallo: 160, benzina: 80, cibo: 120 }, timeSec: 300, mods: { prodMult: 1.4 } },
-    trincee: { branch: 'difesa', col: 0, row: 5, req: [], tier: 1, cost: { metallo: 50, benzina: 10, cibo: 20 }, timeSec: 120, mods: { ownedDefenseMult: 1.1 } },
-    radar: { branch: 'difesa', col: 1, row: 5, req: ['trincee'], tier: 2, cost: { metallo: 100, benzina: 60, cibo: 20 }, timeSec: 240, mods: { fogBonus: 2 } },
-    fortezze: { branch: 'difesa', col: 2, row: 5, req: ['radar'], tier: 3, cost: { metallo: 240, benzina: 60, cibo: 40 }, timeSec: 300, mods: { bunkerMult: 1.4, ownedDefenseMult: 1.1 } },
-    segnale: { branch: 'caduta', col: 0, row: 6, req: [], tier: 1, cost: { metallo: 30, benzina: 30, cibo: 30 }, timeSec: 150, mods: { fogBonus: 2 } },
-    frammenti: { branch: 'caduta', col: 1, row: 6, req: ['segnale'], tier: 2, cost: { metallo: 90, benzina: 60, cibo: 50 }, timeSec: 240, mods: { lootMult: 1.1 } },
-    prototipo: { branch: 'caduta', col: 2, row: 6, req: ['frammenti'], tier: 3, cost: { metallo: 180, benzina: 100, cibo: 80 }, timeSec: 300, mods: { unitHpMult: 1.1 } },
-    caduta: { branch: 'caduta', col: 3, row: 6, req: ['prototipo'], tier: 3, cost: { metallo: 300, benzina: 160, cibo: 120 }, timeSec: 300, mods: { growthMult: 1.08 } },
+    // Arsenale per reparto (Nico, 23 novembre 2026: "diviso per categoria, poi si va a destra per migliorare, non per sbloccare
+    // cose nuove"): una riga per reparto, la prima carta lo sblocca (la Fanteria c'è già), a destra i potenziamenti dello stesso
+    // reparto (boost: vita, danni, costo in truppe, solo per quel reparto). Righe senza legami tra loro: decide il livello.
+    fanteria_vita: { branch: 'armamenti', col: 1, row: 0, req: [], arsenale: 1, cost: { metallo: 200, benzina: 60, cibo: 0 }, timeSec: 600, boost: { unit: 'fanteria', hp: 1.2 } },
+    fanteria_danni: { branch: 'armamenti', col: 2, row: 0, req: ['fanteria_vita'], arsenale: 2, cost: { metallo: 700, benzina: 240, cibo: 0 }, timeSec: 1500, boost: { unit: 'fanteria', atk: 1.2 } },
+    fanteria_costo: { branch: 'armamenti', col: 3, row: 0, req: ['fanteria_danni'], arsenale: 3, cost: { metallo: 2400, benzina: 900, cibo: 400 }, timeSec: 5400, boost: { unit: 'fanteria', cost: 0.85 } },
+    ricognitori: { branch: 'armamenti', col: 0, row: 1, req: [], arsenale: 1, cost: { metallo: 240, benzina: 80, cibo: 0 }, timeSec: 900, unit: 'ricognitori' },
+    ricognitori_vita: { branch: 'armamenti', col: 1, row: 1, req: ['ricognitori'], arsenale: 2, cost: { metallo: 600, benzina: 200, cibo: 0 }, timeSec: 1500, boost: { unit: 'ricognitori', hp: 1.2 } },
+    ricognitori_danni: { branch: 'armamenti', col: 2, row: 1, req: ['ricognitori_vita'], arsenale: 3, cost: { metallo: 2400, benzina: 900, cibo: 0 }, timeSec: 5400, boost: { unit: 'ricognitori', atk: 1.2 } },
+    artiglieria: { branch: 'armamenti', col: 0, row: 2, req: [], arsenale: 2, cost: { metallo: 960, benzina: 320, cibo: 0 }, timeSec: 1800, unit: 'artiglieria' },
+    artiglieria_vita: { branch: 'armamenti', col: 1, row: 2, req: ['artiglieria'], arsenale: 3, cost: { metallo: 2200, benzina: 700, cibo: 0 }, timeSec: 5400, boost: { unit: 'artiglieria', hp: 1.2 } },
+    artiglieria_danni: { branch: 'armamenti', col: 2, row: 2, req: ['artiglieria_vita'], arsenale: 4, cost: { metallo: 6000, benzina: 2400, cibo: 0 }, timeSec: 12000, boost: { unit: 'artiglieria', atk: 1.2 } },
+    corazzati: { branch: 'armamenti', col: 0, row: 3, req: [], arsenale: 3, cost: { metallo: 3600, benzina: 1500, cibo: 0 }, timeSec: 7200, unit: 'corazzati' },
+    corazzati_vita: { branch: 'armamenti', col: 1, row: 3, req: ['corazzati'], arsenale: 4, cost: { metallo: 7000, benzina: 3000, cibo: 0 }, timeSec: 14400, boost: { unit: 'corazzati', hp: 1.2 } },
+    corazzati_danni: { branch: 'armamenti', col: 2, row: 3, req: ['corazzati_vita'], arsenale: 5, cost: { metallo: 14000, benzina: 7000, cibo: 0 }, timeSec: 28800, boost: { unit: 'corazzati', atk: 1.2 } },
+    genio: { branch: 'armamenti', col: 0, row: 4, req: [], arsenale: 3, cost: { metallo: 2700, benzina: 600, cibo: 600 }, timeSec: 5760, unit: 'genio' },
+    genio_vita: { branch: 'armamenti', col: 1, row: 4, req: ['genio'], arsenale: 4, cost: { metallo: 5000, benzina: 1200, cibo: 1200 }, timeSec: 10800, boost: { unit: 'genio', hp: 1.2 } },
+    genio_danni: { branch: 'armamenti', col: 2, row: 4, req: ['genio_vita'], arsenale: 5, cost: { metallo: 12000, benzina: 4000, cibo: 2000 }, timeSec: 25200, boost: { unit: 'genio', atk: 1.2 } },
+    cannoniera: { branch: 'armamenti', col: 0, row: 5, req: [], arsenale: 4, cost: { metallo: 8000, benzina: 4000, cibo: 0 }, timeSec: 14400, unit: 'cannoniera' },
+    cannoniera_vita: { branch: 'armamenti', col: 1, row: 5, req: ['cannoniera'], arsenale: 5, cost: { metallo: 12000, benzina: 6000, cibo: 0 }, timeSec: 21600, boost: { unit: 'cannoniera', hp: 1.2 } },
+    cannoniera_danni: { branch: 'armamenti', col: 2, row: 5, req: ['cannoniera_vita'], arsenale: 6, cost: { metallo: 24000, benzina: 12000, cibo: 0 }, timeSec: 43200, boost: { unit: 'cannoniera', atk: 1.2 } },
+    unica: { branch: 'armamenti', col: 0, row: 6, req: [], arsenale: 6, cost: { metallo: 33000, benzina: 17600, cibo: 6600 }, timeSec: 57600, unique: true },
+    munizioni: { branch: 'armamenti', col: 0, row: 7, req: [], arsenale: 3, cost: { metallo: 4200, benzina: 1200, cibo: 0 }, timeSec: 8640, mods: { unitAttackMult: 1.15 } },
+    corazze: { branch: 'armamenti', col: 1, row: 7, req: ['munizioni'], arsenale: 4, cost: { metallo: 10000, benzina: 3000, cibo: 1000 }, timeSec: 17280, mods: { unitHpMult: 1.1 } },
+    ricognizione: { branch: 'armamenti', col: 0, row: 8, req: [], arsenale: 5, cost: { metallo: 14400, benzina: 8000, cibo: 0 }, timeSec: 28800, ability: 'ricognizione' },
+    bombardamento: { branch: 'armamenti', col: 1, row: 8, req: ['ricognizione'], arsenale: 5, cost: { metallo: 19200, benzina: 11200, cibo: 0 }, timeSec: 36000, ability: 'bombardamento' },
+    addestramento: { branch: 'esercito', col: 0, row: 9, req: [], tier: 1, cost: { metallo: 320, benzina: 160, cibo: 160 }, timeSec: 1800, mods: { unitHpMult: 1.15 } },
+    elite: { branch: 'esercito', col: 1, row: 9, req: ['addestramento'], tier: 2, cost: { metallo: 3300, benzina: 1500, cibo: 1200 }, timeSec: 10800, mods: { unitCostMult: 0.85 } },
+    assalto: { branch: 'esercito', col: 2, row: 9, req: ['elite'], tier: 3, cost: { metallo: 17600, benzina: 7200, cibo: 6400 }, timeSec: 34560, mods: { attackCostMult: 0.85 } },
+    strade: { branch: 'logistica', col: 0, row: 10, req: [], tier: 1, cost: { metallo: 320, benzina: 240, cibo: 80 }, timeSec: 1800, mods: { flowSpeedMult: 1.25 } },
+    rifornimenti: { branch: 'logistica', col: 1, row: 10, req: ['strade'], tier: 2, cost: { metallo: 2400, benzina: 1200, cibo: 2100 }, timeSec: 10800, mods: { startTroops: 40 } },
+    ferrovie: { branch: 'logistica', col: 2, row: 10, req: ['rifornimenti'], tier: 3, cost: { metallo: 16000, benzina: 9600, cibo: 4800 }, timeSec: 34560, mods: { growthMult: 1.12 } },
+    estrazione: { branch: 'economia', col: 0, row: 11, req: [], tier: 1, cost: { metallo: 240, benzina: 160, cibo: 240 }, timeSec: 1800, mods: { expeditionTimeMult: 0.75 } },
+    industria: { branch: 'economia', col: 1, row: 11, req: ['estrazione'], tier: 2, cost: { metallo: 3600, benzina: 1200, cibo: 1200 }, timeSec: 10800, mods: { capitalTroopsMult: 1.5 } },
+    pianificazione: { branch: 'economia', col: 2, row: 11, req: ['industria'], tier: 3, cost: { metallo: 12800, benzina: 6400, cibo: 9600 }, timeSec: 28800, mods: { prodMult: 1.4 } },
+    trincee: { branch: 'difesa', col: 0, row: 12, req: [], tier: 1, cost: { metallo: 400, benzina: 80, cibo: 160 }, timeSec: 1800, mods: { ownedDefenseMult: 1.1 } },
+    radar: { branch: 'difesa', col: 1, row: 12, req: ['trincee'], tier: 2, cost: { metallo: 3000, benzina: 1800, cibo: 600 }, timeSec: 10800, mods: { fogBonus: 2 } },
+    fortezze: { branch: 'difesa', col: 2, row: 12, req: ['radar'], tier: 3, cost: { metallo: 19200, benzina: 4800, cibo: 3200 }, timeSec: 28800, mods: { bunkerMult: 1.4, ownedDefenseMult: 1.1 } },
+    segnale: { branch: 'caduta', col: 0, row: 13, req: [], tier: 1, cost: { metallo: 240, benzina: 240, cibo: 240 }, timeSec: 2250, mods: { fogBonus: 2 } },
+    frammenti: { branch: 'caduta', col: 1, row: 13, req: ['segnale'], tier: 2, cost: { metallo: 2700, benzina: 1800, cibo: 1500 }, timeSec: 10800, mods: { lootMult: 1.1 } },
+    prototipo: { branch: 'caduta', col: 2, row: 13, req: ['frammenti'], tier: 3, cost: { metallo: 14400, benzina: 8000, cibo: 6400 }, timeSec: 28800, mods: { unitHpMult: 1.1 } },
+    caduta: { branch: 'caduta', col: 3, row: 13, req: ['prototipo'], tier: 3, cost: { metallo: 24000, benzina: 12800, cibo: 9600 }, timeSec: 28800, mods: { growthMult: 1.08 } },
   } as Record<string, TechDef>,
 
   camera: {
@@ -521,6 +545,7 @@ export interface TechDef {
   unit?: UnitType;
   ability?: AbilityType;
   unique?: boolean;
+  boost?: { unit: UnitType; hp?: number; atk?: number; cost?: number }; // potenziamento di un reparto solo (Arsenale)
 }
 
 export type TileType = 'terra' | 'rovine';

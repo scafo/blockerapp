@@ -16,6 +16,13 @@ export async function POST(req: Request) {
     cost = rushLume(minutes);
     grant = { kind: 'rush', what: b!.what as RushKind };
   } else if (item === 'resources') {
+    // una volta al giorno (giorno UTC): il pacchetto non deve saltare la progressione
+    const day = new Date();
+    day.setUTCHours(0, 0, 0, 0);
+    const { count, error: e } = await db().from('grants').select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id).eq('item', 'resources').gte('created_at', day.toISOString());
+    if (e) return json({ error: 'db' }, 500);
+    if ((count ?? 0) >= PREMIUM.resources.perDay) return json({ error: 'daily' }, 429);
     cost = PREMIUM.resources.cost;
     grant = { kind: 'resources', amount: PREMIUM.resources.amount };
   } else if (item === 'cosmetic' && typeof b?.id === 'string' && Object.hasOwn(PREMIUM.cosmetics, b.id)) {
