@@ -26,13 +26,16 @@ const PANEL = 0x0a0f16;
 const DIM = 0x7f888e, DIM_OFF = 0x4a5258;
 
 // le stesse sezioni della barra della base, nello stesso ordine (Nico: "che combacino")
-type Item = { key: 'gioca' | 'base' | 'ricerca' | 'arsenale' | 'mercato'; text: string; what: string };
+type Item = { key: 'gioca' | 'sandbox' | 'multi' | 'base' | 'ricerca' | 'arsenale' | 'mercato'; text: string; what: string };
 const ITEMS: Item[] = [
-  { key: 'gioca', text: 'GIOCA', what: '' }, // la riga la scrive create(): il fronte che ti aspetta
-  { key: 'base', text: 'BASE', what: 'Costruisci e migliora le stanze del quartier generale' },
-  { key: 'ricerca', text: 'RICERCA', what: 'Nuove tecnologie, una ricerca alla volta' },
-  { key: 'arsenale', text: 'ARSENALE', what: 'Le armi da sbloccare e migliorare' },
-  { key: 'mercato', text: 'MERCATO', what: 'Scambi, estrazione, rifornimenti e Deposito' },
+  // PLAY diviso in due (Nico, 25 novembre 2026): la campagna contro le IA e il multiplayer, che per ora è solo annunciato
+  { key: 'gioca', text: 'CAMPAIGN', what: '' }, // la riga la scrive create(): il fronte che ti aspetta
+  { key: 'sandbox', text: 'SANDBOX', what: 'Free play: choose your army, resources and where to drop' },
+  { key: 'multi', text: 'MULTIPLAYER', what: 'Coming soon, online matches against other commanders' },
+  { key: 'base', text: 'BASE', what: 'Build and upgrade the rooms of your headquarters' },
+  { key: 'ricerca', text: 'RESEARCH', what: 'New technologies, one research at a time' },
+  { key: 'arsenale', text: 'ARSENAL', what: 'Weapons to unlock and upgrade' },
+  { key: 'mercato', text: 'MARKET', what: 'Trades, extraction, supplies and Depot' },
 ];
 
 export class TitleScene extends Phaser.Scene {
@@ -68,7 +71,7 @@ export class TitleScene extends Phaser.Scene {
     // marchio piccolo (Nico: "ARCHEON può essere molto più piccolo"), entra stringendo la spaziatura
     const tSize = Math.round(22 * s);
     const title = tech(this, pad, pad, 'ARCHEON', tSize).setAlpha(0);
-    const sub = label(this, pad, title.y + title.height + 4 * s, 'IL MONDO DOPO LA CADUTA', OPS.label, 10 * s).setLetterSpacing(3 * s).setAlpha(0);
+    const sub = label(this, pad, title.y + title.height + 4 * s, 'THE WORLD AFTER THE FALL', OPS.label, 10 * s).setLetterSpacing(3 * s).setAlpha(0);
     const sp = { v: tSize * 0.9 };
     title.setLetterSpacing(sp.v);
     this.tweens.add({ targets: [title, sub], alpha: 1, duration: 800, delay: 200, ease: 'Quad.easeOut' });
@@ -76,21 +79,22 @@ export class TitleScene extends Phaser.Scene {
 
     // voci: GIOCA più grande, le altre a seguire; sotto la voce scelta una riga dice cosa c'è dentro
     const F = BALANCE.fronts[activeFront(this.profile)];
-    ITEMS[0].what = this.profile.runs === 0 ? 'La prima campagna' : `Prossimo: Fronte ${FRONT_ROMAN[activeFront(this.profile)]} · ${F.name}`;
+    ITEMS[0].what = this.profile.runs === 0 ? 'The first campaign' : `Next: Front ${FRONT_ROMAN[activeFront(this.profile)]}, ${F.name}`;
     const iSize = Math.round(40 * s), mainSize = Math.round(58 * s);
     let y = Math.max(sub.y + sub.height + 60 * s, H * 0.3);
     ITEMS.forEach((it, i) => {
-      const main = i === 0, off = it.key === 'mercato' && this.profile.runs === 0, size = main ? mainSize : iSize;
+      const main = i === 0, off = (it.key === 'mercato' && this.profile.runs === 0) || it.key === 'multi', size = main ? mainSize : iSize;
       const t = tech(this, pad, y + size / 2, it.text, size, off ? DIM_OFF : DIM).setOrigin(0, 0.5).setAlpha(0);
       t.setLetterSpacing((main ? 3 : 2) * s).setShadow(0, 0, '#000000', 10, true, true);
-      const cap = label(this, pad + 2 * s, y + size + 2 * s, off ? 'Dopo la prima campagna' : it.what, OPS.body, 11 * s).setAlpha(0).setShadow(0, 0, '#000000', 6, true, true);
+      const cap = label(this, pad + 2 * s, y + size + 2 * s, off && it.key !== 'multi' ? 'After the first campaign' : it.what, OPS.body, 11 * s).setAlpha(0).setShadow(0, 0, '#000000', 6, true, true);
       this.add.rectangle(pad - 12, y - 6 * s, Math.max(t.width * 1.2 + 40 * s, 300 * s), size + 18 * s, 0xffffff, 0.001).setOrigin(0)
         .setInteractive({ useHandCursor: !off })
         .on('pointerover', () => this.select(i))
-        .on('pointerup', () => { if (!off) this.choose(i); });
+        .on('pointerup', () => { if (!off) this.choose(i); else if (it.key === 'multi') this.soon(cap); });
       this.rows.push({ t, x: pad, off, main, cap });
       this.tweens.add({ targets: t, alpha: 1, duration: 420, delay: 500 + i * 90, ease: 'Quad.easeOut' });
       y += size + (main ? 44 : 30) * s; // spazio per la riga sotto
+      if (it.key === 'multi') y += 40 * s; // modi di gioco staccati dalle sezioni della base (Nico, 25 novembre 2026)
     });
     this.time.delayedCall(600, () => this.select(0, true));
 
@@ -162,7 +166,7 @@ export class TitleScene extends Phaser.Scene {
     const h = Math.round(52 * s), p = this.profile, inset = 16 * s;
     this.card(x, y, w, h);
     const ui = lineIcon(this, 'user', x + inset + 9 * s, y + h / 2, 18 * s, OPS.body);
-    const nm = heading(this, x + inset + 26 * s, y + h / 2, p.name || 'Comandante', 16 * s).setOrigin(0, 0.5);
+    const nm = heading(this, x + inset + 26 * s, y + h / 2, p.name || 'Commander', 16 * s).setOrigin(0, 0.5);
     const hit = this.add.rectangle(x, y, nm.x + nm.width + 12 * s - x, h, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true })
       .on('pointerover', () => { ui.setTint(OPS.text); }).on('pointerout', () => ui.setTint(OPS.body)).on('pointerup', () => this.go({ open: 'profilo' }));
     void hit;
@@ -181,24 +185,24 @@ export class TitleScene extends Phaser.Scene {
     const c = p.construction, r = p.research, e = p.expedition;
     const jobs: { ic: LineIcon; name: string; what: string; left: number; total: number; open: CampData['open'] | null }[] = [
       {
-        ic: 'hammer', name: 'Cantiere',
-        what: c ? `${buildingText[c.id].name} → livello ${p.buildings[c.id] + 1}` : 'Libero',
+        ic: 'hammer', name: 'Construction',
+        what: c ? `${buildingText[c.id].name} → level ${p.buildings[c.id] + 1}` : 'Free',
         left: c ? c.until - now : 0, total: c ? (nextLevel(p, c.id)?.timeSec ?? 1) * 1000 : 0, open: null, // la base è il cantiere
       },
       {
-        ic: 'flask', name: 'Ricerca',
-        what: r ? techInfo(r.id as TechId).name : p.buildings.laboratorio ? 'Nessun progetto' : 'Serve il Laboratorio',
+        ic: 'flask', name: 'Research',
+        what: r ? techInfo(r.id as TechId).name : p.buildings.laboratorio ? 'No project' : 'Needs the Laboratory',
         left: r ? r.until - now : 0, total: r ? techInfo(r.id as TechId).timeSec * 1000 : 0, open: 'ricerca',
       },
       {
-        ic: 'truck', name: 'Estrazione',
-        what: !e ? 'Squadre pronte' : e.until <= now ? 'Di ritorno · ritira il bottino' : buildingText.spedizione.kinds[e.kind],
+        ic: 'truck', name: 'Extraction',
+        what: !e ? 'Teams ready' : e.until <= now ? 'Back, collect the spoils' : buildingText.spedizione.kinds[e.kind],
         left: e ? e.until - now : 0, total: e ? expeditionTimeSec(p, e.kind) * 1000 : 0, open: 'estrazione',
       },
     ];
     const h = headH + jobs.length * rowH;
     this.card(x, y, w, h);
-    label(this, x + inset, y + headH / 2 + 2 * s, 'IN CORSO', OPS.label, 11 * s).setOrigin(0, 0.5).setLetterSpacing(2.5 * s);
+    label(this, x + inset, y + headH / 2 + 2 * s, 'IN PROGRESS', OPS.label, 11 * s).setOrigin(0, 0.5).setLetterSpacing(2.5 * s);
     lineIcon(this, 'hourglass', x + w - inset - 7 * s, y + headH / 2 + 2 * s, 14 * s, OPS.label);
     const g = this.add.graphics();
     jobs.forEach((j, i) => {
@@ -210,7 +214,7 @@ export class TitleScene extends Phaser.Scene {
       const tx = x + inset + 46 * s;
       heading(this, tx, cy - 2 * s, j.name, 16 * s).setOrigin(0, 1);
       label(this, tx, cy + 3 * s, j.what, busy ? OPS.body : OPS.label, 12 * s);
-      heading(this, x + w - inset, cy, busy ? fmtTime(j.left) : done ? 'Pronto' : '', 15 * s, busy ? 0xffffff : done ? OPS.gain : OPS.label).setOrigin(1, 0.5); // fermo: niente (prima un trattino senza senso)
+      heading(this, x + w - inset, cy, busy ? fmtTime(j.left) : done ? 'Ready' : '', 15 * s, busy ? 0xffffff : done ? OPS.gain : OPS.label).setOrigin(1, 0.5); // fermo: niente (prima un trattino senza senso)
       if (j.total > 0) {
         const bx = tx, bw = x + w - inset - tx, by = ry + rowH - 12 * s;
         g.fillStyle(0xffffff, 0.08).fillRect(bx, by, bw, 2 * s);
@@ -230,8 +234,8 @@ export class TitleScene extends Phaser.Scene {
     g.fillStyle(0x0a1620, 0.85).fillRect(x, y, w, h).lineStyle(1, COLD, 0.6).strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     lineIcon(this, 'sparkles', x + inset + 12 * s, y + h / 2, 24 * s, COLD);
     const tx = x + inset + 40 * s;
-    value(this, tx, y + h / 2 - 2 * s, 'FRAMMENTI', 26 * s).setOrigin(0, 1).setLetterSpacing(4 * s);
-    body(this, tx, y + h / 2 + 4 * s, off ? 'Apre dopo la prima campagna' : 'Finisci i timer · pacchetti di risorse', 12 * s, OPS.body);
+    value(this, tx, y + h / 2 - 2 * s, 'FRAGMENTS', 26 * s).setOrigin(0, 1).setLetterSpacing(4 * s);
+    body(this, tx, y + h / 2 + 4 * s, off ? 'Opens after the first campaign' : 'Finish timers, resource packs', 12 * s, OPS.body);
     const bal = heading(this, x + w - inset, y + h / 2, '', 16 * s, COLD).setOrigin(1, 0.5);
     if (!off) {
       this.add.rectangle(x, y, w, h, 0xffffff, 0.001).setOrigin(0).setInteractive({ useHandCursor: true })
@@ -242,7 +246,7 @@ export class TitleScene extends Phaser.Scene {
     void (async () => {
       if (!(await signedEmail())) return;
       const r = await fetchWallet();
-      if (r.ok && bal.active) bal.setText(`${r.data.lume} Frammenti`);
+      if (r.ok && bal.active) bal.setText(`${r.data.lume} Fragments`);
     })();
   }
 
@@ -261,6 +265,14 @@ export class TitleScene extends Phaser.Scene {
     if (!first) sfx('click');
   }
 
+  /** Multiplayer non c'è ancora: la riga sotto lampeggia e lo dice. */
+  private soon(cap: Phaser.GameObjects.Text) {
+    sfx('click');
+    this.tweens.killTweensOf(cap);
+    cap.setAlpha(1);
+    this.tweens.add({ targets: cap, alpha: { from: 0.2, to: 1 }, duration: 160, yoyo: true, repeat: 2 });
+  }
+
   private move(d: number) {
     this.select((this.sel + d + this.rows.length) % this.rows.length);
   }
@@ -270,6 +282,8 @@ export class TitleScene extends Phaser.Scene {
     const k = ITEMS[i].key;
     // prima volta (o ?seed=): GIOCA va dritto nella campagna come prima
     if (k === 'gioca') return this.go(this.next.next === 'Run' ? null : { open: 'gioca' });
+    if (k === 'multi') return;
+    if (k === 'sandbox') return this.go({ open: 'sandbox' });
     this.go(k === 'base' ? {} : { open: k });
   }
 

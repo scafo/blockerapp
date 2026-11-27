@@ -1,4 +1,5 @@
 // Accampamento: edifici, cantiere, spedizioni e ciò che cambiano nelle run. Niente Phaser.
+import type { MapId } from '../map/region';
 import { BALANCE, type AbilityType, type Resource, type CampaignId, type CivId, type FrontDef, type UnitType } from '../config/balance';
 import { civMods, civUnlocked, civInfo } from './civs';
 import { BASE_MODS, combine, type Mods } from './mods';
@@ -39,6 +40,41 @@ export interface RunOptions {
   maxUnitsBonus: number;
   abilityCdMult: number;
   world?: WorldCarry; // impero persistente: cosa riporti dalla campagna precedente in questo mondo
+  sandbox?: SandboxConfig; // partita libera: niente bottino a casa, si sceglie dove partire
+}
+
+/** Sandbox (Nico, 25 novembre 2026): si cala sulla mappa, si sceglie dove mettersi, con truppe e risorse scelte prima. */
+export interface SandboxConfig {
+  troops: number; resources: number; front: number; minutes: number;
+  // (Nico: "quali truppe vuoi avere, la velocità, che nazione vuoi essere, quale dottrina, il livello delle truppe")
+  civ: CivId; units: UnitType[]; level: number; speed: number; doctrine: SandboxDoctrine;
+  map?: MapId; // carta (Nico, 26 novembre 2026: "mappe più specifiche, Europa o i continenti"); senza = mondo
+}
+export type SandboxDoctrine = 'none' | 'assalto' | 'difesa' | 'logistica';
+
+/** Dottrine della sandbox: un modo di fare la guerra, coi moltiplicatori del gioco. */
+export const SANDBOX_DOCTRINES: Record<SandboxDoctrine, { name: string; desc: string; mods: Partial<Mods> }> = {
+  none: { name: 'None', desc: 'No doctrine', mods: {} },
+  assalto: { name: 'Assault', desc: 'Units hit 15% harder, attacks cost 25% less', mods: { unitAttackMult: 1.15, attackCostMult: 0.75 } },
+  difesa: { name: 'Defence', desc: 'Your provinces hold 30% better', mods: { ownedDefenseMult: 1.3, bunkerMult: 1.3 } },
+  logistica: { name: 'Logistics', desc: 'Units cost 15% less, faster advances', mods: { unitCostMult: 0.85, flowSpeedMult: 1.3 } },
+};
+
+/** Livello delle truppe della sandbox: vita e attacco dei reparti (come i potenziamenti dell'Arsenale). */
+export const SANDBOX_LEVELS = [1, 1.15, 1.3, 1.5];
+
+/** Opzioni della sandbox: quelle del profilo (armi, ricerche), ma niente puntata, niente nebbia, durata scelta (0 = senza limite). */
+export function sandboxOptions(p: Profile, cfg: SandboxConfig): RunOptions {
+  const o = runOptions(p), lv = SANDBOX_LEVELS[cfg.level] ?? 1;
+  // potenza, dottrina e livello scelti qui: la base del profilo non conta (le ricerche restano quelle fatte)
+  const mods = combine(...civMods(cfg.civ), SANDBOX_DOCTRINES[cfg.doctrine].mods, { unitHpMult: lv, unitAttackMult: lv });
+  const unique = BALANCE.civs[cfg.civ].unit as UnitType;
+  const units = cfg.units.filter((u) => !Object.values(BALANCE.civs).some((c) => c.unit === u) || u === unique);
+  // difficoltà: quattro livelli suoi (BALANCE.difficulty), non i fronti della campagna
+  const level = Math.min(BALANCE.difficulty.length - 1, Math.max(0, cfg.front));
+  return { ...o, tutorial: false, fog: false, sandbox: cfg, stake: emptyStake(), exitFee: 0, front: BALANCE.difficulty[level], frontIndex: level,
+    endMs: cfg.minutes ? cfg.minutes * 60_000 : Number.MAX_SAFE_INTEGER, world: undefined,
+    civ: cfg.civ, mods, units: units.length ? units : ['fanteria'], unitHpMult: lv, unitBoost: {} };
 }
 
 /** Moltiplicatori di un reparto solo (vita, danni, costo in truppe). */

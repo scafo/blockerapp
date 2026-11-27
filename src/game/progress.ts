@@ -34,6 +34,8 @@ export function applyRunResult(p: Profile, sum: RunSummary, now: number): RunRes
   const lostCap = addToStash(p, sum.kept);
   p.activeStake = null; // la puntata è stata giocata fino in fondo
   p.runs++;
+  // eventi rari visti in campagna: restano nell'Archivio della Sala Radar
+  p.loreSeen = [...new Set([...(p.loreSeen ?? []), ...(sum.rareSeen ?? [])])];
   p.history = [
     { at: now, civ: sum.civ, campaign: sum.campaign, outcome: sum.outcome, tiles: sum.maxTiles, timeMs: sum.timeMs,
       provinces: sum.maxProvinces, front: sum.front, kept: Object.values(sum.kept).reduce((a, b) => a + b, 0),

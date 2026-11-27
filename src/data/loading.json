@@ -2,116 +2,116 @@
   "screens": [
     {
       "img": "load-statua",
-      "title": "LA CONCORDIA",
-      "quote": "Per cento anni il mondo non conobbe la guerra. Non avevamo nemmeno una parola per «nemico».",
-      "source": "archivio del Senato · sezione distrutta",
+      "title": "THE CONCORD",
+      "quote": "For a hundred years the world knew no war. We did not even have a word for «enemy».",
+      "source": "Senate archive, destroyed section",
       "lines": [
-        "Cento anni senza guerra. Le caserme diventarono scuole, i cannoni monumenti.",
-        "Le classi dirigenti impararono a governare senza nemici: un'arte che oggi nessuno ricorda.",
-        "Poi, in una notte d'inverno, le stazioni radio di mezzo mondo ricevettero lo stesso segnale."
+        "A hundred years without war. Barracks became schools, cannons became monuments.",
+        "The ruling classes learned to govern without enemies: an art no one remembers today.",
+        "Then, on a winter night, the radio stations of half the world received the same signal."
       ]
     },
     {
       "img": "load-croce",
-      "title": "ANNO ZERO",
-      "quote": "Scesero con le ali accese, nella notte più fredda del secolo. Chi li guardò troppo a lungo smise di parlare.",
-      "source": "testimonianza raccolta sul Baltico",
+      "title": "YEAR ZERO",
+      "quote": "They came down with their wings alight, on the coldest night of the century. Those who watched too long stopped speaking.",
+      "source": "testimony gathered on the Baltic",
       "lines": [
-        "Erano alti il doppio di un uomo. Le ali facevano la luce di un faro sotto la neve.",
-        "Non attaccarono nessuno. Caddero e basta: in mare, sulle città, sulle pianure del Nord.",
-        "Il Comando chiama quella notte Anno Zero. Le potenze la chiamano l'inizio."
+        "They were twice the height of a man. Their wings shone like a lighthouse under the snow.",
+        "They attacked no one. They simply fell: into the sea, on the cities, on the northern plains.",
+        "Command calls that night Year Zero. The powers call it the beginning."
       ]
     },
     {
       "img": "load-ghiaccio",
-      "title": "LA CORRUZIONE",
-      "quote": "Dove sono caduti la terra non brucia. Gela, e poi cambia.",
-      "source": "rapporto sanitario n° 311",
+      "title": "THE CORRUPTION",
+      "quote": "Where they fell the earth does not burn. It freezes, and then it changes.",
+      "source": "medical report no. 311",
       "lines": [
-        "Attorno ai punti di caduta il terreno si copre di una brina viola che non si scioglie.",
-        "Le piante crescono storte, i metalli si spezzano, gli uomini parlano nel sonno in lingue morte.",
-        "Le zone sono recintate. Le potenze ci mandano comunque squadre: è lì che si trovano i Frammenti."
+        "Around the impact points the ground is covered by a violet frost that never melts.",
+        "Plants grow crooked, metals snap, men talk in dead languages in their sleep.",
+        "The zones are fenced off. The powers send teams in anyway: that is where the Fragments are."
       ]
     },
     {
       "img": "load-arpanet",
-      "title": "IL LUME",
-      "quote": "I Frammenti fanno una luce che non scalda. Le flotte ora navigano con quella.",
-      "source": "intercettazione navale · banda 9",
+      "title": "THE LUMEN",
+      "quote": "The Fragments give a light that does not warm. The fleets now sail by it.",
+      "source": "naval intercept, band 9",
       "lines": [
-        "Un Frammento grande come un pugno illumina una nave per un mese. Non scalda, non consuma.",
-        "Le flotte di tre potenze ora navigano col Lume. La quarta lo compra al mercato nero.",
-        "Chi controlla i Frammenti controlla la notte. E la notte, adesso, dura di più."
+        "A Fragment the size of a fist lights a ship for a month. It does not warm, it does not burn out.",
+        "The fleets of three powers now sail by the Lumen. The fourth buys it on the black market.",
+        "Whoever controls the Fragments controls the night. And the night, now, lasts longer."
       ]
     },
     {
       "img": "load-radar",
-      "title": "LA PROVA",
-      "quote": "Il cielo trasmette di nuovo, sulla frequenza della Caduta. È un conto alla rovescia.",
-      "source": "Sala Radar · turno di notte",
+      "title": "THE TRIAL",
+      "quote": "The sky is transmitting again, on the frequency of the Fall. It is a countdown.",
+      "source": "Radar Room, night shift",
       "lines": [
-        "La Sala Radar registra un impulso ogni ventisette ore, sempre sulla frequenza della Caduta.",
-        "Ogni volta l'intervallo si accorcia di qualche secondo. I matematici del Senato non dormono più.",
-        "Non era una punizione. Era una prova. E il tempo per superarla sta finendo."
+        "The Radar Room records a pulse every twenty-seven hours, always on the frequency of the Fall.",
+        "Each time the interval shortens by a few seconds. The Senate's mathematicians no longer sleep.",
+        "It was not a punishment. It was a trial. And the time to pass it is running out."
       ]
     },
     {
       "img": "load-tornado",
-      "title": "IL CIELO STORTO",
-      "quote": "Dopo la Caduta il vento ha cambiato direzione. Non è più tornato quello di prima.",
-      "source": "stazione meteo di pianura · registro 4",
+      "title": "THE CROOKED SKY",
+      "quote": "After the Fall the wind changed direction. It never went back to what it was.",
+      "source": "plains weather station, log 4",
       "lines": [
-        "Sulle pianure del grano si alzano trombe d'aria fuori stagione, sempre verso i punti di caduta.",
-        "I contadini le chiamano le dita degli Alati. Le strade si spostano, i raccolti si perdono in una notte.",
-        "Le colonne viaggiano col bollettino in mano: chi resta allo scoperto non arriva al fronte."
+        "Over the wheat plains, out-of-season tornadoes rise, always heading for the impact points.",
+        "The farmers call them the fingers of the Winged. Roads shift, harvests are lost in a night.",
+        "The columns travel with the bulletin in hand: whoever is caught in the open never reaches the front."
       ]
     },
     {
       "img": "load-deserto",
-      "title": "LA BENZINA",
-      "quote": "Un pozzo che brucia si vede da cento chilometri. Anche dagli aerei nemici.",
-      "source": "rapporto del Genio · settore sud",
+      "title": "THE FUEL",
+      "quote": "A burning well can be seen from a hundred kilometres. Even by enemy planes.",
+      "source": "Engineers report, southern sector",
       "lines": [
-        "Senza benzina non si muovono carri, camion, navi. Le potenze lo sanno e colpiscono prima i pozzi.",
-        "Nel deserto si combatte di notte, tra torri in fiamme e convogli a luci spente.",
-        "Ogni tanica che torna al Deposito è una campagna in più."
+        "Without fuel no tank, truck or ship moves. The powers know it and strike the wells first.",
+        "In the desert they fight at night, between towers in flames and convoys running dark.",
+        "Every can that comes back to the Depot is one more campaign."
       ]
     },
     {
       "img": "load-mediterraneo",
-      "title": "LE COSTE",
-      "quote": "Dal mare arrivano i rifornimenti. E i bombardamenti, quando il vento è giusto.",
-      "source": "batteria costiera · diario di guardia",
+      "title": "THE COASTS",
+      "quote": "Supplies come from the sea. And bombardments, when the wind is right.",
+      "source": "coastal battery, guard diary",
       "lines": [
-        "I paesi bianchi sulle scogliere sono diventati fortezze. Le cannoniere pattugliano fino all'alba.",
-        "Chi tiene i porti tiene le rotte, e chi tiene le rotte decide chi mangia.",
-        "Le sentinelle contano le navi. Quelle senza bandiera non rispondono mai al segnale."
+        "The white villages on the cliffs have become fortresses. Gunboats patrol until dawn.",
+        "Whoever holds the ports holds the routes, and whoever holds the routes decides who eats.",
+        "The sentries count the ships. The ones without a flag never answer the signal."
       ]
     },
     {
       "img": "load-citta",
-      "title": "LE CAPITALI",
-      "quote": "Il Senato si riunisce ancora. Fuori, i camion non spengono mai il motore.",
-      "source": "cronaca di una capitale · censurata",
+      "title": "THE CAPITALS",
+      "quote": "The Senate still meets. Outside, the trucks never switch off their engines.",
+      "source": "chronicle of a capital, censored",
       "lines": [
-        "Nelle città le classi dirigenti governano come se la Concordia non fosse finita.",
-        "Sotto la pioggia sfilano colonne, ministri, folle con gli ombrelli: nessuno guarda il cielo.",
-        "Chi prende una capitale prende i suoi archivi. E negli archivi c'è il conto alla rovescia."
+        "In the cities the ruling classes govern as if the Concord had never ended.",
+        "In the rain parade columns, ministers, crowds with umbrellas: no one looks at the sky.",
+        "Whoever takes a capital takes its archives. And in the archives is the countdown."
       ]
     }
   ],
   "status": [
-    "Decrittazione delle carte di stato maggiore",
-    "Sincronizzazione delle stazioni radio",
-    "Rilevamento dei Frammenti",
-    "Calcolo delle linee di rifornimento",
-    "Convocazione dello stato maggiore"
+    "Decrypting general staff maps",
+    "Synchronising radio stations",
+    "Locating the Fragments",
+    "Calculating supply lines",
+    "Summoning the general staff"
   ],
   "tips": [
-    "SPAZIO o ❚❚: pausa strategica. Il tempo si ferma, gli ordini no.",
-    "Tocca una provincia lontana: il fronte avanza da solo.",
-    "In pausa tocca più province: il piano parte alla ripresa.",
-    "Le montagne si difendono quasi il doppio: aggirale, o portaci l'artiglieria.",
-    "Ritirata: lasci il 25% del bottino. Eliminato: il 70%. La puntata si vince solo vincendo: punta se vinci più di 2 volte su 5."
+    "SPACE or ❚❚: strategic pause. Time stops, orders don't.",
+    "Tap a distant province: the front advances on its own.",
+    "While paused, tap several provinces: the plan starts when you resume.",
+    "Mountains defend almost twice as well: go around them, or bring artillery.",
+    "Retreat: you leave 25% of the spoils. Eliminated: 70%. The stake is only won by winning: stake if you win more than 2 times in 5."
   ]
 }

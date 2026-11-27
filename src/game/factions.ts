@@ -27,6 +27,24 @@ export const CIV_STYLE: Record<CivId, { symbol: SymbolKind; fill: number; border
   cabal: { symbol: 'quadrato', ...PALETTE.factions[3] },
 };
 
+// imperi oltre i tre della campagna (sandbox: 25): colori pieni e diversi, niente arancio né il ciano del giocatore
+const EMPIRE_COLORS = [0x5bbf5b, 0xd9529e, 0x4a6fe0, 0xa8d14a, 0xf08cb0, 0x3fb89a, 0xb8324a, 0x6a5acd, 0xd4c04a, 0x8a9a3a, 0x9a6a4a,
+  0x9a8ae0, 0xd07a8a, 0x2e9e5e, 0x8e4a8e, 0x7a8ab0, 0xe8e070, 0x7a2a3a, 0x9ae0b0, 0x34489a, 0xc8b48a, 0x5a7a3a];
+
+/** Colore dell'impero n oltre la lista fissa: tinte sparse con l'angolo aureo, saltando arancio (20–50°) e ciano del
+ *  giocatore (175–200°), luminosità alternate per staccare i vicini di tinta. */
+function empireColor(n: number): number {
+  if (n < EMPIRE_COLORS.length) return EMPIRE_COLORS[n];
+  let h = (n * 137.508) % 360;
+  if (h >= 20 && h < 50) h += 35;
+  if (h >= 175 && h < 200) h += 30;
+  const l = [0.45, 0.6, 0.35][n % 3], s = 0.55;
+  // HSL → RGB a mano: il motore resta senza Phaser (gira anche nelle simulazioni)
+  const k = (m: number) => (m + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const ch = (m: number) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(m) - 3, 9 - k(m), 1))));
+  return (ch(0) << 16) | (ch(8) << 8) | ch(4);
+}
+
 // milizie: toni smorzati, ben distinti dai colori forti degli imperi
 const BOT_COLORS = [0x7d9a7a, 0x9a8f6a, 0x6f8f98, 0x9a7a6e, 0x8a7d9c, 0x6f9a8c, 0xa08a5c, 0x7a8aa6, 0x9c7f8c, 0x86996a, 0x6e8a7e, 0xa38770];
 const lighten = (c: number, t: number) => {
@@ -59,9 +77,10 @@ export function setupFactions(kinds: FactionKind[], player: CivId, playerName: s
       const civName = (civText as Record<CivId, { name: string }>)[player].name;
       FACTION_INFO.push({ name: playerName || civName, short: playerName ? playerName.toUpperCase() : 'TU', symbol: st.symbol, civ: player, kind, fill: st.fill, border: st.border });
     } else if (kind === 'empire') {
-      const civ = others[e++ % others.length], st = CIV_STYLE[civ], place = takePlace();
+      const k = e++, civ = others[k % others.length], st = CIV_STYLE[civ], place = takePlace();
       const name = pick((names.forms as Record<CivId, string[]>)[civ]).replace('{P}', place);
-      FACTION_INFO.push({ name, short: place.toUpperCase(), symbol: st.symbol, civ, kind, fill: st.fill, border: st.border });
+      const fill = k < others.length ? st.fill : empireColor(k - others.length);
+      FACTION_INFO.push({ name, short: place.toUpperCase(), symbol: st.symbol, civ, kind, fill, border: k < others.length ? st.border : lighten(fill, 0.55) });
     } else {
       const color = BOT_COLORS[b++ % BOT_COLORS.length];
       const surname = surnames.length ? surnames.splice(Math.floor(rng() * surnames.length), 1)[0] : pick(names.surnames);

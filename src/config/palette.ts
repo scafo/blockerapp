@@ -44,9 +44,23 @@ export const PALETTE = {
 export const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
 // vista del terreno (tasto MAPPA): solo sfumature di blu, alcuni terreni a righe e altri pieni (Nico); legenda nell'interfaccia
+/** Vista Strutture (Nico: le icone erano minuscole): ogni costruzione è un colore pieno o a righe sulla provincia, come la
+ *  vista del terreno, con la legenda. Niente arancio. */
+export const WORK_VIEW: Record<string, { col: string; stripe: number }> = {
+  // Nico, 26 novembre 2026: pochi colori pieni, niente righe: fabbrica gialla, città blu scuro, deposito marrone, radar blu
+  // (27 novembre: "colori più belli") toni pieni e armonici: senape, ardesia, cobalto, cuoio, verde acqua
+  fabbrica: { col: '#d9b84a', stripe: 0 }, bunker: { col: '#8f95a8', stripe: 0 }, caserma: { col: '#c95c5c', stripe: 0 },
+  ospedale: { col: '#e9ebe6', stripe: 0 }, radar: { col: '#56b3c0', stripe: 0 }, porto: { col: '#4f8fd6', stripe: 0 },
+  aeroporto: { col: '#9fd0f5', stripe: 0 }, rifornimenti: { col: '#9a6b3f', stripe: 0 }, ferrovia: { col: '#8a7d9c', stripe: 0 },
+  contraerea: { col: '#b57ad6', stripe: 0 }, raffineria: { col: '#c9a0dc', stripe: 0 }, fattoria: { col: '#5b7f4f', stripe: 0 },
+  citta: { col: '#3a5fae', stripe: 0 },
+};
+
 export const TERRAIN_VIEW: Record<string, { col: string; stripe: number; name: string }> = {
-  pianura: { col: '#2a4a7a', stripe: 0, name: 'pianura' },
-  colline: { col: '#4a72ad', stripe: 1, name: 'colline' },
-  montagne: { col: '#8fb0e0', stripe: 2, name: 'montagne' },
-  deserto: { col: '#6f93c8', stripe: 0, name: 'deserto' },
+  // un colore per terreno (prima quattro blu che non si distinguevano); niente arancio
+  pianura: { col: '#5b7f4f', stripe: 0, name: 'Plains' },
+  // Nico, 26 novembre 2026: colline verde scuro piene (parenti della pianura), montagne grigie a righe, deserto beige più tenue
+  colline: { col: '#3e5a36', stripe: 0, name: 'Hills' },
+  montagne: { col: '#3c3a37', stripe: 0, name: 'Mountains' }, // grigio scuro pieno, senza righe (Nico: tra le righe passava il fondo bluastro)
+  deserto: { col: '#c8b99c', stripe: 0, name: 'Desert' },
 };

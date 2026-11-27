@@ -53,7 +53,7 @@ export class ResearchCube {
   private dirty = true;
   private state = { done: new Set<string>(), running: '' };
 
-  constructor(private w: number, private h: number, dpr: number) {
+  constructor(private w: number, private h: number, dpr: number, tags = true) {
     this.gl = document.createElement('canvas');
     this.r = new THREE.WebGLRenderer({ canvas: this.gl, antialias: true, alpha: true, preserveDrawingBuffer: true });
     this.r.setPixelRatio(dpr);
@@ -66,7 +66,7 @@ export class ResearchCube {
     this.r.toneMapping = THREE.ACESFilmicToneMapping;
     this.r.toneMappingExposure = 1.1;
     this.cam = new THREE.PerspectiveCamera(26, w / h, 0.1, 100);
-    this.cam.setViewOffset(w, h, w * 0.09, 0, w, h); // cubo un po' a sinistra: a destra c'è posto per i nomi degli strati
+    if (tags) this.cam.setViewOffset(w, h, w * 0.09, 0, w, h); // cubo un po' a sinistra: a destra c'è posto per i nomi degli strati
     this.scene.add(this.cube);
     // luce fredda dall'alto con ombre morbide, luce viola attorno al Frammento
     this.scene.add(new THREE.HemisphereLight(0xc8d8e8, 0x1a1d20, 1.4));
@@ -221,7 +221,7 @@ export class ResearchCube {
     this.dirty = false;
     this.yaw += (this.aim.yaw - this.yaw) * 0.08;
     this.pitch += (this.aim.pitch - this.pitch) * 0.08;
-    const d = 10.8;
+    const d = 10.8 * Math.max(1, 0.68 / (this.w / this.h)); // in un'area stretta la camera si allontana: il cubo non esce dai lati
     this.cam.position.set(Math.sin(this.yaw) * Math.cos(this.pitch) * d, Math.sin(this.pitch) * d + 0.1, Math.cos(this.yaw) * Math.cos(this.pitch) * d);
     this.cam.lookAt(0, 0.05, 0);
     this.r.render(this.scene, this.cam);

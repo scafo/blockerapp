@@ -8,27 +8,28 @@ import { FONT_SERIF, FONT_MONO } from '../ui/style';
 import { tech } from '../ui/ops';
 import { coverImage } from '../ui/images';
 
-// finestre in proporzione allo schermo (x, y, larghezza, altezza) e la foto di ciascuna; disposte come nel mockup
+// finestre in proporzione allo schermo (x, y, larghezza, altezza) e la foto di ciascuna; disposte come nel mockup. Le foto
+// raccontano la lore (Nico, 25 novembre 2026: "le immagini dell'intro vanno cambiate"; concept-art/stili/intro.py)
 const WINDOWS: [number, number, number, number, string, number][] = [
-  [0.21, 0.17, 0.39, 0.37, 'room-comando', 3],
-  [0.61, 0.13, 0.17, 0.33, 'room-radar', 2],
-  [0.13, 0.22, 0.067, 0.15, 'ev-archivio', 0],
-  [0.8, 0.19, 0.083, 0.13, 'ev-frequenza', 0],
-  [0.8, 0.34, 0.104, 0.18, 'room-laboratorio', 2],
-  [0.21, 0.56, 0.125, 0.22, 'comandante', 0],
-  [0.35, 0.58, 0.17, 0.17, 'front-2', 2],
-  [0.61, 0.49, 0.14, 0.26, 'ev-trasmettitore', 0],
-  [0.53, 0.77, 0.09, 0.12, 'ev-convoglio', 0],
-  [0.76, 0.56, 0.076, 0.19, 'ev-nebbia', 0],
-  [0.06, 0.5, 0.11, 0.16, 'front-5', 2],
-  [0.88, 0.62, 0.09, 0.2, 'room-arsenale', 0],
+  [0.21, 0.17, 0.39, 0.37, 'intro-concordia', 3],
+  [0.61, 0.13, 0.17, 0.33, 'intro-alati', 2],
+  [0.13, 0.22, 0.067, 0.15, 'intro-frammento', 0],
+  [0.8, 0.19, 0.083, 0.13, 'intro-segnale', 0],
+  [0.8, 0.34, 0.104, 0.18, 'intro-corruzione', 2],
+  [0.21, 0.56, 0.125, 0.22, 'intro-generale', 0],
+  [0.35, 0.58, 0.17, 0.17, 'intro-senato', 2],
+  [0.61, 0.49, 0.14, 0.26, 'intro-lume', 0],
+  [0.53, 0.77, 0.09, 0.12, 'intro-colonna', 0],
+  [0.76, 0.56, 0.076, 0.19, 'intro-statua', 0],
+  [0.06, 0.5, 0.11, 0.16, 'intro-archivio', 2],
+  [0.88, 0.62, 0.09, 0.2, 'intro-avvento', 0],
 ];
 const PROSE = [
-  [0.03, 0.83, 'Prima c\'era la Concordia: un secolo di pace.\nPoi, nell\'Anno Zero, dal cielo scesero gli Alati.'],
-  [0.79, 0.84, 'Restano i Frammenti, e il Segnale\nche nessuno sa ancora leggere.'],
-  [0.36, 0.78, 'Le potenze si contendono il Lume.'],
+  [0.03, 0.83, 'First there was the Concord: a century of peace.\nThen, in Year Zero, the Winged came down from the sky.'],
+  [0.79, 0.84, 'What remains are the Fragments, and the Signal\nthat no one can read yet.'],
+  [0.36, 0.78, 'The powers fight over the Lumen.'],
 ];
-const DATA = [[0.03, 0.06, 'ARCHEON // ARCHIVIO DI COMANDO'], [0.8, 0.07, 'FREQ 47.2 MHz · SEGNALE ATTIVO'], [0.03, 0.94, 'ANNO ZERO + 31 · 03:14']];
+const DATA = [[0.03, 0.06, 'ARCHEON // COMMAND ARCHIVE'], [0.8, 0.07, 'FREQ 47.2 MHz, SIGNAL ACTIVE'], [0.03, 0.94, 'YEAR ZERO + 31, 03:14']];
 
 let shown = false;
 

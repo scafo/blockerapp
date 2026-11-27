@@ -1,22 +1,22 @@
 {
   "victory": [
-    "Rapporto al Comando: la regione risponde ai nostri codici. Le altre potenze hanno ricevuto il messaggio.",
-    "Dominio confermato. Sulla carta del Comando la regione ha un solo colore. Per ora.",
-    "I Frammenti tacciono da tre notti. Nessuno sa ancora cosa ci chiederanno in cambio."
+    "Report to Command: the region answers to our codes. The other powers have received the message.",
+    "Dominion confirmed. On the Command map the region has a single colour. For now.",
+    "The Fragments have been silent for three nights. No one knows yet what they will ask of us in return."
   ],
   "retreat": [
-    "Ripiegamento eseguito secondo protocollo. Il bottino è al sicuro nel Deposito.",
-    "Le colonne rientrano. Il Comando registra la campagna come interrotta, non persa.",
-    "La regione resta contesa. Ci torneremo quando il cielo sarà più quieto."
+    "Withdrawal carried out by the book. The spoils are safe in the Depot.",
+    "The columns are coming home. Command logs the campaign as interrupted, not lost.",
+    "The region remains contested. We will return when the sky is quieter."
   ],
   "eliminated": [
-    "Collegamento perso con il fronte. Parte del bottino è ora nei depositi di un'altra potenza.",
-    "Le linee sono cadute. Il nemico conta il nostro equipaggiamento.",
-    "Ultima trasmissione dal fronte: solo rumore, e un canto che nessuno riconosce."
+    "Contact lost with the front. Part of the spoils now sits in another power's depots.",
+    "The lines have fallen. The enemy is counting our equipment.",
+    "Last transmission from the front: only noise, and a song no one recognises."
   ],
   "timeout": [
-    "Il tempo della campagna è scaduto. La regione resta contesa, il bottino rientra al Deposito.",
-    "Fine delle operazioni. Il Comando richiama le colonne: un'altra potenza tiene più terra di noi.",
-    "Le radio tacciono all'ora stabilita. Ripiegamento ordinato, nessuna perdita al Deposito."
+    "The campaign's time is up. The region remains contested, the spoils return to the Depot.",
+    "End of operations. Command recalls the columns: another power holds more land than we do.",
+    "The radios fall silent at the appointed hour. Orderly withdrawal, no losses at the Depot."
   ]
 }

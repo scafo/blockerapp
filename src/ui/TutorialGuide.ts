@@ -68,34 +68,34 @@ export class TutorialGuide {
       case 'tap': {
         const front = st.frontier(PLAYER).filter((p) => st.troops > st.provCost(PLAYER, p));
         const p = front.sort((a, b) => st.provCost(PLAYER, a) - st.provCost(PLAYER, b))[0];
-        return p === undefined ? this.show(null, 'ASPETTA LE TRUPPE') : this.show(this.api.tileToScreen(st.map.provinces[p].anchor), 'TOCCA UNA PROVINCIA');
+        return p === undefined ? this.show(null, 'WAIT FOR TROOPS') : this.show(this.api.tileToScreen(st.map.provinces[p].anchor), 'TAP A PROVINCE');
       }
       case 'troops':
-        return this.show(this.api.troopsPos(), 'LE TRUPPE CRESCONO\nCOL TERRITORIO', true);
+        return this.show(this.api.troopsPos(), 'TROOPS GROW\nWITH TERRITORY', true);
       case 'flow': {
         if (this.flowTarget < 0 || st.owner[this.flowTarget] === PLAYER) this.flowTarget = this.pickFar(st);
-        return this.show(this.flowTarget >= 0 ? this.api.tileToScreen(this.flowTarget) : null, 'TOCCA LONTANO:\nIL FRONTE AVANZA DA SOLO');
+        return this.show(this.flowTarget >= 0 ? this.api.tileToScreen(this.flowTarget) : null, 'TAP FAR AWAY:\nTHE FRONT ADVANCES ON ITS OWN');
       }
       case 'paint': {
         const front = st.frontier(PLAYER);
-        return this.show(front.length ? this.api.tileToScreen(st.map.provinces[front[0]].anchor) : null, 'OPPURE TRASCINA\nDAL TUO TERRITORIO');
+        return this.show(front.length ? this.api.tileToScreen(st.map.provinces[front[0]].anchor) : null, 'OR DRAG\nFROM YOUR TERRITORY');
       }
       case 'unit': {
         const cost = BALANCE.units.fanteria.cost;
-        if (st.troops < cost && !this.api.selectedCard()) return this.show(null, `ACCUMULA ${cost} TRUPPE`);
-        if (!this.api.selectedCard()) return this.show(this.api.cardPos(), 'SCHIERA UNA PEDINA');
+        if (st.troops < cost && !this.api.selectedCard()) return this.show(null, `GATHER ${cost} TROOPS`);
+        if (!this.api.selectedCard()) return this.show(this.api.cardPos(), 'DEPLOY A UNIT');
         const own = this.ownBorder(st);
-        return this.show(own >= 0 ? this.api.tileToScreen(own) : null, 'TOCCA UN TUO TERRITORIO');
+        return this.show(own >= 0 ? this.api.tileToScreen(own) : null, 'TAP YOUR TERRITORY');
       }
       case 'order': {
         const u = st.unitsOf(PLAYER)[0];
         if (!u) return this.go('goal');
-        if (this.api.selectedUnit() === null) return this.show(this.api.tileToScreen(u.tile), 'TOCCA LA PEDINA');
+        if (this.api.selectedUnit() === null) return this.show(this.api.tileToScreen(u.tile), 'TAP THE UNIT');
         if (this.flowTarget < 0 || st.owner[this.flowTarget] === PLAYER) this.flowTarget = this.pickFar(st);
-        return this.show(this.flowTarget >= 0 ? this.api.tileToScreen(this.flowTarget) : null, 'POI TOCCA LA META');
+        return this.show(this.flowTarget >= 0 ? this.api.tileToScreen(this.flowTarget) : null, 'THEN TAP THE DESTINATION');
       }
       case 'goal':
-        return this.show(null, `OBIETTIVO: ${BALANCE.tutorial.goalProvinces} PROVINCE · ${st.player.provinces}/${BALANCE.tutorial.goalProvinces}`);
+        return this.show(null, `GOAL: ${BALANCE.tutorial.goalProvinces} PROVINCES, ${st.player.provinces}/${BALANCE.tutorial.goalProvinces}`);
     }
   }
 

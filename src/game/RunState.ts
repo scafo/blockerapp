@@ -1,20 +1,23 @@
 // Stato logico di una run: nessuna dipendenza da Phaser.
 import { BALANCE, type WorkDef, type AbilityType, type CampaignId, type CivId, type Resource, type UnitType, type WorkId } from '../config/balance';
-import { addBag, emptyBag, scaleBag, type Bag } from './resources';
-import { neighbors, hexDistance } from '../map/hexGrid';
-import { UNIT_TYPES, findPath, isNaval, rps, type Stance, type Unit } from './units';
+import { RESOURCE_INFO, addBag, emptyBag, scaleBag, type Bag } from './resources';
+import { colOf, neighbors, hexDistance, rowOf } from '../map/hexGrid';
+import { UNIT_TYPES, findPath, findPathAStar, isNaval, rps, straightPath, type Stance, type Unit } from './units';
 import { isCoast, seaRoute, type Boat } from './boats';
 import { DEFAULT_OPTIONS, type RunOptions } from './camp';
 import { EVENTS, type EventChoice, type EventEffects, type GameEvent } from './events';
 import { createRng, type Rng } from '../map/rng';
 import { FACTION_INFO } from './factions';
 import type { FactionKind, RunMap, Tile } from '../map/generate';
+import type { Cmd, CmdEntry } from './commands';
 
 const RESOURCE_KEYS: Resource[] = ['metallo', 'benzina', 'cibo'];
 export const NEUTRAL = -1;
 /** Costruzioni che si possono fare (Nico: ospedale, aeroporto e contraerea tolti; restano nell'elenco sotto solo per l'ordine). */
-export const BUILDABLE: WorkId[] = ['fabbrica', 'bunker', 'caserma', 'radar', 'porto', 'rifornimenti', 'ferrovia'];
-export const WORKS: WorkId[] = ['fabbrica', 'bunker', 'caserma', 'ospedale', 'radar', 'porto', 'aeroporto', 'rifornimenti', 'ferrovia', 'contraerea', 'raffineria', 'fattoria'];
+// sei costruzioni (Nico, 26 novembre 2026: "togli quelle che non servono a molto"): via caserma e porto (le pedine passano
+// il mare da sole); ospedale, aeroporto, contraerea, raffineria e fattoria erano già fuori dal menu
+export const BUILDABLE: WorkId[] = ['citta', 'fabbrica', 'radar', 'rifornimenti']; // ferrovia tolta (Nico, 26 novembre 2026); fortificazione tolta (Nico, 26 novembre 2026)
+export const WORKS: WorkId[] = ['fabbrica', 'bunker', 'caserma', 'ospedale', 'radar', 'porto', 'aeroporto', 'rifornimenti', 'ferrovia', 'contraerea', 'raffineria', 'fattoria', 'citta'];
 export const PLAYER = 0;
 
 export interface Faction {
@@ -55,13 +58,31 @@ export type RunEvent =
   | { type: 'battle'; phase: 'start' | 'won' | 'lost' | 'off'; battle: Battle }
   | { type: 'capital'; faction: number; p: number }
   | { type: 'upkeep'; res: Resource }
-  | { type: 'hit'; from: number; to: number; fromTile: number; toTile: number; dmg: number; owner: number };
+  | { type: 'hit'; from: number; to: number; fromTile: number; toTile: number; dmg: number; owner: number }
+  | { type: 'objective'; phase: 'new' | 'done' | 'failed'; objective: Objective };
 
 export type Outcome = 'eliminated' | 'victory' | 'retreat' | 'timeout';
 /** Rapporto di una fazione col giocatore. */
 export type Relation = 'guerra' | 'pace' | 'alleanza';
 export type DiploWhat = 'war' | 'peace' | 'alliance' | 'broken' | 'refused' | 'tribute' | 'gift';
-export type VictoryReason = 'map' | 'time' | 'tutorial';
+/** Momento della cronologia (Nico, 27 novembre 2026: "una cronologia delle battaglie, così si può rivedere"). */
+export interface ChronEntry { t: number; k: 'war' | 'peace' | 'alliance' | 'fall' | 'capital' | 'attack' | 'zone' | 'lost'; a: number; b: number; n?: number; byPlayer?: boolean }
+/** Replay di fine partita: padroni delle province all'inizio e i cambi a fotogrammi di 2 s, più la cronologia. */
+export interface ReplayData { own0: Int16Array; frames: { t: number; ch: number[] }[]; chronicle: ChronEntry[]; endMs: number }
+export type VictoryReason = 'map' | 'time' | 'tutorial' | 'dominance' | 'share';
+
+/** Obiettivo di campagna attivo (a catena da BALANCE.objectives.list, o la svolta del dominio). */
+export interface Objective {
+  id: string;
+  kind: string;
+  target: number;
+  progress: number;
+  deadline?: number; // tempo di gioco entro cui completarlo
+  troops: number;
+  loot: number;
+  decisive?: boolean; // il dominio: completato chiude la campagna con la vittoria
+  holdSince?: number; // dominio: da quando la condizione regge
+}
 
 export interface RunSummary {
   seed: string;
@@ -81,6 +102,8 @@ export interface RunSummary {
   campaign: CampaignId;
   front: number; // indice del fronte
   world?: { core: number[]; fallen: number[]; rivals: { id: number; relation: Relation; opinion: number }[] }; // eredità per la prossima campagna
+  rareSeen?: string[]; // eventi rari visti: frammenti della Caduta per l'Archivio della Sala Radar
+  sandbox?: boolean; // partita libera: non tocca il profilo
 }
 
 export type ConquerResult =
@@ -89,8 +112,18 @@ export type ConquerResult =
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
+/** Cosa ritorna ogni comando (per gli avvisi della scena; in rete arriva più tardi). */
+export interface CmdResult {
+  conquer: ConquerResult; plan: boolean; boat: ReturnType<RunState['launchBoat']>; deploy: Unit | null; ability: boolean;
+  move: number; stance: void; front: boolean; hold: number; push: number; release: void; divide: number[]; zone: number; chase: number; unpost: void; band: number; unband: void; merge: ReturnType<RunState['merge']>;
+  split: ReturnType<RunState['split']>; retreatUnits: number; wall: ReturnType<RunState['buildWall']>; war: boolean;
+  peace: ReturnType<RunState['proposePeace']>; alliance: ReturnType<RunState['proposeAlliance']>; breakAlliance: boolean;
+  giveTroops: number; giveLoot: Resource | null; tribute: number; event: string; place: boolean; clearStart: void;
+  pause: void; retreat: void;
+}
+
 export class RunState {
-  readonly owner: Int8Array;
+  readonly owner: Int16Array;
   readonly factions: Faction[];
   gameTimeMs = 0;
   speed = 1;
@@ -100,7 +133,9 @@ export class RunState {
   private bonusTimeMs = 0;
   private timerWarned = false;
   // eventi
-  pendingEvent: GameEvent | null = null;
+  /** Rapporti arrivati e non ancora letti (Nico, 26 novembre 2026: non si aprono da soli, si leggono dal tasto RADAR). */
+  eventInbox: GameEvent[] = [];
+  private guardUntil = new Map<number, number>(); // provincia → fino a quando è rinforzata (rapporto del radar)
   private nextEventAt: number = BALANCE.events.firstMs;
   /** frecce dei rapporti radar sulla carta (caselle) */
   alerts: { from: number; to: number; until: number }[] = [];
@@ -121,20 +156,29 @@ export class RunState {
   /** Costruzioni nelle province: indice in WORKS (−1 = niente) e tempo di gioco in cui è pronta. */
   readonly provWork: Int8Array;
   readonly provWorkAt: Float64Array;
+  /** Livello della costruzione (fabbrica 1–3) e tempo di gioco in cui finisce il miglioramento in corso (0 = nessuno). */
+  readonly provLevel: Uint8Array;
+  readonly provLevelAt: Float64Array;
   private nextAiBunkerAt: number[] = [];
   private worksBuilt: number[] = [];
+  private builtCities: number[] = []; // città costruite per fazione (rincaro delle prossime)
   /** provincia sul mare (porto possibile) */
   provCoastal = new Uint8Array(0); // costruzioni avviate per fazione (fanno salire il prezzo)
   /** per provincia: peso di crescita (caselle × terreno), risorsa e quantità prodotta a ogni tick */
   private provGrowthW: Float32Array;
   private cityProv = new Set<number>(); // province che valgono di più (Nico: le città)
+  private builtCity = new Set<number>(); // città costruite (non quelle della carta): nodi della rete dei depositi come la capitale
   /** crescita (caselle pesate) di ogni fazione, ricalcolata a ogni tick */
   private gw: number[] = [];
   /** risorse guadagnate nell'ultimo tick per fazione (province + lavoratori) */
   private incomeTick: Bag[] = [];
   private provincesDone = new Set<string>(); // "fazione:provincia" già premiate
+  objectives: Objective[] = []; // obiettivi attivi, mostrati nell'HUD
+  placing = false; // sandbox: si sceglie la partenza toccando la carta (tempo fermo finché non si sceglie)
+  private objNext = 0; // prossimo della lista da attivare
+  private objStats = { cities: new Set<number>(), capitals: 0, empireProv: 0, repelled: 0 };
   /** Proprietario di ogni provincia (tutte le sue caselle attraversabili hanno lo stesso). */
-  readonly provOwner: Int8Array;
+  readonly provOwner: Int16Array;
   /** Provincia visibile al giocatore (almeno una casella in vista). */
   readonly provVisible: Uint8Array;
   private flowAcc = 0;
@@ -147,24 +191,30 @@ export class RunState {
   readonly seen: Uint8Array;
   /** cambia quando cambia ciò che il giocatore vede (per ridisegnare la nebbia solo se serve) */
   fogVersion = 0;
+  /** Zona in vista, per provincia (1 = dentro): le pedine nemiche si vedono solo qui. Cambia `sightVersion`. */
+  sight = new Uint8Array(0);
+  /** Mare in vista, per casella: attorno alle tue pedine in mare (navi, reparti imbarcati) come un radar. */
+  seaSight = new Uint8Array(0);
+  seaLit: number[] = [];
+  sightVersion = 0;
+  private sightSig = NaN;
   /** quota delle truppe che un'avanzata può spendere */
   attackRatio = 1; // leva ATTACCO tolta (Nico: complicava solo): le avanzate usano tutte le truppe
   private flowBestD = Infinity;
   private flowSteps = 0;
   /** Genio: caselle fortificate (proprietario della fortificazione, −1 = nessuna). */
-  private fortBy: Int8Array;
+  private fortBy: Int16Array;
   /** Cannoniera: caselle di costa coperte dal fuoco (fazione che ne approfitta, −1 = nessuna). */
-  private supportBy: Int8Array;
+  private supportBy: Int16Array;
   /** Abilità: pronte da (tempo di gioco), ricognizioni in volo, bombardamenti in arrivo. */
   abilityReadyAt: Record<AbilityType, number> = { ricognizione: 0, bombardamento: 0 };
   private recons: { tile: number; until: number }[] = [];
   private strikes: { tile: number; at: number; by: number }[] = [];
   /** Bombardamenti delle IA (dal Fronte III): prossimo per fazione. */
-  private aiStrikeAt: number[] = [];
   /** Coalizione contro il giocatore: imperi che hanno smesso di farsi la guerra tra loro. */
   readonly coalition = new Set<number>();
   /** Ferrovie: per provincia, la fazione le cui pedine ci corrono (−1 = nessuna). Ricalcolato a ogni tick. */
-  private railBy: Int8Array;
+  private railBy: Int16Array;
   /** Rancio: frazione di cibo mangiata dall'esercito e non ancora tolta dallo zaino. */
   private foodAcc = 0;
   private upkeepAcc: Bag = { metallo: 0, benzina: 0, cibo: 0 };
@@ -183,7 +233,6 @@ export class RunState {
   readonly cooldowns: Record<UnitType, number>[];
   private nextUnitId = 1;
   private aiSpawnAt: number[];
-  private absorbAt: number[] = [];
   /** Eventi da mostrare; la scena li consuma con drainEvents(). */
   private events: RunEvent[] = [];
   private tickAcc = 0;
@@ -202,12 +251,12 @@ export class RunState {
   private ruins: number[];
 
   constructor(readonly map: RunMap, readonly opts: RunOptions = DEFAULT_OPTIONS) {
-    this.owner = new Int8Array(map.tiles.length).fill(NEUTRAL);
-    this.provOwner = new Int8Array(map.provinces.length).fill(NEUTRAL);
+    this.owner = new Int16Array(map.tiles.length).fill(NEUTRAL);
+    this.provOwner = new Int16Array(map.provinces.length).fill(NEUTRAL);
     this.provVisible = new Uint8Array(map.provinces.length).fill(1);
-    this.fortBy = new Int8Array(map.tiles.length).fill(-1);
-    this.supportBy = new Int8Array(map.tiles.length).fill(-1);
-    this.railBy = new Int8Array(map.provinces.length).fill(-1);
+    this.fortBy = new Int16Array(map.tiles.length).fill(-1);
+    this.supportBy = new Int16Array(map.tiles.length).fill(-1);
+    this.railBy = new Int16Array(map.provinces.length).fill(-1);
     // stesso mondo, campagna nuova: stessa mappa ma le IA e gli eventi non rifanno le stesse mosse
     const salt = opts.world?.campaign ? ':' + opts.world.campaign : '';
     this.aiRng = createRng(map.seed + ':ia' + salt);
@@ -232,6 +281,8 @@ export class RunState {
     // nello zaino la puntata e la scorta di guerra (si spendono per reparti ed edifici; la scorta non conta come bottino)
     const SS = opts.tutorial ? emptyBag() : BALANCE.economy.startStock;
     this.factions[PLAYER].loot = { metallo: opts.stake.metallo + SS.metallo, benzina: opts.stake.benzina + SS.benzina, cibo: opts.stake.cibo + SS.cibo };
+    // le IA partono con la stessa scorta di guerra: i primi reparti costano anche risorse
+    for (const f of this.factions) if (f.id !== PLAYER) f.loot = { ...SS };
     this.factions.forEach((f) => {
       this.relation.push(f.kind === 'bot' ? 'guerra' : 'pace'); // milizie ostili, imperi in pace finché non vi toccate
       this.opinion.push(f.kind === 'bot' ? -20 : 0);
@@ -260,9 +311,19 @@ export class RunState {
       }
     }
     this.cooldowns = this.factions.map(() => Object.fromEntries(UNIT_TYPES.map((t) => [t, 0])) as Record<UnitType, number>);
-    this.aiSpawnAt = this.factions.map(() => BALANCE.aiUnits.firstSpawnMs + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
+    this.aiSpawnAt = this.factions.map(() => (opts.sandbox ? BALANCE.sandboxWorld.firstSpawnMs : BALANCE.aiUnits.firstSpawnMs) + this.aiRng() * BALANCE.aiUnits.spawnJitterMs);
     this.nextOffensiveAt = opts.front.offensiveFirstMs;
-    this.aiStrikeAt = this.factions.map(() => BALANCE.aiStrike.firstMs + this.aiRng() * BALANCE.aiStrike.jitterMs);
+    if (opts.sandbox) {
+      // sandbox: truppe e risorse scelte, partenza da scegliere
+      this.player.troops = opts.sandbox.troops;
+      this.player.loot = { metallo: opts.sandbox.resources, benzina: opts.sandbox.resources, cibo: opts.sandbox.resources };
+      this.placing = true;
+      this.speed = opts.sandbox.speed ?? 1; // velocità di partenza scelta
+    } else if (!opts.tutorial) {
+      // mobilitazione: i primi secondi l'esercito cresce di più, così non si aspetta a vuoto (Nico: inizio più vivo)
+      this.growthBoost = { mult: BALANCE.opening.growthMult, until: BALANCE.opening.durationMs };
+      while (this.objectives.length < BALANCE.objectives.slots) if (!this.pullObjective()) break;
+    }
     // economia per provincia: crescita pesata dal terreno, risorsa del terreno prevalente
     const T = BALANCE.terrain;
     this.provGrowthW = Float32Array.from(map.provinces, (p) => p.tiles.reduce((s, i) => s + T[map.tiles[i]!.terrain].growth, 0));
@@ -274,6 +335,8 @@ export class RunState {
     // Prima valevano anche tutte le capitali delle nazioni: quasi tutte in Europa, che diventava la zona più ricca (Nico)
     this.worksBuilt = map.starts.map(() => 0);
     this.provWork = new Int8Array(map.provinces.length).fill(-1);
+    this.provLevel = new Uint8Array(map.provinces.length).fill(1);
+    this.provLevelAt = new Float64Array(map.provinces.length);
     this.provCoastal = Uint8Array.from(map.provinces, (pr) => (pr.tiles.some((i) => isCoast(map.tiles, i)) ? 1 : 0));
     this.provWorkAt = new Float64Array(map.provinces.length);
     this.gw = this.factions.map(() => 0);
@@ -302,6 +365,7 @@ export class RunState {
         if (this.provOwner[q] === NEUTRAL && this.provPassable(q)) { this.claimProvince(f, q); extra--; }
       }
     });
+    if (!opts.tutorial && !opts.sandbox) this.starterArmy(); // dopo la partenza: la capitale c'è
     // fronti difficili: le IA partono con qualche bunker attorno alla capitale e ne costruiscono altri
     if (!opts.tutorial) {
       map.starts.forEach((s, f) => {
@@ -374,18 +438,75 @@ export class RunState {
     return e;
   }
 
+  /** Millisecondi di gioco per il prossimo passo della pedina (terreno d'arrivo, ferrovia). */
+  stepMs(u: Unit): number {
+    const next = u.path[0], t = next !== undefined ? this.map.tiles[next] : undefined;
+    const rail = t && this.owner[next] === u.owner && this.railBy[t.province] === u.owner ? BALANCE.works.ferrovia.railMult ?? 1 : 1;
+    const armor = t && u.type === 'corazzati' ? BALANCE.units.armorMove[t.terrain] : 1; // i carri corrono in pianura
+    // pedina di terra in traversata: in mare più lenta, e il primo passo dalla costa al mare è l'imbarco (Nico: "ci mette un po'")
+    const embark = next !== undefined && !t && this.map.tiles[u.tile] && !isNaval(u.type) && !this.map.ford[next]; // il guado non è un imbarco
+    const sea = next !== undefined && !t && !isNaval(u.type) ? BALANCE.units.seaMove * (embark ? BALANCE.units.embarkMult : 1) : 1;
+    // squadra: tutte al passo della più lenta (Nico: "devono amalgamarsi a fare una media della velocità")
+    let base = u.squad !== undefined && u.squad >= 0 ? Math.max(BALANCE.units[u.type].moveMs, this.squadPace.get(u.squad) ?? 0) : BALANCE.units[u.type].moveMs;
+    // gruppetto: al passo del più lento. Chi lo sta raggiungendo va al suo passo (prima andava piano come il capo e non lo
+    // raggiungeva mai)
+    if ((u.band ?? -1) >= 0) { const L = this.bandLeader(u); if (L === u || hexDistance(u.tile, L.tile) <= 1) base = Math.max(base, this.bandSlow.get(u.band!) ?? 0); }
+    const crowd = Math.min(BALANCE.upkeep.stackMaxSlow, 1 + BALANCE.upkeep.stackSlow * (this.stackOver(u) - 1)); // ammasso: va più piano
+    return base * BALANCE.units.paceMult * (t ? BALANCE.terrain[t.terrain].move : 1) * armor * rail * sea * crowd;
+  }
+
+  /** Durata vera di un passo: il passo scatta al primo tick che arriva a `stepMs`, quindi dura un numero intero di tick. */
+  stepTicksMs(u: Unit): number {
+    return Math.ceil(this.stepMs(u) / BALANCE.tick.ms) * BALANCE.tick.ms;
+  }
+
+  /** Quanto manca al prossimo passo (0–1), per far scivolare la pedina sullo schermo fra una casella e l'altra. */
+  stepProgress(u: Unit): number {
+    // indici per il disegno (pedine per casella, chi assedia), rifatti una volta per tick: prima ogni pedina scorreva tutte
+    // le altre a ogni fotogramma (con 400 pedine, 160 000 confronti)
+    if (!this.viewIdx) {
+      this.viewIdx = new Map();
+      for (const v of this.units) if (!this.viewIdx.has(v.tile)) this.viewIdx.set(v.tile, v);
+      this.viewSiege = new Set(this.battles.map((b) => b.unit ?? -1));
+    }
+    if (!u.path.length || u.inCombat || this.over || this.viewSiege.has(u.id)) return 0; // in pausa resta dov'era (prima tornava alla casella: sembrava fare passi indietro)
+    const there = this.viewIdx.get(u.path[0]);
+    if (there && there.owner !== u.owner) return 0; // casella di un nemico: aspetta ferma
+    // sulla durata vera del passo (Nico: "scattano ancora"): prima sulla durata teorica, la pedina arrivava in anticipo alla
+    // casella e restava ferma fino al tick del passo
+    return Math.min(1, (u.moveAcc + this.tickAcc) / this.stepTicksMs(u));
+  }
+
   /** Avanza il tempo; ritorna quanti tick sono scattati. */
   update(deltaMs: number): number {
-    if (this.over || this.pendingEvent || this.paused) return 0; // carta evento aperta o pausa: tempo fermo
-    const dt = deltaMs * this.speed;
-    this.gameTimeMs += dt;
-    this.tickAcc += dt;
+    if (this.over || this.paused || this.placing) return 0; // pausa o partenza da scegliere: tempo fermo
+    this.tickAcc += deltaMs * this.speed;
     let ticks = 0;
     while (this.tickAcc >= BALANCE.tick.ms && !this.over) {
       this.tickAcc -= BALANCE.tick.ms;
-      this.tick();
+      this.step();
       ticks++;
     }
+    return ticks;
+  }
+
+  /** Tempo di gioco per il disegno: scorre liscio tra un passo e l'altro. */
+  get clockMs(): number {
+    return this.gameTimeMs + this.tickAcc;
+  }
+
+  /** Un passo fisso del mondo. Tutto avanza a passi uguali, mai a fotogrammi:
+   *  così due computer con lo stesso seme e gli stessi ordini restano identici (multiplayer a lockstep). */
+  private viewIdx: Map<number, Unit> | null = null;
+  private provCells: Map<number, number[]> | null = null; // province per riquadro di carta (raggio del radar sul mare)
+  private squadPace = new Map<number, number>(); // squadra → passo base del reparto più lento (rifatto a ogni tick)
+  private viewSiege = new Set<number>();
+
+  step() {
+    const dt = BALANCE.tick.ms;
+    this.gameTimeMs += dt;
+    this.viewIdx = null;
+    this.tick();
     this.moveBoats(dt);
     this.abilitiesTick();
     if (this.flowTarget === null && this.plan.length) this.nextPlan();
@@ -397,14 +518,13 @@ export class RunState {
         this.flowStep();
       }
     }
-    return ticks;
   }
 
   /** Crescita lorda per tick (truppe + lavoratori): caselle × 0,1, gli insediamenti valgono qualche casella in più. */
   private growth(f: Faction): number {
     const boost = this.gameTimeMs < this.growthBoost.until ? this.growthBoost.mult : 1;
     const mult = f.id === PLAYER ? boost * this.opts.mods.growthMult * this.foodMult : f.kind === 'bot' ? BALANCE.bots.growthMult
-      : this.opts.tutorial ? BALANCE.tutorial.aiGrowthMult : this.opts.front.aiGrowthMult;
+      : this.opts.tutorial ? BALANCE.tutorial.aiGrowthMult : this.opts.front.aiGrowthMult * (this.isMega(f.id) ? BALANCE.sandboxWorld.megaGrowth : 1);
     const perSettlement = BALANCE.settlements.growthTiles + (f.id === PLAYER ? this.opts.mods.settlementGrowth : 0);
     const tiles = this.gw[f.id] + f.settlements * perSettlement; // caselle pesate dal terreno + caserme + insediamenti
     // freno della valanga sulla crescita (non sui costi, che restano fissi): oltre il ginocchio un impero più grande cresce
@@ -434,6 +554,32 @@ export class RunState {
     this.payUpkeep();
   }
 
+  /** Mantenimento delle pedine delle IA, come il tuo (Nico: stesse regole), dalla loro cassa una volta al secondo. Se manca la
+   *  risorsa, quelle pedine hanno il rifornimento dimezzato. Per fazione e risorsa, 1 = non pagato. */
+  private aiUnpaid = new Uint8Array(0);
+  private aiNeed = new Float64Array(0);
+  private aiUpkeep() {
+    if (this.opts.tutorial || Math.round(this.gameTimeMs / BALANCE.tick.ms) % 10 !== 0) return;
+    const nf = this.factions.length;
+    if (this.aiUnpaid.length !== nf * 3) { this.aiUnpaid = new Uint8Array(nf * 3); this.aiNeed = new Float64Array(nf * 3); }
+    const need = this.aiNeed.fill(0);
+    for (const u of this.units) {
+      if (u.owner === PLAYER) continue;
+      const U = BALANCE.units[u.type];
+      need[u.owner * 3 + RESOURCE_KEYS.indexOf(U.res)] += (U.resCost * BALANCE.upkeep.perResCost * u.size) / 60; // al secondo
+    }
+    for (let f = 1; f < nf; f++) {
+      const loot = this.factions[f].loot;
+      for (let r = 0; r < 3; r++) {
+        const n = need[f * 3 + r];
+        if (!n) { this.aiUnpaid[f * 3 + r] = 0; continue; }
+        const k = RESOURCE_KEYS[r];
+        this.aiUnpaid[f * 3 + r] = loot[k] < n ? 1 : 0;
+        loot[k] = Math.max(0, loot[k] - n);
+      }
+    }
+  }
+
   /** Le pedine consumano la loro risorsa dallo zaino; se manca, quelle pedine restano senza rifornimento pieno. */
   private payUpkeep() {
     const need = this.upkeepPerMin(), dt = BALANCE.tick.ms / 60_000;
@@ -445,6 +591,7 @@ export class RunState {
         this.upkeepAcc[r] -= whole;
         const short = this.player.loot[r] < whole;
         if (short && !this.unpaid[r]) this.events.push({ type: 'upkeep', res: r }); // avviso una volta, quando comincia a mancare
+        if (short !== this.unpaid[r]) this.markSupply(PLAYER); // depositi a metà area (o di nuovo pieni)
         this.unpaid[r] = short;
         this.player.loot[r] = Math.max(0, this.player.loot[r] - whole);
       } else if (need[r] === 0) this.unpaid[r] = false;
@@ -474,38 +621,74 @@ export class RunState {
   // ---------- economia e costruzioni ----------
 
   /** Crescita pesata e produzione delle province (fabbriche ×, caserme +), costruzioni che finiscono. */
+  private madeBuf: Bag = { metallo: 0, benzina: 0, cibo: 0 };
+  /** Economia a quinti (Nico: pedine a scatti, "troppo calcolo"): ogni tick passa un quinto delle 18 000 province e vale
+   *  per cinque; crescita, ferrovie ed entrate si aggiornano a giro finito (ogni mezzo secondo). Prima tutte a ogni tick:
+   *  ~3 ms per passo, con punte che facevano saltare i fotogrammi. */
+  private econGw: number[] = [];
+  private econRail = new Int16Array(0);
+  private econInc: Bag[] = [];
+  private incProv: Bag[] = [];
   private economyTick() {
-    const W = BALANCE.works;
-    this.gw.fill(0);
-    this.railBy.fill(-1);
-    for (const b of this.incomeTick) b.metallo = b.benzina = b.cibo = 0;
-    for (let p = 0; p < this.provOwner.length; p++) {
+    const W = BALANCE.works, N = 5, slot = Math.round(this.gameTimeMs / BALANCE.tick.ms) % N;
+    if (this.econRail.length !== this.provOwner.length) {
+      this.econRail = new Int16Array(this.provOwner.length);
+      this.econGw = this.factions.map(() => 0);
+      this.econInc = this.factions.map(() => emptyBag());
+      this.incProv = this.factions.map(() => emptyBag());
+    }
+    if (slot === 0) {
+      this.econGw.fill(0);
+      this.econRail.fill(-1);
+      for (const b of this.econInc) b.metallo = b.benzina = b.cibo = 0;
+    }
+    for (let p = slot; p < this.provOwner.length; p += N) {
       const o = this.provOwner[p];
       const w = this.provWork[p];
       if (w >= 0 && this.provWorkAt[p] > 0 && this.provWorkAt[p] <= this.gameTimeMs) {
         this.provWorkAt[p] = 0; // pronta
-        this.supplyDirty = true; // un deposito di rifornimento cambia la logistica
+        this.markSupply(o); // un deposito di rifornimento cambia la logistica
         this.events.push({ type: 'work', by: o, p, work: WORKS[w], phase: 'done' });
+        if (W[WORKS[w]].makesCity) { this.cityProv.add(p); this.builtCity.add(p); this.provWork[p] = -1; } // ora è una città: il posto si libera
+      }
+      if (this.provLevelAt[p] > 0 && this.provLevelAt[p] <= this.gameTimeMs) {
+        this.provLevelAt[p] = 0;
+        this.provLevel[p]++;
+        this.events.push({ type: 'work', by: o, p, work: WORKS[this.provWork[p]], phase: 'done' });
       }
       if (o === NEUTRAL) continue;
       const ready = w >= 0 && this.provWorkAt[p] === 0 ? W[WORKS[w]] : null;
       const sup = 0.5 + 0.5 * this.supply[p]; // logistica: lontano dalla capitale si cresce e si produce meno (al massimo la metà)
-      this.gw[o] += this.provGrowthW[p] * sup + (ready?.growthTiles ?? 0);
+      this.econGw[o] += this.provGrowthW[p] * sup + (ready?.growthTiles ?? 0);
       const f = this.factions[o];
-      const k = (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1) * sup;
+      const k = (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1) * sup * this.adminEff(o);
       // tutte e tre le risorse da ogni provincia (Nico): quella del terreno di più; la fabbrica moltiplica tutto
-      const bag = this.provMade(p, ready);
+      const bag = this.provMade(p, ready, this.madeBuf); // un sacco riusato: 10 000 oggetti a tick facevano lavorare il GC
       for (const r of RESOURCE_KEYS) {
         const v = bag[r] * k * (BALANCE.tick.ms / 60_000);
-        f.lootAcc[r] += v;
-        this.incomeTick[o][r] += v;
+        f.lootAcc[r] += v * N; // la provincia passa una volta ogni N tick: vale per N
+        this.econInc[o][r] += v;
       }
       // ferrovia: le pedine del padrone corrono qui e nelle sue province accanto
       if (ready?.railMult) {
-        this.railBy[p] = o;
-        for (const q of this.map.provinces[p].neighbors) if (this.provOwner[q] === o) this.railBy[q] = o;
+        this.econRail[p] = o;
+        for (const q of this.map.provinces[p].neighbors) if (this.provOwner[q] === o) this.econRail[q] = o;
       }
     }
+    if (slot === N - 1) {
+      for (let f = 0; f < this.gw.length; f++) this.gw[f] = this.econGw[f];
+      this.railBy.set(this.econRail);
+      for (let f = 0; f < this.incProv.length; f++) Object.assign(this.incProv[f], this.econInc[f]);
+    }
+    // entrate per tick mostrate dall'HUD: province (giro finito) + quello che aggiungono rancio e lavoratori in questo tick
+    for (let f = 0; f < this.incomeTick.length; f++) Object.assign(this.incomeTick[f], this.incProv[f] ?? emptyBag());
+  }
+
+  /** Costo dell'impero (Nico): resa di ogni provincia quando la fazione ne ha tante. Piena fino a adminKnee, poi il totale
+   *  cresce come province^adminExp: più grande conviene sempre, ma molto meno. */
+  adminEff(f: number): number {
+    const E = BALANCE.economy, n = this.owned[f]?.size ?? 0;
+    return n <= E.adminKnee ? 1 : (E.adminKnee * Math.pow(n / E.adminKnee, E.adminExp)) / n;
   }
 
   /** Risorse al minuto della fazione (province, fabbriche, lavoratori). */
@@ -522,7 +705,7 @@ export class RunState {
 
   /** Risorse al minuto della provincia, una per una (senza la logistica). */
   provBag(p: number): Bag {
-    const w = this.workOf(p), o = this.provOwner[p], k = o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1;
+    const w = this.workOf(p), o = this.provOwner[p], k = (o === PLAYER ? this.opts.mods.lootMult * this.opts.mods.prodMult : 1) * (o >= 0 ? this.adminEff(o) : 1);
     const b = this.provMade(p, w ? BALANCE.works[w] : null);
     return { metallo: b.metallo * k, benzina: b.benzina * k, cibo: b.cibo * k };
   }
@@ -539,6 +722,30 @@ export class RunState {
   }
 
   /** Mantenimento al minuto delle pedine del giocatore, per risorsa. */
+  /** Spese al minuto divise (pannello ECONOMIA): reparti in campo e rete dei depositi (benzina). */
+  upkeepSplit(): { units: Bag; depots: number } {
+    const units: Bag = { metallo: 0, benzina: 0, cibo: 0 };
+    for (const u of this.units) if (u.owner === PLAYER) { const U = BALANCE.units[u.type]; units[U.res] += U.resCost * BALANCE.upkeep.perResCost * u.size; }
+    return { units, depots: this.opts.tutorial ? 0 : this.depotUpkeep() };
+  }
+
+  /**
+   * Rete dei depositi (benzina al minuto): una quota della benzina che producono le tue province, nd / (nd + depotHalf)
+   * (100 depositi = metà), almeno depotBase a deposito. Prima un costo fisso che cresceva col numero: con 164 depositi
+   * 366 al minuto contro ~1400 prodotti e 148.000 in cassa, non si sentiva (Nico, 27 novembre 2026).
+   */
+  /** Manca una risorsa del mantenimento: i depositi coprono metà area. */
+  private depotsUnpaid(): boolean {
+    return this.unpaid.metallo || this.unpaid.benzina || this.unpaid.cibo;
+  }
+
+  depotUpkeep(): number {
+    const K = BALANCE.upkeep, nd = this.depotLinks.length;
+    if (!nd) return 0;
+    const made = (this.incProv[PLAYER]?.benzina ?? 0) * (60_000 / BALANCE.tick.ms);
+    return Math.max(nd * K.depotBase, made * (nd / (nd + K.depotHalf))) * K.depotMult;
+  }
+
   upkeepPerMin(): Bag {
     const out: Bag = { metallo: 0, benzina: 0, cibo: 0 };
     if (this.opts.tutorial) return out;
@@ -547,6 +754,9 @@ export class RunState {
       const U = BALANCE.units[u.type];
       out[U.res] += U.resCost * BALANCE.upkeep.perResCost * u.size;
     }
+    // i depositi costano di tutto (Nico, 26 novembre 2026; prima solo benzina), la benzina meno (depotSplit)
+    const dep = this.depotUpkeep();
+    for (const r of RESOURCE_KEYS) out[r] += dep * BALANCE.upkeep.depotSplit[r];
     return out;
   }
 
@@ -556,13 +766,13 @@ export class RunState {
   }
 
   /** Produzione al minuto (60% risorsa del terreno, 20% ciascuna le altre; città × cityMult, fabbrica ×, raffineria/fattoria +). */
-  private provMade(p: number, ready: WorkDef | null): Bag {
+  private provMade(p: number, ready: WorkDef | null, out: Bag = { metallo: 0, benzina: 0, cibo: 0 }): Bag {
     const E = BALANCE.economy, prov = this.map.provinces[p], T = BALANCE.terrain[prov.terrain];
-    const total = T.perMin * E.totalMult * (this.cityProv.has(p) ? E.cityMult : 1) * this.provRich[p] * (ready?.prodMult ?? 1);
-    const out: Bag = { metallo: 0, benzina: 0, cibo: 0 };
+    const mult = ready?.levelProd?.[this.provLevel[p] - 1] ?? ready?.prodMult ?? 1; // la fabbrica rende di più a ogni livello
+    const total = T.perMin * E.totalMult * (this.cityProv.has(p) ? E.cityMult : 1) * this.provRich[p] * mult;
     for (const r of RESOURCE_KEYS) out[r] = total * (r === T.res ? E.mainShare : (1 - E.mainShare) / 2);
     const dep = this.provDeposit[p];
-    if (dep >= 0) out[RESOURCE_KEYS[dep]] += BALANCE.provinceEconomy.depositPerMin * (ready?.prodMult ?? 1); // giacimento
+    if (dep >= 0) out[RESOURCE_KEYS[dep]] += BALANCE.provinceEconomy.depositPerMin * mult; // giacimento
     if (ready?.res && ready.prodAdd) out[ready.res] += ready.prodAdd;
     return out;
   }
@@ -589,8 +799,25 @@ export class RunState {
   }
 
   /** Truppe che costa una costruzione di quel tipo: prezzo fisso per tutta la partita (come in Call of War). */
-  workPrice(w: WorkId, _by = PLAYER): number {
-    return BALANCE.works[w].troops;
+  workPrice(w: WorkId, _by = PLAYER, p = -1): number {
+    if (!this.opts.tutorial) return 0; // fuori dalla run guidata si paga in metallo (workMetal)
+    return Math.round(BALANCE.works[w].troops * this.upgradeMult(w, p));
+  }
+
+  /** La costruzione qui sarebbe un miglioramento (stessa costruzione pronta, sotto il livello massimo, niente in corso)? */
+  canUpgrade(p: number, w: WorkId): boolean {
+    const max = BALANCE.works[w].maxLevel ?? 1;
+    return p >= 0 && this.workOf(p) === w && this.provLevel[p] < max && this.provLevelAt[p] === 0;
+  }
+
+  /** Prezzo del miglioramento: × levelCostMult per ogni livello già fatto. */
+  private upgradeMult(w: WorkId, p: number): number {
+    return this.canUpgrade(p, w) ? (BALANCE.works[w].levelCostMult ?? 1) ** this.provLevel[p] : 1;
+  }
+
+  /** Miglioramento in corso: ms che mancano (null se niente). */
+  upgradeInProgress(p: number): number | null {
+    return this.provLevelAt[p] > 0 ? this.provLevelAt[p] - this.gameTimeMs : null;
   }
 
   /** Costruzione pronta in questa provincia (null se niente o ancora in cantiere). */
@@ -606,21 +833,38 @@ export class RunState {
   }
 
   /** Perché il giocatore non può costruire qui (null = si può). */
-  workBlock(p: number, w: WorkId, techs: string[] = this.opts.techs): null | 'owner' | 'busy' | 'tech' | 'troops' | 'over' | 'coast' | 'metal' {
+  workBlock(p: number, w: WorkId, techs: string[] = this.opts.techs): null | 'owner' | 'busy' | 'tech' | 'troops' | 'over' | 'coast' | 'resources' {
     const W = BALANCE.works[w];
     if (this.over) return 'over';
     if (this.provOwner[p] !== PLAYER) return 'owner';
-    if (this.provWork[p] >= 0) return 'busy';
+    if (this.provWork[p] >= 0 && !this.canUpgrade(p, w)) return 'busy';
+    if (W.makesCity && this.cityProv.has(p)) return 'busy'; // è già una città
     if (W.tech && !techs.includes(W.tech)) return 'tech';
     if (W.coastal && !this.provCoastal[p]) return 'coast';
-    if (this.troops <= this.workPrice(w)) return 'troops';
-    if (this.backpack.metallo < this.workMetal(w)) return 'metal';
+    if (this.workPrice(w, PLAYER, p) > 0 && this.troops <= this.workPrice(w, PLAYER, p)) return 'troops';
+    const cost = this.workCost(w, p);
+    if (RESOURCE_KEYS.some((r) => this.backpack[r] < cost[r])) return 'resources';
     return null;
   }
 
-  /** Metallo dallo zaino per una costruzione del giocatore (le IA pagano solo in truppe). */
-  workMetal(w: WorkId): number {
-    return this.opts.tutorial ? 0 : BALANCE.works[w].metal;
+  /** Risorse dallo zaino per una costruzione (le IA dalla loro cassa). Città, radar e depositi: ogni altro dello stesso tipo
+   *  che `by` ha già (pronto o in cantiere) lo rende più caro di `countStep` (Nico, 26 novembre 2026). */
+  workCost(w: WorkId, p = -1, by = PLAYER): Bag {
+    const W = BALANCE.works[w], out: Bag = { metallo: 0, benzina: 0, cibo: 0 };
+    if (this.opts.tutorial) return out;
+    let k = this.upgradeMult(w, p);
+    if (W.countStep && !this.canUpgrade(p, w)) k *= 1 + W.countStep * this.worksCount(by, w);
+    for (const r of RESOURCE_KEYS) out[r] = Math.round(W.cost[r] * k);
+    return out;
+  }
+
+  /** Costruzioni di quel tipo della fazione, anche in cantiere (le città fatte contano: sono città costruite). */
+  private worksCount(f: number, w: WorkId): number {
+    const k = WORKS.indexOf(w);
+    let n = 0;
+    if (w === 'citta') return this.builtCities[f] ?? 0;
+    for (const p of this.owned[f] ?? []) if (this.provWork[p] === k) n++;
+    return n;
   }
 
   /** Muro: bunker su tutte le province trascinate, in ordine, finché bastano truppe e metallo. */
@@ -628,7 +872,7 @@ export class RunState {
     let built = 0, skipped = 0, stop: ReturnType<RunState['workBlock']> = null;
     for (const p of provs) {
       const why = this.workBlock(p, w);
-      if (why === 'troops' || why === 'metal' || why === 'over') { stop = why; break; }
+      if (why === 'troops' || why === 'resources' || why === 'over') { stop = why; break; }
       if (why) { skipped++; continue; }
       if (this.build(PLAYER, p, w)) built++;
     }
@@ -640,28 +884,48 @@ export class RunState {
     const W = BALANCE.works[w];
     if (by === PLAYER && this.workBlock(p, w)) return false;
     const f = this.factions[by];
-    f.troops -= this.workPrice(w, by);
-    if (by === PLAYER) f.loot.metallo -= this.workMetal(w);
+    f.troops -= this.workPrice(w, by, p);
+    const cost = this.workCost(w, p, by); // anche le IA (stesse regole)
+    for (const r of RESOURCE_KEYS) f.loot[r] -= cost[r];
+    if (W.makesCity) this.builtCities[by] = (this.builtCities[by] ?? 0) + 1;
     this.worksBuilt[by] = (this.worksBuilt[by] ?? 0) + 1;
+    if (this.canUpgrade(p, w)) {
+      // miglioramento: la costruzione lavora anche durante il cantiere
+      this.provLevelAt[p] = this.gameTimeMs + W.timeMs * (1 + this.provLevel[p] * 0.5);
+      this.events.push({ type: 'work', by, p, work: w, phase: 'start' });
+      return true;
+    }
     this.provWork[p] = WORKS.indexOf(w);
     this.provWorkAt[p] = this.gameTimeMs + W.timeMs;
+    this.provLevel[p] = 1;
+    this.provLevelAt[p] = 0;
     this.events.push({ type: 'work', by, p, work: w, phase: 'start' });
     return true;
   }
 
   /** IA dei fronti difficili: ogni tanto un bunker sulla provincia di confine più esposta verso di te. */
   private aiBuild(f: Faction) {
+    return; // fortificazioni tolte (Nico, 26 novembre 2026): le IA non ne costruiscono più
     const every = this.opts.front.aiBunkerEveryMs;
     if (this.opts.tutorial || !every || this.gameTimeMs < (this.nextAiBunkerAt[f.id] ?? Infinity)) return;
     this.nextAiBunkerAt[f.id] = this.gameTimeMs + every;
     const mine = this.frontier(PLAYER).filter((p) => this.provOwner[p] === f.id && this.provWork[p] < 0);
-    if (!mine.length || f.troops < this.workPrice('bunker', f.id) * 2) return;
+    const cost = this.workCost('bunker', -1, f.id);
+    if (!mine.length || f.troops < this.workPrice('bunker', f.id) * 2 || RESOURCE_KEYS.some((r) => f.loot[r] < cost[r] * 2)) return;
     this.build(f.id, mine[Math.floor(this.aiRng() * mine.length)], 'bunker'); // contraerea tolta (Nico)
   }
 
   // ---------- diplomazia (alla HOI4) ----------
 
   /** Due fazioni si possono attaccare? Con la terra libera sempre; col giocatore solo in guerra; tra IA sempre. */
+  /** Alleati del giocatore: si passa sul loro territorio (e loro sul tuo). */
+  allied(a: number, b: number): boolean {
+    if (a === b || a < 0 || b < 0) return false;
+    if (a === PLAYER) return this.relation[b] === 'alleanza';
+    if (b === PLAYER) return this.relation[a] === 'alleanza';
+    return false;
+  }
+
   atWar(a: number, b: number): boolean {
     if (a === b) return false;
     if (a === NEUTRAL || b === NEUTRAL) return true;
@@ -673,6 +937,7 @@ export class RunState {
 
   private setRelation(f: number, r: Relation, byPlayer: boolean, what: DiploWhat) {
     this.relation[f] = r;
+    if (what === 'war' || what === 'peace' || what === 'alliance') this.chron({ k: what, a: f, b: PLAYER, byPlayer });
     if (r !== 'guerra') this.warLosses[f] = 0;
     this.frontierCache.clear();
     if (this.flowTarget !== null && !this.atWar(PLAYER, this.provOwner[this.flowTarget])) this.stopFlow('blocked');
@@ -754,16 +1019,25 @@ export class RunState {
     return n;
   }
 
+  /** Risorse di un dono a `f`: `donateLoot` più `donateLootPerProv` per ogni sua provincia. */
+  lootGift(f: number): number {
+    const D = BALANCE.diplomacy;
+    return Math.round(D.donateLoot + D.donateLootPerProv * (this.factions[f]?.provinces ?? 0));
+  }
+
   /** Dona risorse dallo zaino (la più abbondante). */
   donateLoot(f: number): Resource | null {
     if (this.diploBlock(f) === 'dead') return null;
-    const D = BALANCE.diplomacy, bag = this.player.loot;
+    const bag = this.player.loot;
     const r = (Object.keys(bag) as Resource[]).reduce((a, c) => (bag[c] > bag[a] ? c : a));
-    if (bag[r] < D.donateLoot) return null;
-    bag[r] -= D.donateLoot;
-    this.factions[f].loot[r] += D.donateLoot;
+    // dono in proporzione alla grandezza di chi lo riceve (Nico, 26 novembre 2026: "le truppe sono proporzionali, le risorse
+    // date no"; prima sempre 20): un impero grande vuole un dono grande, e vale altrettanto in opinione
+    const n = this.lootGift(f);
+    if (bag[r] < n) return null;
+    bag[r] -= n;
+    this.factions[f].loot[r] += n;
     this.bump(f, 12);
-    this.events.push({ type: 'diplomacy', faction: f, what: 'gift', byPlayer: true, amount: D.donateLoot });
+    this.events.push({ type: 'diplomacy', faction: f, what: 'gift', byPlayer: true, amount: n });
     return r;
   }
 
@@ -796,7 +1070,7 @@ export class RunState {
       this.opinion[f.id] *= 0.97; // i ricordi sbiadiscono
       if (f.kind !== 'empire' || this.relation[f.id] !== 'pace') continue;
       if (this.gameTimeMs < this.opts.front.graceMs || this.gameTimeMs < this.truceUntil[f.id]) continue;
-      const borders = this.map.provinces.some((p, k) => this.provOwner[k] === f.id && p.neighbors.some((q) => this.provOwner[q] === PLAYER));
+      const borders = [...(this.owned[f.id] ?? [])].some((k) => this.map.provinces[k].neighbors.some((q) => this.provOwner[q] === PLAYER)); // solo le sue province
       if (!borders) continue;
       const strength = clamp(f.troops / Math.max(1, this.player.troops), 0.4, 2.5);
       const chance = D.warChance * (0.4 + 0.2 * this.opts.frontIndex) * strength * clamp(1 - this.opinion[f.id] / 60, 0, 1.6); // fronti duri: più guerre
@@ -842,22 +1116,30 @@ export class RunState {
 
   /**
    * Sacche: un gruppo di province (libere o di una fazione) circondato via terra da una sola fazione in guerra con lui
-   * passa a chi lo circonda. Una fazione non perde così il cuore del suo territorio (la capitale o più di metà delle province) se è grande.
+   * passa a chi lo circonda. La terra libera fino a `maxNeutral` province; una fazione solo se la sacca non tocca il mare e non ha sue pedine.
    */
+  /** Accerchiamenti: giro a pezzi su tutte le province (al massimo ~2500 per tick), poi una pausa di 2 s. Tutto in un tick
+   *  costava 15–30 ms e faceva scattare il gioco. */
+  private encSeen: Uint8Array | null = null;
+  private encCursor = 0;
+  private provLand: Uint8Array | null = null;
   private encircleTick() {
     if (this.opts.tutorial || this.over || this.gameTimeMs < this.encircleAt) return;
-    this.encircleAt = this.gameTimeMs + 2000;
     const E = BALANCE.encircle, own = this.provOwner, provs = this.map.provinces;
-    const seen = new Uint8Array(own.length);
-    for (let p0 = 0; p0 < own.length; p0++) {
-      if (seen[p0] || !this.provPassable(p0)) continue;
+    const land = (this.provLand ??= Uint8Array.from(provs, (pr) => (pr.tiles.length > 0 ? 1 : 0)));
+    if (!this.encSeen || this.encCursor === 0) this.encSeen = new Uint8Array(own.length);
+    const seen = this.encSeen;
+    let budget = 2500;
+    for (; this.encCursor < own.length && budget > 0; this.encCursor++) {
+      const p0 = this.encCursor;
+      if (seen[p0] || !land[p0]) continue;
       const o = own[p0];
       const comp = [p0];
       seen[p0] = 1;
       let by = -2, open = false;
       for (let h = 0; h < comp.length; h++) {
         for (const q of provs[comp[h]].neighbors) {
-          if (!this.provPassable(q)) continue;
+          if (q < 0 || !land[q]) continue;
           if (own[q] === o) {
             if (!seen[q]) { seen[q] = 1; comp.push(q); }
             continue;
@@ -866,13 +1148,24 @@ export class RunState {
           else if (by !== own[q]) open = true;
         }
       }
+      budget -= comp.length;
       if (open || by < 0 || !this.atWar(by, o)) continue;
-      const max = o === NEUTRAL ? E.maxNeutral : E.maxPocket;
-      // il cuore di una fazione (con la capitale o più di metà del suo territorio) non si arrende in blocco
-      const core = o !== NEUTRAL && (comp.includes(this.provOf(this.map.starts[o])) || comp.length * 2 > this.factions[o].provinces);
-      if (comp.length > max && (o === NEUTRAL || core)) continue;
+      if (o === NEUTRAL) {
+        if (comp.length > E.maxNeutral) continue;
+      } else {
+        // una fazione si arrende accerchiata solo se la sacca non tocca il mare e non ha sue pedine dentro, di qualunque
+        // grandezza, anche tutta la nazione (Nico, 27 novembre 2026: prima le teste di sbarco passavano subito al nemico e
+        // le pedine le riprendevano all'infinito)
+        if (comp.some((p) => this.provCoastal[p])) continue;
+        const inComp = new Set(comp);
+        if (this.units.some((u) => u.owner === o && u.hp > 0 && inComp.has(this.provOf(u.tile)))) continue;
+      }
       for (const p of comp) this.transferProvince(by, p, 0);
       this.events.push({ type: 'encircled', by, from: o, provinces: comp });
+    }
+    if (this.encCursor >= own.length) {
+      this.encCursor = 0;
+      this.encircleAt = this.gameTimeMs + 2000;
     }
   }
 
@@ -901,6 +1194,7 @@ export class RunState {
 
   // ---------- fine run ----------
 
+  private landProvs: number | null = null;
   private checkVictory() {
     if (this.over) return;
     if (this.opts.tutorial) {
@@ -909,10 +1203,87 @@ export class RunState {
     }
     // vittoria in anticipo: i tre imperi rivali sono caduti (le milizie non contano)
     if (this.factions.every((f) => f.kind !== 'empire' || !f.alive)) this.end('victory', 'map');
+    // o una quota della terra è tua (Nico, 27 novembre 2026: "quando arrivi all'80% del mondo vinci la partita", niente caccia alle isole)
+    this.landProvs ??= this.map.provinces.reduce((n, p) => n + (p.tiles.length > 0 ? 1 : 0), 0);
+    if (!this.over && this.player.provinces >= this.landProvs * BALANCE.victory.mapShare) this.end('victory', 'share');
   }
 
   retreat() {
     if (!this.over) this.end('retreat');
+  }
+
+  // ---------- comandi (multiplayer a lockstep) ----------
+
+  /** Registro dei comandi eseguiti: con lo stesso seme basta a rigiocare la partita identica. */
+  readonly cmdLog: CmdEntry[] = [];
+
+  /** Esegue un ordine del giocatore. Ogni cosa che la scena fa al mondo passa da qui, così si può spedire o rigiocare. */
+  exec<C extends Cmd>(c: C, by = PLAYER): CmdResult[C['k']] {
+    this.cmdLog.push({ t: this.gameTimeMs, by, c });
+    return this.run(c) as CmdResult[C['k']];
+  }
+
+  private run(c: Cmd): unknown {
+    const all = (ids: number[]) => ids.map((id) => this.units.find((u) => u.id === id)).filter((u): u is Unit => !!u && u.hp > 0);
+    // gruppetti: gli ordini vanno al capo, le altre lo seguono (una volta sola anche se il gruppo è tutto selezionato)
+    const us = (ids: number[]) => [...new Set(all(ids).map((u) => this.bandLeader(u)))];
+    switch (c.k) {
+      case 'conquer': return this.tryConquer(c.tile);
+      case 'plan': return this.togglePlan(c.p);
+      case 'boat': return this.launchBoat(c.tile);
+      case 'deploy': return this.deploy(PLAYER, c.type, c.tile);
+      case 'ability': return this.useAbility(c.a, c.tile);
+      case 'move': return us(c.units).filter((u) => this.command(u, c.to)).length;
+      case 'stance': return this.setStance(us(c.units), c.stance);
+      case 'front': return this.assignFront(us(c.units), c.faction, c.attack);
+      case 'hold': {
+        // posti allineati alle pedine: se una è morta nel frattempo il suo posto salta con lei (un gruppetto: un posto solo)
+        const seen = new Set<Unit>();
+        const live = c.units.map((id, k) => ({ u: us([id])[0], p: c.posts[k] })).filter((x) => x.u && !seen.has(x.u) && !!seen.add(x.u));
+        return this.holdLine(live.map((x) => x.u!), live.map((x) => x.p));
+      }
+      case 'push': {
+        const seen = new Set<Unit>();
+        const live = c.units.map((id, k) => ({ u: us([id])[0], g: c.goals[k], v: c.vias[k] ?? [] })).filter((x) => x.u && !seen.has(x.u) && !!seen.add(x.u));
+        return this.pushOffensive(live.map((x) => x.u!), live.map((x) => x.g), live.map((x) => x.v));
+      }
+      // freccia su una linea: l'attacco ha la precedenza su tutto quello che facevano (strada a mano, cure, posto)
+      case 'release': for (const u of us(c.units)) { u.post = -1; u.goal = -1; u.front = -1; u.zone = -1; u.chase = -1; u.squad = -1; u.stance = 'tieni'; u.resting = false; u.orderHp = u.hp; this.setPath(u, []); } return;
+      case 'divide': return c.quotas ? this.divideQuotas(us(c.units), c.quotas) : this.divide(us(c.units), c.size);
+      case 'zone': return this.zoneAttack(us(c.units), c.provs);
+      case 'chase': return this.chaseUnit(us(c.units), c.target);
+      case 'unpost': for (const u of us(c.units)) u.post = -1; return;
+      case 'band': return this.makeBand(all(c.units));
+      case 'unband': for (const u of all(c.units)) u.band = -1; return;
+      case 'merge': return this.merge(all(c.units));
+      case 'split': { const u = all([c.unit])[0]; return u ? this.split(u) : 'single'; }
+      case 'retreatUnits': return this.retreatUnits(us(c.units));
+      case 'wall': return this.buildWall(c.provs, c.work);
+      case 'war': return this.declareWar(c.f);
+      case 'peace': return this.proposePeace(c.f);
+      case 'alliance': return this.proposeAlliance(c.f);
+      case 'breakAlliance': return this.breakAlliance(c.f);
+      case 'giveTroops': return this.donateTroops(c.f);
+      case 'giveLoot': return this.donateLoot(c.f);
+      case 'tribute': return this.demandTribute(c.f);
+      case 'event': return this.choose(c.side, c.i);
+      case 'place': return this.placePlayer(c.p);
+      case 'clearStart': return this.clearStart();
+      case 'pause': this.paused = c.on; return;
+      case 'retreat': return this.retreat();
+    }
+  }
+
+  /** Impronta dello stato che conta: due computer in lockstep la confrontano per accorgersi se si sono separati. */
+  hash(): number {
+    let h = 2166136261;
+    const mix = (v: number) => { h = Math.imul(h ^ (v | 0), 16777619); };
+    mix(this.gameTimeMs / BALANCE.tick.ms);
+    for (let p = 0; p < this.provOwner.length; p++) mix(this.provOwner[p]);
+    for (const f of this.factions) { mix(Math.round(f.troops)); mix(f.provinces); }
+    for (const u of this.units) { mix(u.id); mix(u.tile); mix(Math.round(u.hp * 10)); }
+    for (const b of this.battles) { mix(b.p); mix(b.by); mix(b.endMs); }
+    return h >>> 0;
   }
 
   private end(outcome: Outcome, reason?: VictoryReason) {
@@ -935,7 +1306,7 @@ export class RunState {
     const SS = this.opts.tutorial ? emptyBag() : BALANCE.economy.startStock; // la scorta di guerra torna al Comando, non è bottino
     for (const r of Object.keys(bag) as Resource[]) {
       const b = Math.max(0, bag[r] - SS[r]);
-      kept[r] = Math.floor(Math.min(b, S[r]) * stakeK + Math.max(0, b - S[r]) * gain * k);
+      kept[r] = this.opts.sandbox ? 0 : Math.floor(Math.min(b, S[r]) * stakeK + Math.max(0, b - S[r]) * gain * k); // sandbox: niente a casa
     }
     return {
       seed: this.map.seed, outcome, reason: this.victoryReason, timeMs: this.gameTimeMs,
@@ -943,6 +1314,8 @@ export class RunState {
       gainMult: gain, feePct: Math.round((k < 1 ? 1 - k : 0) * 100), stakeLossPct: staked && lost ? Math.round((1 - stakeK) * 100) : 0,
       tutorial: this.opts.tutorial, civ: this.opts.civ, campaign: this.opts.campaign, front: this.opts.frontIndex,
       world: this.worldOutcome(),
+      rareSeen: EVENTS.filter((e) => e.rare && this.seenEvents.has(e.id)).map((e) => e.id),
+      sandbox: !!this.opts.sandbox,
     };
   }
 
@@ -978,40 +1351,51 @@ export class RunState {
     return { pos, gap: me - (others[0] ?? 0) };
   }
 
+  private supplyAt = -Infinity;
+
   private tick() {
-    if (this.supplyDirty) this.recomputeSupply();
+    this.replayTick();
+    // logistica rifatta al massimo ogni mezzo secondo di gioco: con tante milizie il territorio cambia a ogni tick
+    if ((this.supplyDirty || this.supplyDirtyF.size) && this.gameTimeMs - this.supplyAt >= 500) { this.supplyAt = this.gameTimeMs; this.recomputeSupply(); }
     this.countSettlements();
     this.economyTick();
     for (const f of this.factions) if (f.alive) this.grow(f);
     if (this.player.alive) this.eat();
+    const slot = Math.round(this.gameTimeMs / BALANCE.tick.ms) % 5;
     for (const f of this.factions) {
       if (f.id === PLAYER || !f.alive) continue;
       if (f.kind === 'bot') {
-        // milizie: difendono e si allargano piano, solo su terra libera vicino a casa
-        if (this.aiRng() <= BALANCE.bots.actChance) this.botExpand(f);
-        this.aiUnits(f); // anche le milizie schierano pedine (Nico)
+        // milizie: difendono e si allargano piano, solo su terra libera vicino a casa. Fuori dalla run guidata solo con le
+        // pedine, come te (Nico, 27 novembre 2026: "devono giocare come noi"): prima compravano la terra con le truppe
+        if (this.opts.tutorial && this.aiRng() <= BALANCE.bots.actChance) this.botExpand(f);
+        // anche le milizie schierano pedine (Nico); a turno, un quinto per tick: tutte insieme 150 milizie
+        // rubavano ~10 ms a ogni tick e le pedine andavano a scatti
+        if (f.id % 5 === slot) this.aiUnits(f);
         continue;
       }
+      const sandboxTurn = !this.opts.sandbox || f.id % 3 === slot % 3; // sandbox, 25 imperi: ordini alle pedine a turno, uno su tre
       const assault = this.offensive?.phase === 'on' && this.offensive.faction === f.id;
       this.aiBuild(f);
-      this.aiStrike(f);
-      if (assault || this.aiRng() <= (this.opts.tutorial ? 0.07 : this.opts.front.aiActChance)) {
-        const n = assault ? BALANCE.offensive.attacksPerAct : BALANCE.ai.attacksPerAct;
-        for (let a = 0; a < n; a++) if (!this.aiAttack(f)) break;
+      // terra libera comprata con le truppe: solo nella run guidata; altrove gli imperi conquistano con le pedine come te
+      if (this.opts.tutorial && (assault || this.aiRng() <= 0.07)) {
+        const n = assault ? BALANCE.offensive.attacksPerAct : BALANCE.ai.attacksPerAct * (this.opts.sandbox ? BALANCE.sandboxWorld.actMult : 1);
+        this.aiAttackMany(f, n);
       }
-      this.aiUnits(f);
+      if (sandboxTurn) this.aiUnits(f);
     }
+    this.aiUpkeep();
     this.playerUnitsAuto();
     this.unitsTick();
     this.battlesTick();
     this.diploTick();
     this.encircleTick();
-    this.absorbTick();
     this.offensiveTick();
     this.timerTick();
+    this.objectivesTick();
     this.checkVictory();
     this.eventTick();
     this.updateFog();
+    this.updateSight();
   }
 
   // ---------- navi ----------
@@ -1145,21 +1529,97 @@ export class RunState {
   }
 
   /** La casella è visibile al giocatore? (senza nebbia: sempre) */
+  /** La carta (confini, territori) si vede tutta (Nico); vale ancora per la casella in vista nella vecchia nebbia. */
   sees(i: number): boolean {
-    return !this.opts.fog || this.visible[i] === 1;
+    void i;
+    return true;
   }
 
   /** Pedina visibile? Nella zona che vedi, e se è di chi ha un'opinione bassa di te solo a contatto (spionaggio). */
   seesUnit(u: Unit): boolean {
-    if (u.owner === PLAYER) return true;
-    if (!this.sees(u.tile)) return false;
-    if (this.relation[u.owner] === 'alleanza' || this.opinion[u.owner] >= BALANCE.intel.opinion) return true;
-    if (this.owner[u.tile] === PLAYER || neighbors(u.tile).some((n) => n >= 0 && this.owner[n] === PLAYER)) return true; // sul tuo confine
-    return this.units.some((v) => v.owner === PLAYER && hexDistance(v.tile, u.tile) <= BALANCE.intel.contact);
+    if (u.owner === PLAYER || this.relation[u.owner] === 'alleanza') return true;
+    const p = this.provOf(u.tile);
+    if (p >= 0) return this.inSight(p);
+    if (this.seaSight[u.tile] === 1) return true; // in mare: nel raggio delle tue navi
+    return neighbors(u.tile).some((n) => n >= 0 && this.provOf(n) >= 0 && this.inSight(this.provOf(n))); // in mare: vicino alla zona
   }
 
+  /** Provincia nella zona in vista (attorno al tuo confine, alle tue pedine e ai radar). */
+  inSight(p: number): boolean {
+    return this.opts.tutorial || this.sight[p] === 1;
+  }
+
+  /** Confini e territori si vedono ovunque (Nico): la nebbia ora nasconde solo le pedine, fuori dalla zona in vista. */
   seesProv(p: number): boolean {
-    return !this.opts.fog || this.provVisible[p] === 1;
+    void p;
+    return true;
+  }
+
+  /** Zona in vista per province: dal tuo confine `depth` province, attorno alle pedine e molto di più attorno ai radar. */
+  private sightDepth = new Int8Array(0);
+  private updateSight() {
+    const S = BALANCE.sight, P = this.map.provinces, radar = WORKS.indexOf('radar');
+    const own = this.ownedProvinces(PLAYER);
+    let sig = own.size * 7919 + this.recons.length * 31;
+    for (const p of own) { sig = (sig + p * 2654435761) | 0; if (this.provWork[p] === radar && this.provWorkAt[p] === 0) sig = (sig * 31 + p) | 0; }
+    // in mare conta la casella: la nave che si sposta sposta la sua vista
+    for (const u of this.units) if (u.owner === PLAYER || this.relation[u.owner] === 'alleanza') { const p = this.provOf(u.tile); sig = (sig * 31 + (p >= 0 ? p : -1 - u.tile)) | 0; }
+    for (const f of this.factions) if (this.relation[f.id] === 'alleanza' && f.alive) sig = (sig * 31 + f.id * 977 + f.provinces) | 0;
+    if (sig === this.sightSig && this.sight.length) return;
+    this.sightSig = sig;
+    if (this.sight.length !== P.length) { this.sight = new Uint8Array(P.length); this.sightDepth = new Int8Array(P.length); }
+    const d = this.sightDepth.fill(-1), queue: number[] = [];
+    const seed = (p: number, r: number) => { if (p >= 0 && d[p] < r) { d[p] = r; queue.push(p); } };
+    for (const p of own) seed(p, this.provWork[p] === radar && this.provWorkAt[p] === 0 ? S.depth + S.radarDepth : S.depth);
+    // alleati (Nico, 26 novembre 2026: "l'alleanza deve darti il loro intel"): vedi quello che vedono loro, come se il loro
+    // territorio, le loro pedine e i loro radar fossero tuoi (prima solo il loro territorio)
+    for (const u of this.units) if (u.owner === PLAYER || this.relation[u.owner] === 'alleanza') seed(this.provOf(u.tile), S.unitDepth);
+    for (const r of this.recons) seed(this.provOf(r.tile), S.reconDepth);
+    for (const f of this.factions) {
+      if (this.relation[f.id] !== 'alleanza' || !f.alive) continue;
+      for (const p of this.ownedProvinces(f.id)) seed(p, this.provWork[p] === radar && this.provWorkAt[p] === 0 ? S.depth + S.radarDepth : S.depth);
+    }
+    for (let h = 0; h < queue.length; h++) {
+      const c = queue[h];
+      if (d[c] <= 0) continue;
+      for (const n of P[c].neighbors) if (n >= 0 && d[n] < d[c] - 1) { d[n] = d[c] - 1; queue.push(n); }
+    }
+    // radar: il raggio passa anche sopra il mare (Nico): le province entro la distanza, non solo quelle collegate via terra
+    const radars = [...own].filter((p) => this.provWork[p] === radar && this.provWorkAt[p] === 0).map((p) => P[p].anchor);
+    if (radars.length) {
+      const R = (S.depth + S.radarDepth) * S.radarHexPerStep;
+      // province a riquadri di R caselle (una volta sola): ogni radar guarda solo i 9 riquadri attorno, non tutta la carta
+      if (!this.provCells) {
+        this.provCells = new Map();
+        P.forEach((pr, p) => { if (pr.anchor < 0) return; const k = Math.floor(rowOf(pr.anchor) / R) * 4096 + Math.floor(colOf(pr.anchor) / R); const c = this.provCells!.get(k); if (c) c.push(p); else this.provCells!.set(k, [p]); });
+      }
+      for (const a of radars) {
+        const cr = Math.floor(rowOf(a) / R), cc = Math.floor(colOf(a) / R);
+        for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+          for (const p of this.provCells.get((cr + dr) * 4096 + cc + dc) ?? []) if (d[p] < 0 && hexDistance(a, P[p].anchor) <= R) d[p] = 0;
+        }
+      }
+    }
+    // pedine in mare (Nico, 28 novembre 2026: "un vascello nell'acqua deve dare visione, non puoi metterlo nell'ombra, deve
+    // essere come un radar"): vedono tutto entro `seaHex` caselle, mare e coste comprese
+    const cols = BALANCE.map.cols, rows = BALANCE.map.rows, SR = S.seaHex;
+    if (this.seaSight.length !== cols * rows) { this.seaSight = new Uint8Array(cols * rows); this.seaLit = []; }
+    for (const i of this.seaLit) this.seaSight[i] = 0;
+    this.seaLit = [];
+    for (const u of this.units) {
+      if (u.owner !== PLAYER && this.relation[u.owner] !== 'alleanza' || this.provOf(u.tile) >= 0) continue;
+      const c0 = colOf(u.tile), r0 = rowOf(u.tile);
+      for (let r = Math.max(0, r0 - SR); r <= Math.min(rows - 1, r0 + SR); r++) {
+        for (let c = Math.max(0, c0 - SR - 1); c <= Math.min(cols - 1, c0 + SR + 1); c++) {
+          const i = r * cols + c;
+          if (hexDistance(u.tile, i) > SR) continue;
+          const p = this.provOf(i);
+          if (p >= 0) { if (d[p] < 0) d[p] = 0; } else if (!this.seaSight[i]) { this.seaSight[i] = 1; this.seaLit.push(i); }
+        }
+      }
+    }
+    for (let p = 0; p < P.length; p++) this.sight[p] = d[p] >= 0 ? 1 : 0;
+    this.sightVersion++;
   }
 
   // ---------- avanzata ----------
@@ -1257,6 +1717,10 @@ export class RunState {
 
   private eventTick() {
     this.alerts = this.alerts.filter((a) => a.until > this.gameTimeMs);
+    // rapporti scaduti: via dal RADAR (Nico: "vai lì e non succede niente")
+    const before = this.eventInbox.length;
+    this.eventInbox = this.eventInbox.filter((e) => e.until === undefined || e.until > this.gameTimeMs);
+    if (this.eventInbox.length !== before) this.events.push({ type: 'event', event: this.eventInbox[0] ?? null as unknown as GameEvent });
     // rapporti dal campo solo con una Sala Radar finita; più radar, più rapporti (Nico)
     const radars = this.worksOf(PLAYER, 'radar');
     if (this.over || this.opts.events <= 0 || this.opts.tutorial || !radars || this.gameTimeMs < this.nextEventAt) return;
@@ -1266,8 +1730,7 @@ export class RunState {
     const intel = [this.reportAttack(radars), this.reportCache(radars)].filter((e): e is GameEvent => !!e);
     if (intel.length && this.evRng() < 0.75) {
       const ev = intel[Math.floor(this.evRng() * intel.length)];
-      this.pendingEvent = ev;
-      this.events.push({ type: 'event', event: ev });
+      this.toInbox(ev);
       return;
     }
     const pool = EVENTS.filter((e) => !this.seenEvents.has(e.id) && (!e.rare || this.opts.events >= 2));
@@ -1276,33 +1739,69 @@ export class RunState {
     const rare = pool.filter((e) => e.rare);
     const ev = rare.length && this.evRng() < 0.35 ? rare[Math.floor(this.evRng() * rare.length)] : pool[Math.floor(this.evRng() * pool.length)];
     this.seenEvents.add(ev.id);
-    this.pendingEvent = boosted(ev);
-    this.events.push({ type: 'event', event: this.pendingEvent });
+    this.toInbox(this.scaled(boosted(ev)));
+  }
+
+  /** Sandbox: uno dei 5 imperi fortissimi (i primi imperi dell'elenco). */
+  isMega(f: number): boolean {
+    if (!this.opts.sandbox || this.factions[f]?.kind !== 'empire') return false;
+    let k = 0;
+    for (const g of this.factions) { if (g.kind !== 'empire') continue; if (g.id === f) return k < BALANCE.sandboxWorld.mega; k++; }
+    return false;
+  }
+
+  /** Il rapporto aspetta nel RADAR (al massimo 5: i più vecchi scadono). */
+  private toInbox(ev: GameEvent) {
+    this.eventInbox.unshift(ev);
+    if (this.eventInbox.length > 5) this.eventInbox.pop();
+    this.events.push({ type: 'event', event: ev });
+  }
+
+  /** Quanto pesano truppe e risorse adesso (Nico: "30 di ferro quando ne ho 8.000"): premi e costi crescono con le entrate. */
+  private evScale(): { t: number; r: number } {
+    const inc = this.incomePerMin();
+    return { t: Math.max(1, (this.troopsPerSecond * 60) / 600), r: Math.max(1, (inc.metallo + inc.benzina + inc.cibo) / 60) };
+  }
+
+  private scaled(ev: GameEvent): GameEvent {
+    const k = this.evScale();
+    const up = (fx: EventEffects): EventEffects => {
+      const o: EventEffects = { ...fx };
+      if (o.troops) o.troops = Math.round(o.troops * k.t);
+      if (o.loot) o.loot = Object.fromEntries(Object.entries(o.loot).map(([r, v]) => [r, Math.round(v * k.r)]));
+      return o;
+    };
+    const side = (c: EventChoice): EventChoice => ({ ...c, effects: up(c.effects), fail: c.fail && up(c.fail) });
+    return { ...ev, left: side(ev.left), right: side(ev.right) };
   }
 
   private nationOf(p: number): string {
     const c = this.map.provinces[p].country;
-    return this.map.nations.find((n) => n.id === c)?.name ?? 'una provincia di confine';
+    return this.map.nations.find((n) => n.id === c)?.name ?? 'a border province';
   }
 
   /** Radar: armata nemica (in guerra con te) che punta su una tua provincia. */
   private reportAttack(radars: number): GameEvent | null {
-    let best: Unit | null = null, bestD = Infinity, to = -1;
+    // armata vera (Nico: "robe irrilevanti"): almeno `attackMinSize` reparti dello stesso nemico diretti sulla stessa tua provincia
+    const groups = new Map<number, { size: number; lead: Unit; to: number }>();
     for (const u of this.units) {
       if (u.owner === PLAYER || u.hp <= 0 || !this.atWar(u.owner, PLAYER) || !u.path.length) continue;
       const end = u.path[u.path.length - 1], pe = this.provOf(end);
       if (pe < 0 || this.provOwner[pe] !== PLAYER) continue;
-      const d = hexDistance(u.tile, end);
-      if (d < bestD) { bestD = d; best = u; to = end; }
+      const k = pe * 1024 + u.owner, g = groups.get(k);
+      if (g) g.size += u.size; else groups.set(k, { size: u.size, lead: u, to: end });
     }
-    if (!best) return null;
-    const n = this.unitsOf(best.owner).filter((u) => hexDistance(u.tile, best!.tile) < 12).length;
-    const who = FACTION_INFO[best.owner]?.name ?? 'il nemico', where = this.nationOf(this.provOf(to));
+    let pick: { size: number; lead: Unit; to: number } | null = null;
+    for (const g of groups.values()) if (g.size >= BALANCE.events.attackMinSize && (!pick || g.size > pick.size)) pick = g;
+    if (!pick) return null;
+    const best = pick.lead, to = pick.to, n = pick.size;
+    const who = FACTION_INFO[best.owner]?.name ?? 'the enemy', where = this.nationOf(this.provOf(to));
     return {
-      id: 'radar-attacco', rare: false,
-      text: `RADAR: ${n} ${n === 1 ? 'reparto' : 'reparti'} di ${who} in marcia verso ${where}. ${radars > 1 ? 'Le stazioni concordano sulla rotta.' : 'Contatto debole, ma la rotta è chiara.'}`,
-      left: { label: 'Ricevuto', effects: { alert: { from: best.tile, to } }, result: 'Rotta segnata sulla carta.' },
-      right: { label: 'Mostra', effects: { alert: { from: best.tile, to }, focus: this.provOf(to) }, result: 'Rotta segnata sulla carta.' },
+      id: 'radar-attacco', rare: false, img: ['ev-radar-attacco', 'ev-radar-attacco-2', 'ev-frequenza'][Math.floor(this.evRng() * 3)], // foto diverse (Nico)
+      text: `RADAR: ${n} ${n === 1 ? 'unit' : 'units'} of ${who} marching towards ${where}. ${radars > 1 ? 'The stations agree on the route.' : 'Weak contact, but the route is clear.'}`,
+      left: { label: 'Received', effects: { alert: { from: best.tile, to } }, result: 'Route marked on the map.' },
+      right: { label: 'Reinforce', effects: { alert: { from: best.tile, to }, focus: this.provOf(to), guard: this.provOf(to) }, result: `Garrison reinforced: defence ×${BALANCE.events.guardMult} for ${BALANCE.events.guardMs / 1000} s.` },
+      until: this.gameTimeMs + BALANCE.events.reportTtlMs,
     };
   }
 
@@ -1311,14 +1810,15 @@ export class RunState {
     const front = this.frontier(PLAYER);
     if (!front.length) return null;
     const p = front[Math.floor(this.evRng() * front.length)];
-    const troops = Math.round((40 + 15 * radars) * (0.8 + this.evRng() * 0.4));
+    const k = this.evScale();
+    const troops = Math.round((40 + 15 * radars) * (0.8 + this.evRng() * 0.4) * k.t);
     const res = (['metallo', 'benzina', 'cibo'] as Resource[])[Math.floor(this.evRng() * 3)];
-    const n = Math.round((10 + 4 * radars) * (0.8 + this.evRng() * 0.4));
+    const n = Math.round((10 + 4 * radars) * (0.8 + this.evRng() * 0.4) * k.r);
     return {
-      id: 'radar-scorta', rare: false,
-      text: `RADAR: deposito della Concordia ancora intatto vicino a ${this.nationOf(p)}. Uomini sbandati e ${res} nei magazzini.`,
-      left: { label: 'Lascia', effects: {}, result: 'Il deposito resta dov\'è.' },
-      right: { label: 'Recupera', effects: { troops, loot: { [res]: n }, focus: p }, result: `+${troops} truppe, +${n} ${res}.` },
+      id: 'radar-scorta', rare: false, img: ['ev-radar-scorta', 'ev-radar-scorta-2', 'ev-convoglio'][Math.floor(this.evRng() * 3)],
+      text: `RADAR: a Concord depot still intact near ${this.nationOf(p)}. Stragglers and ${RESOURCE_INFO[res].name.toLowerCase()} in the stores.`,
+      left: { label: 'Leave it', effects: {}, result: 'The depot stays where it is.' },
+      right: { label: 'Recover', effects: { troops, loot: { [res]: n }, focus: p }, result: `+${troops} troops, +${n} ${RESOURCE_INFO[res].name.toLowerCase()}.` },
     };
   }
 
@@ -1331,14 +1831,14 @@ export class RunState {
   }
 
   /** Applica la scelta dell'evento aperto e riprende la run; ritorna il testo del risultato. */
-  choose(side: 'left' | 'right'): string {
-    const ev = this.pendingEvent;
+  choose(side: 'left' | 'right', i = 0): string {
+    const ev = this.eventInbox[i];
     if (!ev) return '';
     const c = ev[side];
     if (!this.canChoose(c)) return '';
     const success = c.chance === undefined || this.evRng() < c.chance;
     this.applyEffects(success ? c.effects : c.fail ?? {});
-    this.pendingEvent = null;
+    this.eventInbox.splice(i, 1);
     return success ? c.result : c.failResult ?? c.result;
   }
 
@@ -1349,6 +1849,7 @@ export class RunState {
     if (fx.growth) this.growthBoost = { mult: fx.growth.mult, until: this.gameTimeMs + fx.growth.durationMs };
     if (fx.timeBonusMs) this.bonusTimeMs += fx.timeBonusMs;
     if (fx.alert) this.alerts.push({ ...fx.alert, until: this.gameTimeMs + 20_000 });
+    if (fx.guard !== undefined) this.guardUntil.set(fx.guard, this.gameTimeMs + BALANCE.events.guardMs);
     if (fx.weak !== undefined) { this.weakUntil.set(fx.weak, this.gameTimeMs + 60_000); this.frontierCache.clear(); }
     if (fx.focus !== undefined) this.events.push({ type: 'focus', p: fx.focus });
     if (fx.unit) {
@@ -1377,19 +1878,64 @@ export class RunState {
 
   /** Costo in truppe di un'unità (bonus del giocatore compresi). */
   unitCost(f: number, type: UnitType): number {
-    return Math.round(BALANCE.units[type].cost * (f === PLAYER ? this.opts.mods.unitCostMult * (this.opts.unitBoost?.[type]?.cost ?? 1) : 1));
+    // più reparti hai in campo, più costa il prossimo (Nico: "con un milione di truppe faccio 10 000 fanterie"); anche le IA
+    const army = 1 + this.units.reduce((n, u) => n + (u.owner === f ? u.size : 0), 0) / BALANCE.upkeep.armyCostPer;
+    return Math.round(BALANCE.units[type].cost * army * (f === PLAYER ? this.opts.mods.unitCostMult * (this.opts.unitBoost?.[type]?.cost ?? 1) : 1));
   }
 
   /** Perché non si può schierare (null = si può). */
-  deployBlock(f: number, type: UnitType, i?: number): null | 'locked' | 'cooldown' | 'troops' | 'cap' | 'tile' | 'res' {
+  /** Una casella libera (tua, senza pedine) nella provincia, o null. */
+  freeTileIn(p: number): number | null {
+    if (p < 0) return null;
+    // la casella libera più vicina al centro della provincia (prima la prima della lista: reparti sparsi a caso)
+    const a = this.map.provinces[p].anchor;
+    let best: number | null = null, bd = Infinity;
+    for (const i of this.map.provinces[p].tiles) {
+      if (!this.passable(i) || this.owner[i] !== PLAYER || this.unitAt(i)) continue;
+      const d = a >= 0 ? hexDistance(i, a) : 0;
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+  }
+
+  /** Esercito di partenza: fanteria e (se c'è) ricognitori nella capitale, così si conquista subito senza comprare. */
+  private starterArmy() {
+    const C = this.capitalProv[PLAYER], types: UnitType[] = ['fanteria', 'fanteria', ...(this.opts.units.includes('ricognitori') ? ['ricognitori' as UnitType] : [])];
+    for (const t of types) {
+      const at = this.freeTileIn(C) ?? this.map.provinces[C].neighbors.map((q) => this.freeTileIn(q)).find((x) => x !== null && x !== undefined);
+      if (at !== null && at !== undefined) this.deploy(PLAYER, t, at, true);
+    }
+  }
+
+  /** Provincia dove si producono eserciti: la capitale, una città o una provincia con la caserma. */
+  canRecruitAt(p: number, f = PLAYER): boolean {
+    // milizie: solo città vere o caserme (Nico, 27 novembre 2026: "le pedine devono spuntare dalle città, non da regioni a
+    // caso"); la loro "capitale" è una provincia qualunque. Tu e gli imperi anche dalla capitale
+    if (p < 0 || this.provOwner[p] !== f) return false;
+    if (this.isCity(p) || this.workOf(p) === 'caserma') return true;
+    if (p !== this.capitalProv[f]) return false;
+    // milizia senza città né caserma: arruola dalla sua capitale (Nico, 28 novembre 2026: "tutti, anche i più piccoli, devono
+    // avere le loro truppine ed espandersi da subito"; prima quasi nessuna milizia aveva una città e non schierava mai)
+    return this.factions[f]?.kind !== 'bot' || ![...(this.owned[f] ?? [])].some((q) => this.isCity(q) || this.workOf(q) === 'caserma');
+  }
+
+  deployBlock(f: number, type: UnitType, i?: number): null | 'locked' | 'cooldown' | 'troops' | 'cap' | 'tile' | 'res' | 'city' {
     if (f === PLAYER && !this.opts.units.includes(type)) return 'locked';
     if (f !== PLAYER && this.gameTimeMs < this.cooldowns[f][type]) return 'cooldown'; // il giocatore non ha ricarica: si schiera subito
-    if (f !== PLAYER && this.unitsOf(f).length >= BALANCE.units.maxPerFaction) return 'cap'; // il giocatore non ha un massimo di pedine
+    if (f !== PLAYER && this.unitsOf(f).length >= this.aiUnitCap(this.factions[f])) return 'cap'; // il giocatore non ha un massimo di pedine
     if (this.factions[f].troops < this.unitCost(f, type)) return 'troops';
-    if (f === PLAYER && this.backpack[this.unitRes(type).res] < this.unitRes(type).n) return 'res'; // la risorsa del reparto, dallo zaino
+    if (this.factions[f].loot[this.unitRes(type).res] < this.unitRes(type).n) return 'res'; // la risorsa del reparto, dallo zaino (le IA dalla loro cassa)
     if (i !== undefined && isNaval(type)) {
-      if (this.owner[i] !== f || this.seaSpawn(i) < 0) return 'tile'; // nave: da una tua costa con mare libero accanto
-    } else if (i !== undefined && (this.owner[i] !== f || this.unitAt(i))) return 'tile';
+      // nave: da una tua città sul mare, toccata dove si vuole (Nico, 27 novembre 2026: "non si capisce dove si può
+      // posizionare": prima bisognava centrare proprio una casella di costa); esce dal mare libero più vicino al tocco
+      const p = this.provOf(i);
+      if (p < 0 || this.provOwner[p] !== f || !this.provCoastal[p]) return 'tile';
+      if (!this.opts.tutorial && !this.canRecruitAt(p, f)) return 'city';
+      if (this.navalSpawn(p, i) < 0) return 'tile';
+    } else if (i !== undefined && (this.owner[this.stopOf(i)] !== f || this.unitAt(this.stopOf(i))?.owner !== undefined && this.unitAt(this.stopOf(i))!.owner !== f)) return 'tile';
+    // gli eserciti escono dalle città: capitale, città o provincia con la caserma (alla Call of War)
+    // anche le IA (Nico, 27 novembre 2026: "l'IA non può giocare fuori dalle regole", niente 40 fanterie in mezzo al nulla)
+    else if (i !== undefined && !this.opts.tutorial && !this.canRecruitAt(this.provOf(i), f)) return 'city';
     return null;
   }
 
@@ -1403,21 +1949,38 @@ export class RunState {
     if (!free && this.deployBlock(f, type, i)) return null;
     if (!free) {
       this.factions[f].troops -= this.unitCost(f, type);
-      if (f === PLAYER) { const c = this.unitRes(type); this.backpack[c.res] -= c.n; }
+      { const c = this.unitRes(type); this.factions[f].loot[c.res] -= c.n; }
       if (f !== PLAYER) this.cooldowns[f][type] = this.gameTimeMs + BALANCE.units.cooldownMs; // il giocatore: nessuna ricarica (neanche la barra sulla carta)
     }
     const maxHp = BALANCE.units[type].hp * (f === PLAYER ? this.opts.unitHpMult * (this.opts.unitBoost?.[type]?.hp ?? 1) : this.opts.front.aiUnitHpMult);
-    const tile = isNaval(type) ? this.seaSpawn(i) : i;
+    const tile = isNaval(type) ? this.navalSpawn(this.provOf(i), i) : this.owner[this.stopOf(i)] === f ? this.stopOf(i) : i; // sul centro, in pila con le amiche
     if (tile < 0) return null;
+    if (f === PLAYER && !isNaval(type) && this.units.reduce((n, v) => n + (v.owner === f ? 1 : 0), 0) >= BALANCE.unitOps.divisionAt) {
+      const host = this.units.find((v) => v.owner === f && v.type === type && v.tile === tile && !v.path.length && v.size < BALANCE.unitOps.divisionMax);
+      if (host) { host.size++; host.maxHp += maxHp; host.hp += maxHp; return host; } // la divisione cresce: meno pedine, più forti
+    }
     const u: Unit = {
       id: this.nextUnitId++, type, owner: f, tile, hp: maxHp, maxHp,
       path: [], moveAcc: 0, inCombat: false, lastOrderMs: this.gameTimeMs,
       size: 1, stance: 'tieni', front: -1, supply: 1, post: -1, goal: -1,
     };
-    // reparto del giocatore appena schierato: avanza da solo sulle province nemiche vicine finché non gli dai un ordine (Nico)
-    if (f === PLAYER && !isNaval(type)) { u.stance = 'attacca'; u.fresh = true; }
+    // (prima avanzava da solo appena schierato: tolto, Nico 25 novembre 2026: "corrono a caso"): si muove solo dove lo mandi
     this.units.push(u);
     return u;
+  }
+
+  /** Mare libero accanto alla costa della provincia, il più vicino alla casella toccata (dove nasce una nave), −1 se non c'è. */
+  navalSpawn(p: number, near: number): number {
+    if (p < 0) return -1;
+    let best = -1, bd = Infinity;
+    for (const i of this.map.provinces[p].tiles) {
+      if (this.owner[i] !== this.provOwner[p]) continue;
+      const s = this.seaSpawn(i);
+      if (s < 0) continue;
+      const d = hexDistance(i, near);
+      if (d < bd) { bd = d; best = s; }
+    }
+    return best;
   }
 
   /** Casella di mare libera accanto a una costa (dove nasce una cannoniera), −1 se non c'è. */
@@ -1426,7 +1989,13 @@ export class RunState {
   }
 
   /** Ordina alla pedina di andare verso `to`; false se irraggiungibile. Le navi vanno sul mare accanto alla costa toccata. */
-  order(u: Unit, to: number): boolean {
+  /** Nuovo percorso: se la prima casella cambia, il passo riparte da zero (sullo schermo la pedina non salta di lato). */
+  private setPath(u: Unit, path: number[]) {
+    if (path[0] !== u.path[0]) u.moveAcc = 0;
+    u.path = path;
+  }
+
+  order(u: Unit, to: number, home = false): boolean {
     if (isNaval(u.type)) {
       const sea = (i: number) => i >= 0 && !this.map.tiles[i];
       let dest = to;
@@ -1436,20 +2005,148 @@ export class RunState {
         dest = opts.reduce((a, b) => (hexDistance(a, u.tile) <= hexDistance(b, u.tile) ? a : b));
       }
       const path = findPath(u.tile, dest, sea);
-      u.path = path;
+      this.setPath(u, path);
       u.lastOrderMs = this.gameTimeMs;
       return path.length > 0 || dest === u.tile;
     }
-    const path = findPath(u.tile, to, (i) => this.passable(i) && this.atWar(u.owner, this.owner[i]) || this.owner[i] === u.owner);
-    u.path = path;
+    // riposizionamento (linea, cure, ritorno al posto): solo nel tuo territorio anche col giro largo; se da lì non si arriva,
+    // la strada normale (Nico, 27 novembre 2026: "passino dentro il tuo territorio, così da non calpestare i nemici")
+    let path = home ? this.landPath(u, this.stopOf(to), u.tile, true) : [];
+    if (!path.length) path = this.landPath(u, this.stopOf(to));
+    this.setPath(u, path);
     u.lastOrderMs = this.gameTimeMs;
     return path.length > 0;
   }
 
+  /** Stop della rete (centro della provincia) per una casella di terra: le pedine stanno e arrivano solo lì (Nico: "della
+   *  rete non gli frega niente"). Le navi e le caselle senza provincia restano come sono. */
+  stopOf(i: number): number {
+    const p = this.provOf(i), a = p >= 0 ? this.map.provinces[p].anchor : -1;
+    return a >= 0 ? a : i;
+  }
+
+  /**
+   * Percorso alla Call of War (Nico): da centro a centro delle province, lungo i collegamenti tra province vicine. La
+   * provincia si prende arrivando al suo centro, non passando il confine. Alla fine si va alla casella chiesta (se non è
+   * il centro). Se la catena di province non si trova, il percorso più corto sulle caselle.
+   */
+  private lpCost = new Float64Array(0);
+  private lpPrev = new Int32Array(0);
+  private lpSeen = new Int32Array(0);
+  private lpDone = new Int32Array(0);
+  private lpStamp = 0;
+  pathBroken = 0; // catene rotte trovate da landPath (diagnosi)
+  private seaFail = new Map<number, number>(); // traversate impossibili: partenza e meta → quando
+  private landPath(u: Unit, to: number, start = u.tile, home = false): number[] {
+    const ford = this.map.ford; // stretti brevi: si passano a piedi (province ai due lati collegate)
+    // sul territorio degli alleati si passa (Nico, 26 novembre 2026), su quello di chi è in pace no
+    const ok = (i: number) => this.passable(i) && (this.atWar(u.owner, this.owner[i]) || this.allied(u.owner, this.owner[i])) || this.owner[i] === u.owner || i >= 0 && ford[i] === 1;
+    const sp = home ? this.provOf(start) : -1, tp = home ? this.provOf(to) : -1;
+    // sbarco alla Call of War (Nico: "le isole sono irraggiungibili"): se la meta non si raggiunge via terra, le pedine del
+    // giocatore vanno alla costa e attraversano il mare. Solo le sue: le IA non usano il mare (e cercare costa caro)
+    const amph = u.owner === PLAYER && !isNaval(u.type);
+    const okSea = (i: number) => ok(i) || i >= 0 && !this.map.tiles[i];
+    const bySea = () => {
+      if (!amph) return [];
+      // una traversata impossibile non si ricerca a ogni secondo (linee e reparti che attaccano da soli riprovano spesso)
+      const key = start * 524288 + to, failed = this.seaFail.get(key);
+      if (failed !== undefined && this.gameTimeMs - failed < 5000) return [];
+      const path = findPathAStar(start, to, okSea, 120000);
+      if (!path.length) this.seaFail.set(key, this.gameTimeMs);
+      if (this.seaFail.size > 500) this.seaFail.clear();
+      return path;
+    };
+    const P = this.map.provinces, a = this.provOf(start), b = this.provOf(to);
+    if (a < 0 || b < 0) return amph ? bySea() : findPath(start, to, ok);
+    // home: solo province tue (più quella dove sta e quella dove va); vuoto se non c'è strada, chi chiama ritenta normale
+    const okProv = (p: number) => P[p].anchor >= 0 && (this.provOwner[p] === u.owner || this.allied(u.owner, this.provOwner[p]) || !home && this.atWar(u.owner, this.provOwner[p]) || p === sp || p === tp);
+    // le tue pedine girano attorno a chi non è il bersaglio (Nico, 26 novembre 2026: "mandi le truppe contro un territorio e
+    // camminano sopra altri, così scoppiano guerre all'infinito; meglio che stiano per i cazzi loro, a meno che non li attacchi
+    // tutti e due"): la terra di una terza fazione costa `thirdPartyMult` volte, ci passano solo se non c'è altra strada
+    const aim = this.provOwner[b], third = (n: number) => {
+      const o = this.provOwner[n];
+      return u.owner === PLAYER && o !== u.owner && o !== NEUTRAL && o !== aim && !this.allied(u.owner, o) ? BALANCE.unitOps.thirdPartyMult : 1;
+    };
+    if (home && a < 0) return [];
+    if (!okProv(b)) return []; // meta in pace o non attraversabile: prima cercava casella per casella su tutta la carta
+    // province da centro a centro col percorso più rapido, non con meno passaggi: la ferrovia (tua) costa meno, montagne e
+    // colline di più (Nico: le pedine non passavano sulle ferrovie costruite)
+    // buffer riusati con un timbro: niente array nuovi da 18 000 a ogni ordine (le IA ne danno tanti)
+    if (this.lpCost.length !== P.length) { this.lpCost = new Float64Array(P.length); this.lpPrev = new Int32Array(P.length); this.lpSeen = new Int32Array(P.length); this.lpDone = new Int32Array(P.length); }
+    const stamp = ++this.lpStamp, cost = this.lpCost, prevA = this.lpPrev, seen = this.lpSeen, doneA = this.lpDone;
+    const C = (n: number) => (seen[n] === stamp ? cost[n] : Infinity);
+    const prev = { get: (n: number) => (seen[n] === stamp ? prevA[n] : -1) };
+    const rail = BALANCE.works.ferrovia.railMult ?? 1;
+    const hop = (from: number, n: number) => hexDistance(P[from].anchor, P[n].anchor) * BALANCE.terrain[P[n].terrain].move * third(n)
+      * (this.railBy[n] === u.owner && this.railBy[from] === u.owner ? rail : 1);
+    const heap: number[] = [a];
+    const up = (i: number) => { while (i > 0) { const p = (i - 1) >> 1; if (C(heap[p]) <= C(heap[i])) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+    const pop = () => {
+      const top = heap[0], last = heap.pop()!;
+      if (heap.length) {
+        heap[0] = last;
+        for (let i = 0; ;) {
+          const l = 2 * i + 1, r = l + 1;
+          let m = i;
+          if (l < heap.length && C(heap[l]) < C(heap[m])) m = l;
+          if (r < heap.length && C(heap[r]) < C(heap[m])) m = r;
+          if (m === i) break;
+          [heap[m], heap[i]] = [heap[i], heap[m]];
+          i = m;
+        }
+      }
+      return top;
+    };
+    seen[a] = stamp; cost[a] = 0; prevA[a] = a;
+    // tetto alla ricerca (Nico: scatti, "troppo calcolo"): una meta irraggiungibile faceva esplorare tutte le province,
+    // a ogni secondo per ogni pedina delle IA. Oltre ~4 volte la distanza in linea d'aria la meta non si raggiunge
+    const cap = 4 * hexDistance(P[a].anchor >= 0 ? P[a].anchor : start, P[b].anchor) + 60;
+    while (heap.length) {
+      const c = pop();
+      if (doneA[c] === stamp) continue;
+      doneA[c] = stamp;
+      if (c === b || cost[c] > cap) break;
+      for (const n of P[c].neighbors) {
+        if (n < 0 || doneA[n] === stamp || !okProv(n)) continue;
+        const v = cost[c] + hop(c, n);
+        if (v < C(n)) { seen[n] = stamp; cost[n] = v; prevA[n] = c; heap.push(n); up(heap.length - 1); }
+      }
+    }
+    if (prev.get(b) < 0) return home ? [] : bySea(); // niente strada sulla rete: per mare (o irraggiungibile)
+    const chain: number[] = [];
+    // catena rotta (passo senza provenienza o giro chiuso): niente strada. Prima il ciclo non finiva più, l'array cresceva
+    // fino a esaurire la memoria e il gioco si bloccava (Nico, 27 novembre 2026: "frizzato, ho dovuto riavviarlo")
+    for (let p = b; p !== a; p = prev.get(p)) {
+      if (p < 0 || chain.length > P.length) { this.pathBroken++; return []; }
+      chain.push(p);
+    }
+    chain.reverse();
+    const stops = chain.map((p) => P[p].anchor);
+    if (to !== stops[stops.length - 1]) stops.push(to);
+    if (!chain.length && to === start) return [];
+    // fuori rete (fra due centri o schierata prima): si rientra dal centro più vicino fra la sua provincia e la prossima,
+    // poi solo strade da centro a centro
+    if (start !== P[a].anchor && stops[0] !== P[a].anchor && hexDistance(start, P[a].anchor) < hexDistance(start, stops[0])) stops.unshift(P[a].anchor);
+    const path: number[] = [];
+    let from = start;
+    for (const w of stops) {
+      if (w === from) continue;
+      const seg = straightPath(from, w, ok); // lungo la strada dritta fra i due centri, come la rete disegnata
+      if (!seg.length) return findPath(start, to, ok, 8000);
+      path.push(...seg);
+      from = w;
+    }
+    return path;
+  }
+
   /** Ordine del giocatore: la pedina lascia il fronte assegnato e va dove le dici. */
   command(u: Unit, to: number): boolean {
-    if (u.fresh) { u.fresh = false; u.stance = 'tieni'; } // primo ordine: da qui in poi fa quello che dici
+    if (u.fresh) u.fresh = false;
+    // un ordine tuo chiude "attacca da sola" (Nico: dopo attacca nazione, anche fermate, continuavano ad attaccare)
+    u.stance = 'tieni';
+    u.squad = -1;
     u.front = -1;
+    u.zone = -1; u.chase = -1;
     u.post = -1;
     u.goal = -1;
     return this.order(u, to);
@@ -1458,19 +2155,22 @@ export class RunState {
   /** Percorso che farebbe la pedina fino a `to` (anteprima sulla mappa), vuoto se irraggiungibile. */
   previewPath(u: Unit, to: number): number[] {
     if (isNaval(u.type)) return this.map.tiles[to] ? [] : findPath(u.tile, to, (i) => i >= 0 && !this.map.tiles[i]);
-    return findPath(u.tile, to, (i) => this.passable(i) && this.atWar(u.owner, this.owner[i]) || this.owner[i] === u.owner);
+    return this.landPath(u, this.stopOf(to));
   }
 
   /** Comportamento: tieni la posizione oppure attacca da sola i nemici vicini. */
   setStance(units: Unit[], stance: Stance) {
-    for (const u of units) { u.stance = stance; u.fresh = false; u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs; }
+    // via anche la squadra vecchia: prima chi passava a "tieni" faceva aspettare le compagne fino a 6 s
+    for (const u of units) { u.stance = stance; u.fresh = false; if (stance === 'tieni') u.squad = -1; u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs; }
   }
 
   /** Assegna le pedine al confine con una fazione: si dispongono lungo la linea (e la spingono se attaccano da sole). */
-  assignFront(units: Unit[], faction: number): boolean {
+  assignFront(units: Unit[], faction: number, attack = false): boolean {
     if (faction < 0 || faction === PLAYER || !this.factions[faction]?.alive) return false;
-    if (!this.frontLine(PLAYER, faction).length) return false;
-    for (const u of units) if (!isNaval(u.type)) { u.front = faction; u.post = -1; u.goal = -1; u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs; }
+    // attacca nazione anche senza confine via terra (isole, nazioni oltre il mare): ci si va con l'imbarco
+    if (!attack && !this.frontLine(PLAYER, faction).length) return false;
+    for (const u of units) if (!isNaval(u.type)) { u.front = faction; u.zone = -1; u.chase = -1; u.post = -1; u.goal = -1; u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs; }
+    if (units.length) this.chron({ k: 'attack', a: faction, b: PLAYER, n: units.reduce((n, u) => n + u.size, 0) });
     return true;
   }
 
@@ -1483,9 +2183,12 @@ export class RunState {
     units.forEach((u, k) => {
       if (isNaval(u.type) || k >= posts.length) return;
       u.front = -1;
+      u.zone = -1; u.chase = -1;
       u.goal = -1;
+      u.stance = 'tieni'; // in linea tiene il posto: niente più "attacca da sola" rimasto da un attacco a nazione
+      u.squad = -1;
       u.post = posts[k];
-      if (u.tile === u.post || this.order(u, u.post)) n++;
+      if (u.tile === u.post || this.order(u, u.post, true)) n++;
     });
     return n;
   }
@@ -1499,9 +2202,14 @@ export class RunState {
     units.forEach((u, k) => {
       if (isNaval(u.type) || k >= goals.length || goals[k] < 0) return;
       u.front = -1;
+      u.zone = -1; u.chase = -1;
       u.post = -1;
+      u.stance = 'tieni'; // arrivata in fondo alla freccia tiene, non riparte da sola
+      u.squad = -1;
       u.goal = goals[k];
       u.via = [...(vias[k] ?? [])];
+      u.resting = false; // freccia tua: parte anche se ferita (prima tornava subito a curarsi e sembrava non partire)
+      u.orderHp = u.hp;
       if (this.orderVia(u, true)) n++;
       else { u.goal = -1; u.via = []; }
     });
@@ -1519,14 +2227,16 @@ export class RunState {
     const ok = (i: number) => this.passable(i) && this.atWar(u.owner, this.owner[i]) || this.owner[i] === u.owner;
     const path: number[] = [];
     let from = u.tile;
-    for (const w of [...via, u.goal]) {
-      const seg = findPath(from, w, ok);
+    u.goal = this.stopOf(u.goal);
+    for (const w of [...via, u.goal].map((x) => this.stopOf(x))) {
+      const seg = this.landPath(u, w, from); // da centro a centro lungo la rete, anche fra una tappa e l'altra
       if (!seg.length) continue;
       path.push(...seg);
       from = w;
     }
+    void ok;
     if (from !== u.goal) return this.order(u, u.goal); // l'arrivo non si raggiunge dalle tappe: strada più corta
-    u.path = path;
+    this.setPath(u, path);
     u.lastOrderMs = this.gameTimeMs;
     return path.length > 0;
   }
@@ -1541,6 +2251,176 @@ export class RunState {
   }
 
   /** Unisce pedine uguali vicine nella prima: vita e attacco si sommano. Ritorna i reparti uniti o il motivo. */
+  /** Un passo di attacca nazione (o delle regioni scelte) per una pedina: si divide in gruppetti da G, prende il bersaglio
+   *  più vicino con posto e ci va. false se non c'è bersaglio. */
+  private planFail = new Map<number, { n: number; at: number }>(); // provincia bersaglio → tentativi falliti di fila, ultimo
+  /** Province della zona che le pedine vanno ancora a prendere (le stesse del loro piano): solo queste si disegnano. */
+  zoneTargets(z: number): number[] {
+    return (this.zones.get(z) ?? []).filter((p) => {
+      const o = this.provOwner[p];
+      return o !== PLAYER && this.provPassable(p) && (o === NEUTRAL || this.atWar(PLAYER, o)) && !this.unreachable(p);
+    });
+  }
+
+  private unreachable(p: number): boolean {
+    const f = this.planFail.get(p);
+    if (!f) return false;
+    if (this.gameTimeMs - f.at > BALANCE.aiUnits.badTargetMs) { this.planFail.delete(p); return false; }
+    return f.n >= 3;
+  }
+
+  private planStep(u: Unit, pl: { targets: Set<number>; G: number; cnt: Map<number, number>; valid?: Set<number> }): boolean {
+    const provs = this.map.provinces, G = pl.G;
+    // pedina grossa (divisione da 70...): si divide in gruppetti da G reparti sulla sua casella, così si sparge sul
+    // confine; con un confine stretto i gruppetti sono più grossi (Nico: "si divide nel modo più efficiente")
+    if ((u.band ?? -1) < 0) while (u.size > G) this.splitOff(u, G); // un gruppetto resta intero
+    // bersaglio: il più vicino con posto; le province nemiche entrate nel tuo territorio (circondate dalle tue) contano
+    // come più vicine, così si chiudono prima gli sfondamenti; il bersaglio di adesso pesa meno (niente cambi a vuoto)
+    const cur = (u.squad ?? -1) >= 0 && (pl.valid ?? pl.targets).has(u.squad!) ? u.squad! : -1;
+    if (cur >= 0) pl.cnt.set(cur, (pl.cnt.get(cur) ?? 0) - u.size);
+    let best = -1, bd = Infinity, least = -1, lc = Infinity, ld = Infinity, breach = -1, brd = Infinity;
+    for (const q of pl.targets) {
+      const nb = provs[q].neighbors, mine = nb.filter((r) => this.provOwner[r] === PLAYER).length / Math.max(1, nb.length);
+      const raw = hexDistance(provs[q].anchor, u.tile), d = raw * (1 - 0.6 * mine), c = pl.cnt.get(q) ?? 0;
+      if (c + u.size <= G && d < bd) { bd = d; best = q; }
+      if (c < lc || c === lc && d < ld) { lc = c; ld = d; least = q; }
+      if (mine >= 0.6 && c === 0 && raw < brd) { brd = raw; breach = q; } // sfondamento nel tuo territorio, scoperto
+    }
+    // bersaglio già valido: lo si tiene finché non è preso (Nico: "rimbalzano avanti e indietro": ricalcolando ogni 1,5 s
+    // una pedina perdeva il posto e ne prendeva un altro, poi tornava). Si cambia solo per uno sfondamento molto più vicino
+    const t = cur >= 0 ? (breach >= 0 && brd * 2 < hexDistance(provs[cur].anchor, u.tile) ? breach : cur) : best >= 0 ? best : least;
+    if (t >= 0) {
+      pl.cnt.set(t, (pl.cnt.get(t) ?? 0) + u.size);
+      if (t !== cur || !u.path.length && this.provOf(u.tile) !== t) {
+        // bersaglio che non si raggiunge: dopo 3 tentativi falliti esce dal piano per 30 s (prima si riprovava per sempre)
+        if (this.order(u, provs[t].anchor)) this.planFail.delete(t);
+        else { const f = this.planFail.get(t); this.planFail.set(t, { n: (f?.n ?? 0) + 1, at: this.gameTimeMs }); }
+        u.squad = t; u.waitMs = 0;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** Gruppetto compatto (Nico, 27 novembre 2026: "3 ingegneri, 2 carri, che posso mandare compatti"): le pedine si
+   *  raccolgono sul capo (la più vecchia) e da lì vanno come un blocco, al passo della più lenta, sulla sua strada. Gli
+   *  ordini li prende il capo. Ritorna l'id del gruppo, −1 se meno di due pedine di terra. */
+  private nextBandId = 1;
+  makeBand(units: Unit[]): number {
+    const land = units.filter((u) => u.owner === PLAYER && !isNaval(u.type)).sort((a, b) => a.id - b.id);
+    if (land.length < 2) { for (const u of land) u.band = -1; return -1; }
+    const id = this.nextBandId++, lead = land[0];
+    // le altre lasciano anche riposo e "attacca da sola": sciolto il gruppetto non partono a caccia per conto loro
+    for (const u of land) { u.band = id; if (u !== lead) { u.front = -1; u.zone = -1; u.chase = -1; u.post = -1; u.goal = -1; u.squad = -1; u.resting = false; u.stance = 'tieni'; u.fresh = false; } }
+    this.bandTick = -1;
+    return id;
+  }
+
+  /** Capo del gruppetto della pedina (la più vecchia ancora viva), o la pedina stessa. */
+  private bandLeads = new Map<number, Unit>();
+  private bandSlow = new Map<number, number>(); // gruppetto → passo base del reparto più lento
+  private bandTick = -1;
+  private bandWait = new Map<number, { gap: number; idle: number }>(); // gruppetto → distanza della più lontana, ms da quando non si avvicina
+  bandLeader(u: Unit): Unit {
+    if ((u.band ?? -1) < 0) return u;
+    if (this.bandTick !== this.gameTimeMs) {
+      this.bandTick = this.gameTimeMs;
+      this.bandLeads.clear();
+      this.bandSlow.clear();
+      for (const v of this.units) {
+        const b = v.band ?? -1;
+        if (b < 0 || v.hp <= 0) continue;
+        const l = this.bandLeads.get(b);
+        if (!l || v.id < l.id) this.bandLeads.set(b, v);
+        this.bandSlow.set(b, Math.max(this.bandSlow.get(b) ?? 0, BALANCE.units[v.type].moveMs));
+      }
+    }
+    return this.bandLeads.get(u.band!) ?? u;
+  }
+
+  /** Divide le pedine in pezzi da al massimo `size` reparti sulla loro casella (linea, Nico 27 novembre 2026: "le truppe si
+   *  dividono come in attacca nazione"). Ritorna gli id di tutti i pezzi, le pedine di partenza comprese. */
+  divide(units: Unit[], size: number): number[] {
+    const G = Math.max(1, Math.floor(size)), out: number[] = [];
+    for (const u of units) {
+      out.push(u.id);
+      if (isNaval(u.type) || (u.band ?? -1) >= 0) continue; // un gruppetto resta intero
+      while (u.size > G) out.push(this.splitOff(u, G).id);
+    }
+    return out;
+  }
+
+  /** Reparti di una pedina, gruppetto intero se è il capo. */
+  bandSize(u: Unit): number {
+    if ((u.band ?? -1) < 0) return u.size;
+    let n = 0;
+    for (const v of this.units) if (v.band === u.band && v.hp > 0) n += v.size;
+    return n;
+  }
+
+  /** Divide le pedine (in ordine lungo la linea) in pezzi che riempiono le quote una dopo l'altra: con 10 reparti e quote
+   *  3, 2, 3, 2 si fanno proprio quei pezzi (prima pezzi tutti uguali da 2: uno in più finiva sulla prima provincia). Un
+   *  gruppetto resta intero. Ritorna gli id dei pezzi nello stesso ordine. */
+  divideQuotas(units: Unit[], quotas: number[]): number[] {
+    const out: number[] = [];
+    let q = 0, cum = 0, edge = quotas[0] ?? Infinity;
+    const next = () => { while (q < quotas.length && cum >= edge) edge += quotas[++q] ?? Infinity; };
+    for (const u of units) {
+      if (!isNaval(u.type) && (u.band ?? -1) < 0) {
+        while (u.size > edge - cum && edge - cum > 0) { const v = this.splitOff(u, edge - cum); out.push(v.id); cum += v.size; next(); }
+      }
+      out.push(u.id);
+      cum += this.bandSize(u);
+      next();
+    }
+    return out;
+  }
+
+  /** Stacca `n` reparti da una pedina, sulla stessa casella e con gli stessi ordini. */
+  private splitOff(u: Unit, n: number): Unit {
+    const share = n / u.size;
+    const v: Unit = { ...u, id: this.nextUnitId++, path: [], moveAcc: 0, inCombat: false, size: n, hp: u.hp * share, maxHp: u.maxHp * share, via: [], squad: -1, waitMs: 0, band: -1 };
+    u.size -= n; u.hp -= v.hp; u.maxHp -= v.maxHp;
+    this.units.push(v);
+    return v;
+  }
+
+  /** Regioni scelte (Nico, 27 novembre 2026, al posto della freccia): le pedine si dividono le province come in attacca
+   *  nazione e le prendono, poi tengono dove hanno vinto. Ritorna quante pedine partono. */
+  zones = new Map<number, number[]>();
+  private nextZoneId = 1;
+  zoneAttack(units: Unit[], provs: number[]): number {
+    const land = units.filter((u) => !isNaval(u.type));
+    const ok = provs.filter((p) => p >= 0 && this.map.provinces[p]?.anchor >= 0 && this.provPassable(p) && this.provOwner[p] !== PLAYER
+      && (this.provOwner[p] === NEUTRAL || this.atWar(PLAYER, this.provOwner[p])));
+    if (!land.length || !ok.length) return 0;
+    const id = this.nextZoneId++;
+    this.zones.set(id, [...new Set(ok)]);
+    this.chron({ k: 'zone', a: PLAYER, b: -1, n: this.zones.get(id)!.length });
+    for (const u of land) {
+      u.zone = id; u.front = -1; u.post = -1; u.goal = -1; u.squad = -1; u.stance = 'tieni'; u.resting = false; u.fresh = false;
+      u.orderHp = u.hp;
+      this.setPath(u, []);
+      u.lastOrderMs = this.gameTimeMs - BALANCE.unitOps.autoEveryMs;
+    }
+    return land.length;
+  }
+
+  /** Attacco diretto: le pedine inseguono una pedina nemica (in guerra) finché muore o sparisce, poi tengono dove sono. */
+  chaseUnit(units: Unit[], target: number): number {
+    const t = this.units.find((v) => v.id === target && v.hp > 0);
+    if (!t || t.owner === PLAYER || !this.atWar(PLAYER, t.owner)) return 0;
+    let n = 0;
+    for (const u of units) {
+      if (isNaval(u.type)) continue;
+      u.front = -1; u.post = -1; u.goal = -1; u.zone = -1; u.squad = -1; u.stance = 'tieni'; u.resting = false; u.fresh = false;
+      u.chase = target;
+      u.orderHp = u.hp;
+      if (this.order(u, t.tile)) n++;
+    }
+    return n;
+  }
+
   merge(units: Unit[]): number | 'type' | 'far' | 'max' | 'few' {
     const O = BALANCE.unitOps;
     const [head, ...rest] = units.filter((u) => u.owner === PLAYER && u.hp > 0);
@@ -1592,18 +2472,43 @@ export class RunState {
       const tile = provs[p].tiles.find((i) => this.owner[i] === PLAYER && !taken.has(i) && (!this.unitAt(i) || this.unitAt(i) === u)) ?? provs[p].anchor;
       taken.add(tile);
       u.front = -1;
+      u.zone = -1; u.chase = -1;
       u.post = -1;
       u.goal = -1;
       u.stance = 'tieni';
-      if (tile === u.tile || this.order(u, tile)) n++;
+      u.squad = -1;
+      if (tile === u.tile || this.order(u, tile, true)) n++;
     }
     return n;
   }
 
   /** Rifornimento della pedina: quello della provincia se è tua, poco fuori dal confine cala, lontano finisce. */
   private unitSupply(u: Unit): number {
-    const paid = u.owner === PLAYER && this.unpaid[BALANCE.units[u.type].res] ? BALANCE.upkeep.unpaidSupply : 1; // mantenimento non pagato
+    const r = BALANCE.units[u.type].res;
+    const short = u.owner === PLAYER ? this.unpaid[r] : this.aiUnpaid[u.owner * 3 + RESOURCE_KEYS.indexOf(r)] === 1;
+    const paid = short ? BALANCE.upkeep.unpaidSupply : 1; // mantenimento non pagato
     return this.baseUnitSupply(u) * paid;
+  }
+
+  /**
+   * Ammasso fuori dal tuo territorio (Nico, 27 novembre 2026: in casa si ammassa per organizzarsi, niente calo): oltre il
+   * limite della provincia il gruppo colpisce meno e va più piano, senza perdere vita. Ritorna quante volte il limite (≥ 1).
+   */
+  private stackOver(u: Unit): number {
+    const p = this.provOf(u.tile);
+    if (p < 0 || this.provOwner[p] === u.owner) return 1;
+    const n = this.stackLoad.get(p * 1024 + u.owner) ?? 0;
+    const cap = this.depotNear(p, u.owner) ? BALANCE.upkeep.stackCapDepot : BALANCE.upkeep.stackCap;
+    return n > cap ? n / cap : 1;
+  }
+
+  /** Reparti per provincia e padrone (rifatto a ogni tick): per il limite degli ammassi. */
+  private stackLoad = new Map<number, number>();
+
+  /** Un deposito pronto di `f` in questa provincia o accanto. */
+  private depotNear(p: number, f: number): boolean {
+    const dep = WORKS.indexOf('rifornimenti'), ok = (q: number) => this.provOwner[q] === f && this.provWork[q] === dep && this.provWorkAt[q] === 0;
+    return ok(p) || this.map.provinces[p].neighbors.some(ok);
   }
 
   private baseUnitSupply(u: Unit): number {
@@ -1623,41 +2528,149 @@ export class RunState {
    */
   private playerUnitsAuto() {
     const O = BALANCE.unitOps, provs = this.map.provinces;
+    // zone rimaste senza pedine (ordine cambiato): via (prima restavano per sempre)
+    if (this.zones.size) {
+      const live = new Set<number>();
+      for (const u of this.units) if ((u.zone ?? -1) >= 0) live.add(u.zone!);
+      for (const z of [...this.zones.keys()]) if (!live.has(z)) this.zones.delete(z);
+      // province della zona già prese: escono per sempre (Nico, 26 novembre 2026: "a conquista finita certi territori già
+      // tuoi restano azzurri e le truppe vanno avanti e indietro"; prima una provincia ripresa dal nemico alle spalle tornava
+      // bersaglio e il gruppo tornava indietro)
+      for (const [z, ps] of this.zones) if (ps.some((p) => this.provOwner[p] === PLAYER)) this.zones.set(z, ps.filter((p) => this.provOwner[p] !== PLAYER));
+    }
     const lines = new Map<number, number[]>();
     const posts = new Map<number, Set<number>>(); // fronte → province già presidiate
+    // attacca nazione, piano per nemico (rifatto a ogni passata, Nico: "si deve aggiornare continuamente, come la linea"):
+    // province bersaglio = le sue che toccano il tuo territorio (anche quelle entrate dentro, che ti tagliano fuori), reparti
+    // per bersaglio = tutti i reparti dell'attacco divisi sui bersagli (mai meno di `attackGroup`), quanti ce ne vanno già
+    const plans = new Map<number, { targets: Set<number>; G: number; cnt: Map<number, number> }>();
+    const planOf = (enemy: number) => {
+      let pl = plans.get(enemy);
+      if (pl) return pl;
+      const targets = new Set<number>();
+      for (const p of this.frontLine(PLAYER, enemy)) for (const q of provs[p].neighbors) if (this.provOwner[q] === enemy && !this.unreachable(q)) targets.add(q);
+      // nessuna sua provincia attaccata alle tue (isole, terre oltre il mare, il resto dopo aver preso il continente): tutte
+      // le sue province raggiungibili, ogni pedina va alla più vicina (Nico, 28 novembre 2026: "attacchi una nazione e
+      // un'isola non la fa")
+      if (!targets.size) for (const q of this.ownedProvinces(enemy)) if (this.provPassable(q) && !this.unreachable(q)) targets.add(q);
+      const us = this.units.filter((v) => v.owner === PLAYER && v.front === enemy && v.stance === 'attacca' && !v.resting);
+      const total = us.reduce((n, v) => n + v.size, 0), cnt = new Map<number, number>();
+      for (const v of us) if ((v.squad ?? -1) >= 0 && targets.has(v.squad!)) cnt.set(v.squad!, (cnt.get(v.squad!) ?? 0) + v.size);
+      pl = { targets, G: Math.max(O.attackGroup, Math.ceil(total / Math.max(1, targets.size))), cnt };
+      plans.set(enemy, pl);
+      return pl;
+    };
+    // regioni scelte: stesso piano, bersagli = le province della zona non ancora tue (si aggiornano a ogni passata)
+    const zplans = new Map<number, { targets: Set<number>; G: number; cnt: Map<number, number>; valid?: Set<number> }>();
+    const zoneOf = (z: number) => {
+      let pl = zplans.get(z);
+      if (pl) return pl;
+      const targets = new Set<number>(), far: number[] = [], valid = new Set<number>();
+      for (const p of this.zones.get(z) ?? []) {
+        const o = this.provOwner[p];
+        if (o === PLAYER || !this.provPassable(p) || o !== NEUTRAL && !this.atWar(PLAYER, o) || this.unreachable(p)) continue;
+        valid.add(p);
+        // terra vuota: si esplora dal tuo confine in fuori, prima le province attaccate alle tue (Nico, 27 novembre 2026:
+        // "se fatto su province vuote, esplora quelle più vicine"); quelle più in là entrano quando le prime sono prese
+        if (o === NEUTRAL && !provs[p].neighbors.some((q) => this.provOwner[q] === PLAYER)) far.push(p);
+        else targets.add(p);
+      }
+      if (!targets.size) for (const p of far) targets.add(p); // niente attaccato al confine (zona oltre il mare): tutte
+      const us = this.units.filter((v) => v.owner === PLAYER && v.zone === z && !v.resting);
+      const total = us.reduce((n, v) => n + v.size, 0), cnt = new Map<number, number>();
+      for (const v of us) if ((v.squad ?? -1) >= 0 && valid.has(v.squad!)) cnt.set(v.squad!, (cnt.get(v.squad!) ?? 0) + v.size);
+      // terra vuota: nessuno da battere, basta poco per provincia. Senza il minimo da attacco le pedine si spargono su più
+      // province insieme (Nico, 27 novembre 2026: "considerano la zona vuota come attacco e si spreadano bene")
+      const empty = [...targets].every((p) => this.provOwner[p] === NEUTRAL);
+      // `valid`: tutte le province della zona ancora da prendere. Una pedina tiene il suo bersaglio finché è fra queste, anche
+      // se intanto le "vicine al confine" sono cambiate (Nico, 28 novembre 2026: "vanno avanti e indietro, sembrano indecise":
+      // presa una provincia, le lontane uscivano dai bersagli e chi ci andava tornava indietro)
+      pl = { targets, G: Math.max(empty ? 1 : O.attackGroup, Math.ceil(total / Math.max(1, targets.size))), cnt, valid };
+      zplans.set(z, pl);
+      return pl;
+    };
     for (const u of this.unitsOf(PLAYER)) {
-      if (isNaval(u.type) || u.path.length || this.gameTimeMs - u.lastOrderMs < O.autoEveryMs || this.battles.some((b) => b.unit === u.id)) continue;
+      if (this.bandLeader(u) !== u) continue; // nel gruppetto decide il capo, le altre lo seguono
+      // l'offensiva riparte subito dopo un assedio (prima aspettava 1,5 s e sembrava fermarsi a metà freccia)
+      const wait = u.goal >= 0 ? 0 : O.autoEveryMs;
+      // chi attacca una nazione si ricontrolla anche mentre cammina: il fronte cambia (sfondamenti alle spalle, bersaglio già preso)
+      const onFront = (u.front >= 0 && u.stance === 'attacca' || (u.zone ?? -1) >= 0 || (u.chase ?? -1) >= 0) && !u.resting;
+      if (isNaval(u.type) || u.path.length && !onFront || this.gameTimeMs - u.lastOrderMs < wait || this.battles.some((b) => b.unit === u.id)) continue;
       u.lastOrderMs = this.gameTimeMs;
       // reparto appena schierato che ha ricevuto un fronte, una linea o un'offensiva: fa quello, non avanza più da solo
       if (u.fresh && (u.front >= 0 || u.post >= 0 || u.goal >= 0)) { u.fresh = false; u.stance = 'tieni'; }
       const attack = u.stance === 'attacca';
+      // ferita in attacco: si ferma, torna nel tuo territorio più vicino e si cura; riprende quando la vita è risalita
+      const attacking = u.goal >= 0 || u.front >= 0 && attack || (u.zone ?? -1) >= 0;
+      // la vita di quando è partita conta anche per le regioni (prima una ferita mandata su una regione tornava subito indietro)
+      if (attacking && !u.resting && u.hp < u.maxHp * O.restBelow && u.hp < (u.goal >= 0 || (u.zone ?? -1) >= 0 ? u.orderHp ?? Infinity : Infinity) * 0.7) {
+        u.resting = true;
+        u.squad = -1; // esce dalla squadra: le altre non la aspettano
+        u.restHp = u.hp; u.restAt = this.gameTimeMs;
+        const home = this.restHome(u.tile);
+        if (home >= 0 && home !== u.tile) this.order(u, home, true);
+        continue;
+      }
+      if (u.resting) {
+        if (attacking && u.hp < u.maxHp * O.restUntil) {
+          // non guarisce da 30 s (fronte, poco rifornimento): cerca un altro posto (prima restava ferma per sempre)
+          if (u.hp > (u.restHp ?? 0) + 0.01) { u.restHp = u.hp; u.restAt = this.gameTimeMs; }
+          else if (!u.path.length && this.gameTimeMs - (u.restAt ?? 0) > 30_000) {
+            u.restAt = this.gameTimeMs;
+            const home = this.restHome(u.tile);
+            if (home >= 0 && home !== u.tile) this.order(u, home, true);
+          }
+          continue;
+        }
+        u.resting = false;
+      }
+      if ((u.chase ?? -1) >= 0) {
+        // insegue: se la preda è morta o non si vede più, tiene dove è; altrimenti si rimette sulla sua strada
+        const t = this.units.find((v) => v.id === u.chase && v.hp > 0);
+        if (!t || !this.atWar(PLAYER, t.owner) || !this.seesUnit(t)) {
+          u.chase = -1;
+          u.post = this.provOwner[this.provOf(u.tile)] === PLAYER ? this.stopOf(u.tile) : -1;
+          continue;
+        }
+        if (hexDistance(u.tile, t.tile) > BALANCE.units[u.type].range && (!u.path.length || u.path[u.path.length - 1] !== this.stopOf(t.tile))) this.order(u, t.tile);
+        continue;
+      }
+      if ((u.zone ?? -1) >= 0) {
+        const pl = zoneOf(u.zone!);
+        if (!pl.targets.size) {
+          // zona presa (o non più raggiungibile): tiene dove ha vinto
+          const z = u.zone!;
+          u.zone = -1; u.chase = -1; u.squad = -1; u.post = this.provOwner[this.provOf(u.tile)] === PLAYER ? this.stopOf(u.tile) : this.nearestOwnAnchor(u.tile);
+          if (!this.units.some((v) => v.zone === z)) this.zones.delete(z);
+          continue;
+        }
+        this.planStep(u, pl);
+        continue;
+      }
       if (u.goal >= 0) {
         // offensiva: arrivata, tiene la nuova posizione; altrimenti riprende la marcia (dopo un assedio o se bloccata)
-        if (u.tile === u.goal || hexDistance(u.tile, u.goal) <= 1) { u.post = u.tile; u.goal = -1; }
-        else if (!this.orderVia(u)) { u.post = u.tile; u.goal = -1; u.via = []; }
+        // il posto è il centro della provincia (le pedine stanno lì): prima era la casella, e la pedina andata al centro
+        // ricercava la strada per tornarci ogni 1,5 s
+        if (u.tile === u.goal || hexDistance(u.tile, u.goal) <= 1) { u.post = this.stopOf(u.tile); u.goal = -1; }
+        else if (!this.orderVia(u)) { u.post = this.stopOf(u.tile); u.goal = -1; u.via = []; }
         continue;
       }
       if (u.post >= 0) {
         // linea d'attacco: torna al suo posto se ne è uscita (o se la strada si è aperta solo ora)
-        if (u.tile !== u.post) this.order(u, u.post);
+        if (u.tile !== u.post) this.order(u, u.post, true);
         continue;
       }
       if (u.front >= 0) {
         const enemy = u.front;
-        if (!this.factions[enemy]?.alive) { u.front = -1; continue; }
+        // nazione caduta: operazione finita, la pedina si ferma dove sta e tiene (Nico: "quando finiscono impazziscono e
+        // continuano ad attaccare": restava "attacca da sola" e puntava il primo nemico vicino)
+        if (!this.factions[enemy]?.alive) { u.front = -1; u.stance = 'tieni'; u.squad = -1; const h = this.nearestOwnAnchor(u.tile); u.post = h >= 0 ? h : this.stopOf(u.tile); continue; }
         if (!lines.has(enemy)) { lines.set(enemy, this.frontLine(PLAYER, enemy)); posts.set(enemy, new Set()); }
         const line = lines.get(enemy)!, taken = posts.get(enemy)!;
-        if (!line.length) continue;
         if (attack && this.atWar(PLAYER, enemy)) {
-          // spingi il fronte: la provincia nemica sul confine più vicina
-          let best = -1, bd = Infinity;
-          for (const p of line) for (const q of provs[p].neighbors) {
-            if (this.provOwner[q] !== enemy) continue;
-            const d = hexDistance(provs[q].anchor, u.tile);
-            if (d < bd) { bd = d; best = q; }
-          }
-          if (best >= 0) { this.order(u, provs[best].anchor); continue; }
+          if (this.planStep(u, planOf(enemy))) continue;
         }
+        if (!line.length) continue;
         // tieni la linea: la provincia di confine libera più vicina (una pedina per provincia finché bastano)
         const here = this.provOf(u.tile);
         if (line.includes(here) && !taken.has(here)) { taken.add(here); continue; }
@@ -1666,10 +2679,25 @@ export class RunState {
         const p = pool.reduce((a, b) => (hexDistance(provs[a].anchor, u.tile) <= hexDistance(provs[b].anchor, u.tile) ? a : b));
         taken.add(p);
         const tile = provs[p].tiles.find((i) => this.owner[i] === PLAYER && !this.unitAt(i)) ?? -1;
-        if (tile >= 0) this.order(u, tile);
+        if (tile >= 0) this.order(u, tile, true);
         continue;
       }
-      if (!attack) continue;
+      if (!attack) {
+        // senza ordini, ferita e mal rifornita: va da sola nella tua provincia rifornita più vicina (Nico: "mi sono morte 20
+        // truppe a stare lì a far niente")
+        // solo dentro il tuo territorio e verso una provincia vicina: una testa di sbarco resta dove l'hai mandata (Nico: in
+        // Portogallo "rimbalzano subito indietro", tornavano attraverso l'oceano)
+        if (u.supply < O.driftBelow && u.hp < u.maxHp * 0.95 && this.owner[u.tile] === PLAYER) {
+          let best = -1, bd = O.driftMaxHex + 1;
+          for (const q of this.owned[PLAYER] ?? []) {
+            if (this.supply[q] < O.healMinSupply + 0.2) continue;
+            const d = hexDistance(provs[q].anchor, u.tile);
+            if (d < bd) { bd = d; best = q; }
+          }
+          if (best >= 0 && this.order(u, provs[best].anchor, true)) u.lastOrderMs = this.gameTimeMs;
+        }
+        continue;
+      }
       // attacca da sola: prima le pedine nemiche vicine, poi le province in guerra più vicine
       let target = -1, bd = O.autoRadius + 1;
       for (const v of this.units) {
@@ -1686,6 +2714,33 @@ export class RunState {
       }
       if (target >= 0) this.order(u, target);
     }
+  }
+
+  /** Centro della tua provincia più vicina a una casella (la sua se è già tua), −1 se non ne hai. */
+  /** Dove si cura una pedina ferita: la tua provincia più vicina rifornita e senza nemici in guerra accanto (come la
+   *  ritirata); se non ce n'è, la tua provincia più vicina. */
+  private restHome(i: number): number {
+    const provs = this.map.provinces;
+    let best = -1, bd = Infinity;
+    for (const q of this.owned[PLAYER] ?? []) {
+      const a = provs[q].anchor;
+      if (a < 0 || this.supply[q] < BALANCE.unitOps.healMinSupply) continue;
+      const d = hexDistance(a, i);
+      if (d >= bd || provs[q].neighbors.some((n) => { const o = this.provOwner[n]; return o !== PLAYER && o !== NEUTRAL && this.atWar(PLAYER, o); })) continue;
+      bd = d; best = a;
+    }
+    return best >= 0 ? best : this.nearestOwnAnchor(i);
+  }
+
+  nearestOwnAnchor(i: number): number {
+    const provs = this.map.provinces, p = this.provOf(i);
+    if (p >= 0 && this.provOwner[p] === PLAYER) return provs[p].anchor;
+    let best = -1, bd = Infinity;
+    for (const q of this.owned[PLAYER] ?? []) {
+      const d = hexDistance(provs[q].anchor, i);
+      if (d < bd) { bd = d; best = provs[q].anchor; }
+    }
+    return best;
   }
 
   /** Previsione dell'assalto: costo, durata e probabile esito (crescita del difensore durante la battaglia). */
@@ -1710,9 +2765,24 @@ export class RunState {
     const U = BALANCE.units;
     // 1. combattimento simultaneo: ognuno colpisce il nemico più conveniente a portata
     const dmg = new Map<Unit, number>();
+    // pedine in secchi di 8×8 caselle: si guardano solo i secchi vicini (gittata massima 6), non tutte le 300 pedine
+    const CELL = 8, buckets = new Map<number, Unit[]>(), keyOf = (c: number, r: number) => r * 4096 + c;
+    for (const u of this.units) {
+      const k = keyOf(Math.floor(colOf(u.tile) / CELL), Math.floor(rowOf(u.tile) / CELL));
+      const b = buckets.get(k);
+      if (b) b.push(u); else buckets.set(k, [u]);
+    }
+    const out: Unit[] = []; // riusato: niente array nuovi per ogni pedina
+    const nearby = (u: Unit): Unit[] => {
+      const c = Math.floor(colOf(u.tile) / CELL), r = Math.floor(rowOf(u.tile) / CELL);
+      out.length = 0;
+      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) { const b = buckets.get(keyOf(c + dc, r + dr)); if (b) for (const v of b) out.push(v); }
+      return out;
+    };
     for (const u of this.units) {
       let target: Unit | null = null, best = -1;
-      for (const v of this.units) {
+      const near = nearby(u);
+      for (const v of near) {
         if (v.owner === u.owner || !this.atWar(u.owner, v.owner) || hexDistance(u.tile, v.tile) > U[u.type].range) continue; // in pace non si spara
         const m = rps(u.type, v.type);
         if (m > best) {
@@ -1720,8 +2790,12 @@ export class RunState {
           target = v;
         }
       }
-      u.inCombat = !!target || this.units.some((v) => v.owner !== u.owner && this.atWar(u.owner, v.owner) && hexDistance(u.tile, v.tile) <= U[v.type].range);
-      const atk = U[u.type].attack * u.size * (u.owner === PLAYER ? this.opts.mods.unitAttackMult * (this.opts.unitBoost?.[u.type]?.atk ?? 1) : 1); // munizioni perforanti, potenziamenti dell'Arsenale, reparti uniti
+      // ferma chi spara e chi ha un nemico a contatto; il tiro da lontano (artiglieria, navi) colpisce ma non inchioda
+      // (Nico, 27 novembre 2026: "l'artiglieria blocca i nemici mentre li spara")
+      u.inCombat = !!target || near.some((v) => v.owner !== u.owner && this.atWar(u.owner, v.owner) && hexDistance(u.tile, v.tile) <= 1);
+      const OP = BALANCE.unitOps, lowSup = u.supply >= OP.healMinSupply ? 1 : OP.lowSupplyAttack + (1 - OP.lowSupplyAttack) * Math.max(0, u.supply) / OP.healMinSupply; // senza rifornimento si colpisce meno
+      const crowd = Math.max(BALANCE.upkeep.stackMinAttack, 1 - BALANCE.upkeep.stackAttackLoss * (this.stackOver(u) - 1)); // ammasso: colpisce meno
+      const atk = U[u.type].attack * u.size * lowSup * crowd * (u.owner === PLAYER ? this.opts.mods.unitAttackMult * (this.opts.unitBoost?.[u.type]?.atk ?? 1) : 1); // munizioni perforanti, potenziamenti dell'Arsenale, reparti uniti
       if (target) {
         dmg.set(target, (dmg.get(target) ?? 0) + atk * best);
         this.events.push({ type: 'hit', from: u.id, to: target.id, fromTile: u.tile, toTile: target.tile, dmg: atk * best, owner: u.owner });
@@ -1730,23 +2804,86 @@ export class RunState {
     for (const [v, d] of dmg) v.hp -= d;
     this.removeDead();
 
+    // ammassi: reparti per provincia e padrone
+    this.stackLoad.clear();
+    for (const u of this.units) { const p = this.provOf(u.tile); if (p >= 0) this.stackLoad.set(p * 1024 + u.owner, (this.stackLoad.get(p * 1024 + u.owner) ?? 0) + u.size); }
+    // squadre d'attacco: passo del reparto più lento e componenti (per aspettarsi sul confine)
+    this.squadPace.clear();
+    const squads = new Map<number, Unit[]>();
+    for (const u of this.units) {
+      if (u.owner !== PLAYER || u.squad === undefined || u.squad < 0 || u.hp <= 0) continue;
+      this.squadPace.set(u.squad, Math.max(this.squadPace.get(u.squad) ?? 0, BALANCE.units[u.type].moveMs));
+      const g = squads.get(u.squad);
+      if (g) g.push(u); else squads.set(u.squad, [u]);
+    }
     // 2. movimento, conquista di ciò che si calpesta, cura in casa
+    // chi assedia e chi sta su ogni casella, una volta per tick (prima per ogni passo si scorrevano tutte le pedine e tutti
+    // gli assedi: con 600 pedine il movimento era la parte più cara del motore)
+    const sieging = new Set<number>();
+    for (const b of this.battles) if (b.unit !== undefined) sieging.add(b.unit);
+    const occ = new Map<number, Unit[]>();
+    for (const v of this.units) { const l = occ.get(v.tile); if (l) l.push(v); else occ.set(v.tile, [v]); }
+    // gruppetti: chi è già sul capo (o accanto) va con lui, passo per passo, sulla sua strada; chi è lontano lo raggiunge;
+    // il capo aspetta finché le lontane si avvicinano; smette se per squadWaitMs nessuna si avvicina più (bloccata)
+    const joined = new Set<Unit>(), gathering = new Map<number, number>(); // gruppetto → distanza della più lontana
+    for (const u of this.units) {
+      const L = this.bandLeader(u);
+      if (L === u || u.hp <= 0) continue;
+      const d = hexDistance(u.tile, L.tile);
+      if (d <= 1) joined.add(u);
+      else {
+        gathering.set(u.band!, Math.max(gathering.get(u.band!) ?? 0, d));
+        // nuova strada solo quando il capo cambia provincia: prima ogni secondo, e ogni volta il passo ripartiva da zero
+        if (this.gameTimeMs - u.lastOrderMs >= 1000) {
+          // già nella provincia del capo: dritta alla sua casella (il centro può essere a più di una casella dal capo)
+          if (this.provOf(u.tile) === this.provOf(L.tile)) { if (!u.path.length) { this.setPath(u, this.landPath(u, L.tile)); u.lastOrderMs = this.gameTimeMs; } }
+          else if (!u.path.length || this.provOf(u.path[u.path.length - 1]) !== this.provOf(L.tile)) this.order(u, L.tile);
+        }
+      }
+    }
+    for (const b of [...this.bandWait.keys()]) if (!gathering.has(b)) this.bandWait.delete(b); // raccolto: si riparte da zero
+    for (const [b, gap] of gathering) {
+      const w = this.bandWait.get(b);
+      if (!w || gap < w.gap) this.bandWait.set(b, { gap, idle: 0 });
+      else { w.gap = gap; w.idle += BALANCE.tick.ms; }
+    }
     for (const u of [...this.units]) {
       if (u.hp <= 0) continue;
-      const stats = U[u.type];
-      if (!u.inCombat && u.path.length && !this.battles.some((b) => b.unit === u.id)) { // chi assedia resta fermo
+      if (joined.has(u)) {
+        const L = this.bandLeader(u);
+        if (u.tile !== L.tile) {
+          const from = occ.get(u.tile);
+          if (from) { const j = from.indexOf(u); if (j >= 0) from.splice(j, 1); if (!from.length) occ.delete(u.tile); }
+          const to = occ.get(L.tile);
+          if (to) to.push(u); else occ.set(L.tile, [u]);
+          u.tile = L.tile;
+        }
+        if (u.path.length !== L.path.length || u.path[0] !== L.path[0]) u.path = L.path.slice(); // per il disegno: la sua strada
+        u.moveAcc = L.moveAcc;
+      } else if ((u.band ?? -1) >= 0 && gathering.has(u.band!) && this.bandLeader(u) === u && u.path.length && (this.bandWait.get(u.band!)?.idle ?? 0) < BALANCE.unitOps.squadWaitMs) {
+        // il capo aspetta il gruppo
+      } else if (!u.inCombat && u.path.length && !sieging.has(u.id)) { // chi assedia resta fermo
         u.moveAcc += BALANCE.tick.ms;
-        const next0 = this.map.tiles[u.path[0]];
-        const rail = next0 && this.owner[u.path[0]] === u.owner && this.railBy[next0.province] === u.owner ? BALANCE.works.ferrovia.railMult ?? 1 : 1;
-        if (u.moveAcc >= stats.moveMs * (next0 ? BALANCE.terrain[next0.terrain].move : 1) * rail) { // colline e montagne rallentano, la ferrovia accelera
-          const next = u.path[0], there = this.unitAt(next);
-          // si passa attraverso le pedine amiche (si ferma solo se la casella d'arrivo è occupata) mai attraverso le nemiche
-          const blocked = !!there && (there.owner !== u.owner || u.path.length === 1);
+        // squadra: prima di entrare nella provincia bersaglio aspetta le compagne ancora lontane (al massimo squadWaitMs)
+        const sq = u.squad !== undefined && u.squad >= 0 ? squads.get(u.squad) : undefined;
+        if (sq && sq.length > 1 && u.moveAcc >= this.stepMs(u) && this.provOf(u.path[0]) === u.squad && this.provOf(u.tile) !== u.squad
+          && (u.waitMs ?? 0) < BALANCE.unitOps.squadWaitMs && sq.some((v) => v !== u && this.provOf(v.tile) !== u.squad && hexDistance(v.tile, u.tile) > 2)) {
+          u.waitMs = (u.waitMs ?? 0) + BALANCE.tick.ms;
+          u.moveAcc = this.stepMs(u);
+        } else if (u.moveAcc >= this.stepMs(u)) { // colline e montagne rallentano, la ferrovia accelera
+          const next = u.path[0], there = occ.get(next)?.[0];
+          // si passa attraverso le pedine amiche e ci si ferma insieme sul centro (pila, alla Call of War), mai attraverso le nemiche
+          const blocked = !!there && there.owner !== u.owner;
           // la pace firmata durante la marcia chiude i confini: la pedina si ferma
-          if (this.map.tiles[next] && this.owner[next] !== u.owner && !this.atWar(u.owner, this.owner[next])) u.path.length = 0;
-          else if (blocked && u.path.length === 1 && there!.owner === u.owner) u.path.length = 0; // arrivo occupato da un'amica: si ferma accanto
+          if (this.map.tiles[next] && this.owner[next] !== u.owner && !this.atWar(u.owner, this.owner[next]) && !this.allied(u.owner, this.owner[next])) u.path.length = 0;
           else if (!blocked) {
+            // ogni passo dura gli stessi tick (prima il resto passava al passo dopo: passi ora di 4 ora di 5 tick, e sullo
+            // schermo la pedina accelerava e frenava a ogni casella)
             u.moveAcc = 0;
+            const from = occ.get(u.tile);
+            if (from) { const j = from.indexOf(u); if (j >= 0) from.splice(j, 1); if (!from.length) occ.delete(u.tile); }
+            const to = occ.get(next);
+            if (to) to.push(u); else occ.set(next, [u]);
             u.tile = next;
             u.path.shift();
           }
@@ -1755,19 +2892,31 @@ export class RunState {
       // rifornimento: sotto la soglia la pedina si logora e non si cura
       const O = BALANCE.unitOps;
       u.supply = this.unitSupply(u);
-      if (u.supply < O.attritionBelow) u.hp -= O.attritionPerTick * (1 - u.supply / O.attritionBelow) * u.size;
-      const fed = u.supply >= O.healMinSupply;
+      // niente logoramento (Nico, 27 novembre 2026: "togli tutto questo danno passivo"): il rifornimento basso rallenta la
+      // cura e abbassa il danno, senza togliere vita
+      const fed = u.supply > O.healZeroSupply;
+      const healK = Math.min(1, (u.supply - O.healZeroSupply) / (O.healMinSupply - O.healZeroSupply)); // cura in proporzione al rifornimento
       if (isNaval(u.type) || !this.map.tiles[u.tile]) {
         // le navi non conquistano: si riparano vicino a una tua costa
         if (!u.inCombat && neighbors(u.tile).some((n) => n >= 0 && this.owner[n] === u.owner)) u.hp = Math.min(u.maxHp, u.hp + U.healPerTick);
       } else if (this.owner[u.tile] !== u.owner && this.atWar(u.owner, this.owner[u.tile])) {
-        // la pedina prende tutta la provincia in cui entra
+        // alla Call of War: la provincia si prende arrivando al suo centro; prima di arrivarci la pedina ci cammina e basta.
+        // Ferma dentro una provincia non sua (ordine finito prima del centro): va al centro.
         const p = this.provOf(u.tile);
+        // anche la terra libera si prende sul centro, subito e senza assedio (Nico, 26 novembre 2026: "la conquista
+        // succede quando si arriva proprio sul centro"; prima appena ci si entrava)
+        if (p >= 0 && this.map.provinces[p].anchor !== u.tile) {
+          if (!u.path.length && !u.inCombat && this.map.provinces[p].anchor >= 0 && this.gameTimeMs - u.lastOrderMs > 1000) this.order(u, this.map.provinces[p].anchor);
+          continue;
+        }
         // in terra libera si avanza senza perdite; nel territorio di qualcuno la pedina si ferma e assedia la provincia
         if (this.provOwner[p] === NEUTRAL) this.transferProvince(u.owner, p, 0, u.id);
         else if (!this.battleAt(p)) this.startBattle(u.owner, p, 0, u.id);
       } else if (!u.inCombat && fed && this.owner[u.tile] === u.owner) {
-        u.hp = Math.min(u.maxHp, u.hp + U.healPerTick * u.size * this.healMult(u));
+        // rimpiazzi: la vita recuperata costa truppe del pool (Nico: chi combatte di continuo ha più perdite e più costi)
+        const gain = Math.min(u.maxHp - u.hp, U.healPerTick * u.size * this.healMult(u) * healK), f = this.factions[u.owner];
+        const pay = gain * BALANCE.upkeep.healTroops; // anche le IA pagano i rimpiazzi
+        if (gain > 0 && f.troops >= pay) { u.hp += gain; f.troops -= pay; }
       }
     }
     this.removeDead();
@@ -1828,19 +2977,6 @@ export class RunState {
     return aa(p) || this.map.provinces[p].neighbors.some(aa);
   }
 
-  /** IA dei fronti alti: ogni tanto bombarda una tua provincia sul confine (se è in guerra con te). */
-  private aiStrike(f: Faction) {
-    const A = BALANCE.aiStrike;
-    if (this.opts.tutorial || this.opts.frontIndex < A.fromFront || this.relation[f.id] !== 'guerra') return;
-    if (this.gameTimeMs < this.aiStrikeAt[f.id]) return;
-    this.aiStrikeAt[f.id] = this.gameTimeMs + A.everyMs + (this.aiRng() * 2 - 1) * A.jitterMs;
-    const line = this.frontLine(PLAYER, f.id);
-    if (!line.length) return;
-    const p = line[Math.floor(this.aiRng() * line.length)], tile = this.map.provinces[p].anchor;
-    this.strikes.push({ tile, at: this.gameTimeMs + BALANCE.abilities.bombardamento.delayMs * 2, by: f.id }); // più preavviso: c'è tempo per spostarsi
-    this.events.push({ type: 'ability', ability: 'bombardamento', tile, phase: 'launch', by: f.id });
-  }
-
   private abilitiesTick() {
     const before = this.recons.length;
     this.recons = this.recons.filter((r) => r.until > this.gameTimeMs);
@@ -1865,10 +3001,9 @@ export class RunState {
         }
         f.troops = Math.max(0, f.troops - B.troopsPerTile * hits);
         f.provinces--;
-        this.provOwner[p] = NEUTRAL;
+        this.setProvOwner(p, NEUTRAL);
         this.provWork[p] = -1; // le costruzioni saltano
-        this.frontierCache.clear();
-        this.supplyDirty = true;
+        this.markSupply(o);
         this.events.push({ type: 'conquer', by: NEUTRAL, from: o, p, i: this.map.provinces[p].anchor, cost: 0, loot: 0, lootType: 'metallo' });
         if (f.tiles <= 0) this.eliminate(o, s.by);
       }
@@ -1884,62 +3019,134 @@ export class RunState {
     this.units = this.units.filter((u) => u.hp > 0);
   }
 
+  /** Pedine al massimo di una IA: le milizie poche, gli imperi una in più ogni `aiProvPerUnit` province. */
+  private aiUnitCap(f: Faction): number {
+    const U0 = BALANCE.units;
+    if (f.kind === 'bot') return this.opts.sandbox ? BALANCE.sandboxWorld.botUnits : BALANCE.bots.maxUnits;
+    // sandbox con terra libera ancora da prendere: qualche pedina in più per allargarsi
+    const rush = this.opts.sandbox && this.gameTimeMs < BALANCE.sandboxWorld.rushMs ? BALANCE.sandboxWorld.rushUnits : 0;
+    return Math.min(U0.aiUnitsMax, this.opts.front.maxAiUnits + rush + Math.floor(f.provinces / U0.aiProvPerUnit));
+  }
+
+  /** Quanti pezzi un impero mette in una pedina: più truppe in cassa, divisioni più grosse (fino a `divisionMax`). */
+  private aiBatch(f: Faction, type: UnitType, room: number): number {
+    const A = BALANCE.aiUnits, cost = this.unitCost(f.id, type);
+    if (f.kind !== 'empire') return 0;
+    return Math.max(1, Math.min(room, Math.floor(f.troops / (cost * A.reserve * A.batchTroops))));
+  }
+
+  /** Bersagli che una pedina dell'impero non raggiunge via terra (provincia → quando): non li riprova per un po'. */
+  private aiBadTarget = new Map<number, number>();
+
   /** IA: ogni tanto schiera la sua unità preferita e la manda verso il nemico più vicino (te, di preferenza). */
   private aiUnits(f: Faction) {
     const A = BALANCE.aiUnits;
+    const sieging = new Set<number>();
+    for (const b of this.battles) if (b.unit !== undefined && b.by === f.id) sieging.add(b.unit);
     for (const u of this.unitsOf(f.id)) {
+      if (sieging.has(u.id)) continue; // sta assediando: resta lì (prima segnava la sua provincia come irraggiungibile)
       const idle = this.gameTimeMs - u.lastOrderMs;
       if ((!u.path.length && idle > 1000) || idle > A.repathMs) { // ferma: nuovo bersaglio al massimo una volta al secondo
-        const target = this.unitTarget(f, u.tile);
-        if (target >= 0) this.order(u, target);
-        else u.lastOrderMs = this.gameTimeMs;
+        // la sua meta attuale non conta come "già presa" da un'altra: prima la saltava e cambiava provincia ogni 6 s
+        const mine = u.path.length ? this.provOf(u.path[u.path.length - 1]) : -1;
+        const target = this.unitTarget(f, u.tile, mine);
+        // stessa meta della strada che ha già: niente nuova ricerca del percorso (la metà del tempo delle IA)
+        if (target >= 0 && u.path.length && u.path[u.path.length - 1] === this.stopOf(target)) u.lastOrderMs = this.gameTimeMs;
+        else if (target >= 0 && this.stopOf(target) === u.tile) u.lastOrderMs = this.gameTimeMs; // già lì: niente "irraggiungibile"
+        else if (target >= 0 && !this.order(u, target) && f.kind === 'empire') this.aiBadTarget.set(f.id * 32768 + this.provOf(target), this.gameTimeMs);
+        if (target < 0) u.lastOrderMs = this.gameTimeMs;
       }
     }
-    const cap = f.kind === 'bot' ? BALANCE.bots.maxUnits : this.opts.front.maxAiUnits;
-    if (this.gameTimeMs < this.aiSpawnAt[f.id] || this.unitsOf(f.id).length >= cap) return;
-    this.aiSpawnAt[f.id] = this.gameTimeMs + A.spawnEveryMs + (this.aiRng() * 2 - 1) * A.spawnJitterMs;
+    const cap = this.aiUnitCap(f);
+    if (this.gameTimeMs < this.aiSpawnAt[f.id]) return;
+    if (this.unitsOf(f.id).length >= cap) {
+      // al tetto: un impero ricco rinforza la sua pedina più piccola invece di tenere le truppe in cassa
+      if (f.kind !== 'empire') return;
+      const small = this.unitsOf(f.id).filter((u) => !isNaval(u.type) && u.size < BALANCE.unitOps.divisionMax).sort((a, b) => a.size - b.size || a.id - b.id)[0];
+      // si rinforza solo in una sua città (come il giocatore: gli eserciti escono dalle città)
+      if (!small || !this.canRecruitAt(this.provOf(small.tile), f.id)) return;
+      this.aiSpawnAt[f.id] = this.gameTimeMs + A.spawnEveryMs + (this.aiRng() * 2 - 1) * A.spawnJitterMs;
+      this.aiGrow(f, small, this.aiBatch(f, small.type, BALANCE.unitOps.divisionMax - small.size));
+      return;
+    }
+    // sandbox, terra libera al confine (Nico, 26 novembre 2026: "come OpenFront, a 5 minuti tutto preso, ma la terra non si
+    // compra: solo pedine"): pedine più spesse e quasi tutte ricognitori, i più veloci a prendere il vuoto
+    const SW = BALANCE.sandboxWorld, rush = !!this.opts.sandbox && this.frontier(f.id).some((p) => this.provOwner[p] === NEUTRAL);
+    this.aiSpawnAt[f.id] = this.gameTimeMs + (rush ? SW.rushSpawnMs : A.spawnEveryMs) + (this.aiRng() * 2 - 1) * (rush ? SW.rushSpawnMs / 3 : A.spawnJitterMs);
     // le armi delle IA dipendono dal fronte: più avanti, armi che tu forse non hai ancora
     const types = this.opts.front.aiUnits;
     const dominant = A.dominant[f.id] as UnitType;
-    const type = types.includes(dominant) && this.aiRng() < A.dominantChance ? dominant : types[Math.floor(this.aiRng() * types.length)];
-    if (f.troops < BALANCE.units[type].cost * (f.kind === 'bot' ? 1.1 : A.reserve)) return; // le milizie spendono quasi tutto per difendersi
+    const type = rush && types.includes('ricognitori') && this.aiRng() < SW.rushScouts ? 'ricognitori'
+      : types.includes(dominant) && this.aiRng() < A.dominantChance ? dominant : types[Math.floor(this.aiRng() * types.length)];
+    if (f.troops < this.unitCost(f.id, type) * (f.kind === 'bot' ? 1.1 : A.reserve)) return; // le milizie spendono quasi tutto per difendersi
     const anchor = this.map.starts[f.id];
     const found = this.unitTarget(f, anchor);
     // nessun nemico in vista: la pedina si schiera lo stesso, ferma sul confine a difendere (Nico: truppe almeno per difendersi)
     const target = found >= 0 ? found : this.map.provinces[this.frontier(f.id)[0] ?? -1]?.anchor ?? -1;
     if (target < 0) return;
+    // nasce nella sua città (capitale, città o caserma) più vicina al bersaglio, come le tue: si guardano solo i centri
     let spawn = -1, bestD = Infinity;
     const provs = this.map.provinces;
-    for (let p = 0; p < provs.length; p++) {
-      if (this.provOwner[p] !== f.id) continue;
-      for (const i of provs[p].tiles) {
-        if (this.owner[i] !== f.id || this.unitAt(i)) continue;
-        const d = hexDistance(i, target);
-        if (d < bestD) {
-          bestD = d;
-          spawn = i;
-        }
-      }
+    for (const p of this.owned[f.id] ?? []) {
+      const a = provs[p].anchor;
+      if (a < 0 || !this.canRecruitAt(p, f.id)) continue;
+      const d = hexDistance(a, target);
+      if (d < bestD) { bestD = d; spawn = a; }
     }
     if (spawn < 0) return;
     const u = this.deploy(f.id, type, spawn);
+    // impero ricco: la pedina nasce già divisione (prima 3,4 milioni di truppe in cassa e 12 fanterie da un pezzo)
+    if (u && u.size === 1) this.aiGrow(f, u, this.aiBatch(f, type, BALANCE.unitOps.divisionMax) - 1);
     if (u && found >= 0) this.order(u, target);
   }
 
+  /** Pezzi in più su una pedina dell'IA, ognuno pagato come il giocatore (truppe al prezzo del momento e la sua risorsa). */
+  private aiGrow(f: Faction, u: Unit, n: number) {
+    const hp = BALANCE.units[u.type].hp * this.opts.front.aiUnitHpMult, res = this.unitRes(u.type);
+    for (let k = 0; k < n; k++) {
+      const cost = this.unitCost(f.id, u.type);
+      if (f.troops < cost * BALANCE.aiUnits.reserve || f.loot[res.res] < res.n) break;
+      f.troops -= cost; f.loot[res.res] -= res.n;
+      u.size++; u.maxHp += hp; u.hp += hp;
+    }
+  }
+
   /** Bersaglio di una pedina IA: il nemico più vicino; le milizie solo entro un raggio da casa (difendono la loro zona). */
-  private unitTarget(f: Faction, from: number): number {
+  private onLand = new Map<number, Unit[]>();
+  private onLandTick = -1;
+  private unitTarget(f: Faction, from: number, mine = -1): number {
+    if (f.kind === 'empire') return this.empireTarget(f, from, mine);
     if (f.kind !== 'bot') return this.nearestEnemyTile(f.id, from);
     // milizia: difende la sua zona. Prima le pedine nemiche che ci entrano, poi le tue province vicine a casa sua
     // (gli imperi non li va a cercare: con le pedine li distruggeva nei primi minuti)
     const home = this.map.starts[f.id], B = BALANCE.bots;
     let best = -1, bd = Infinity;
-    for (const v of this.units) {
-      if (v.owner === f.id || !this.atWar(f.id, v.owner) || hexDistance(v.tile, home) > B.unitRadius) continue;
+    // pedine sulla terra di ogni fazione, una volta per tick (prima ogni pedina di milizia scorreva tutte le pedine del mondo)
+    const tickNo = Math.round(this.gameTimeMs / BALANCE.tick.ms);
+    if (this.onLandTick !== tickNo) {
+      this.onLandTick = tickNo;
+      this.onLand.clear();
+      for (const v of this.units) { const o = this.owner[v.tile], l = this.onLand.get(o); if (l) l.push(v); else this.onLand.set(o, [v]); }
+    }
+    for (const v of this.onLand.get(f.id) ?? []) {
+      // solo chi entra davvero nella sua terra: prima inseguiva i tuoi reparti fermi nella tua capitale e la assediava
+      // durante la tregua (eliminato in 40 s con una provincia sola)
+      if (this.owner[v.tile] !== f.id || v.owner === f.id || hexDistance(v.tile, home) > B.unitRadius || !this.atWar(f.id, v.owner)) continue; // prima il controllo che costa meno
       const d = hexDistance(v.tile, from);
       if (d < bd) { bd = d; best = v.tile; }
     }
     if (best >= 0) return best;
-    if (this.opts.tutorial || this.gameTimeMs < this.opts.front.graceMs) return -1;
+    if (this.opts.tutorial) return -1;
+    // terra libera vicino a casa: la milizia si allarga con le pedine, come te (prima la comprava con le truppe)
+    for (const p of this.frontier(f.id)) {
+      if (this.provOwner[p] !== NEUTRAL) continue;
+      const a = this.map.provinces[p].anchor;
+      if (a < 0 || hexDistance(a, home) > (this.opts.sandbox ? BALANCE.sandboxWorld.botExpandRadius : B.expandRadius)) continue;
+      const d = hexDistance(a, from);
+      if (d < bd) { bd = d; best = a; }
+    }
+    if (best >= 0) return best;
+    if (this.gameTimeMs < this.opts.front.graceMs) return -1;
     for (const p of this.frontier(f.id)) {
       if (this.provOwner[p] !== PLAYER) continue;
       const a = this.map.provinces[p].anchor, d = hexDistance(a, home);
@@ -1948,36 +3155,151 @@ export class RunState {
     return best;
   }
 
+  /**
+   * Bersaglio di una pedina dell'impero: la provincia nemica più vicina tra quelle che toccano il suo territorio (si
+   * raggiungono a piedi), te prima degli altri (`empirePlayerBias`). Prima cercava il nemico più vicino in linea d'aria:
+   * le pedine puntavano un'isola oltre il mare, restavano ferme e nascevano tutte lì (Nico, 27 novembre 2026).
+   */
+  private empireTarget(f: Faction, from: number, mine = -1): number {
+    if (this.opts.tutorial) return this.nearestEnemyTile(f.id, from);
+    // candidati una volta per tick e per impero (centri già filtrati, coordinate pronte): prima ogni pedina rifiltrava tutto
+    // il confine dell'impero, centinaia di province, una volta al secondo
+    const tickNo = Math.round(this.gameTimeMs / BALANCE.tick.ms);
+    let c = this.empCand.get(f.id);
+    if (!c || c.tick !== tickNo) {
+      const playerReady = this.gameTimeMs >= this.opts.front.graceMs, bias = BALANCE.aiUnits.empirePlayerBias;
+      const provs = this.map.provinces, cols = BALANCE.map.cols, a: number[] = [], k: number[] = [], ps: number[] = [];
+      const WT = BALANCE.aiUnits.weakTarget, mineN = Math.max(1, this.owned[f.id]?.size ?? 1), weak = new Map<number, number>();
+      const weakOf = (o: number) => {
+        let w = weak.get(o);
+        if (w === undefined) {
+          w = o === NEUTRAL ? WT.neutral : Math.min(WT.max, WT.min + WT.slope * ((this.owned[o]?.size ?? 0) / mineN));
+          weak.set(o, w);
+        }
+        return w;
+      };
+      for (const p of this.frontier(f.id)) {
+        const o = this.provOwner[p], an = provs[p].anchor;
+        // anche la terra libera: si prende arrivandoci con una pedina, come fai tu
+        if (an < 0 || (o === PLAYER && !playerReady)) continue;
+        const bad = this.aiBadTarget.get(f.id * 32768 + p);
+        if (bad !== undefined && this.gameTimeMs - bad < BALANCE.aiUnits.badTargetMs) continue;
+        // capitali degli altri imperi: le vanno a prendere (sembrano più vicine), perché chi la perde si arrende (`surrenders`)
+        const cap = o > PLAYER && this.capitalProv[o] === p && this.factions[o].kind === 'empire' ? BALANCE.aiUnits.capitalPull : 1;
+        // più debole il padrone e più chiusa fra le tue province, più "vicina" sembra
+        const nb = provs[p].neighbors, inside = nb.filter((q) => this.provOwner[q] === f.id).length / Math.max(1, nb.length);
+        a.push(an); k.push((o === PLAYER ? bias : 1) * cap * weakOf(o) * (1 - WT.fill * inside)); ps.push(p);
+      }
+      const r = a.map((i) => (i / cols) | 0), x = a.map((i, j) => i - r[j] * cols - (r[j] - (r[j] & 1)) / 2);
+      // terra libera già scelta da un'altra sua pedina: ci va una sola (le pedine si spargono invece di andare tutte lì)
+      const taken = new Set<number>();
+      for (const v of this.units) if (v.owner === f.id && v.path.length) taken.add(this.provOf(v.path[v.path.length - 1]));
+      c = { tick: tickNo, a, k, r, x, ps, taken };
+      this.empCand.set(f.id, c);
+      if (this.aiBadTarget.size > 4000) this.aiBadTarget.clear();
+    }
+    const cols = BALANCE.map.cols, fr = (from / cols) | 0, fx = from - fr * cols - (fr - (fr & 1)) / 2;
+    let best = -1, bd = Infinity, bp = -1;
+    for (let j = 0; j < c.a.length; j++) {
+      if (c.ps[j] !== mine && c.taken.has(c.ps[j]) && this.provOwner[c.ps[j]] === NEUTRAL) continue;
+      const dx = fx - c.x[j], dz = fr - c.r[j], dy = -dx - dz;
+      const d = Math.max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy, dz < 0 ? -dz : dz) * c.k[j];
+      if (d < bd) { bd = d; best = c.a[j]; bp = c.ps[j]; }
+    }
+    if (bp >= 0) c.taken.add(bp);
+    return best;
+  }
+  private empCand = new Map<number, { tick: number; a: number[]; k: number[]; r: number[]; x: number[]; ps: number[]; taken: Set<number> }>();
+
+  /** Centri delle province divisi in celle di 24×24 caselle: la ricerca del nemico più vicino guarda solo le celle attorno. */
+  private anchorCells: number[][] | null = null;
+  private static readonly ACELL = 24;
+
   /** Centro della provincia nemica (in guerra) più vicina, −1 se nessuna: si cerca tra le province, non tra le caselle. */
   private nearestEnemyTile(f: number, from: number): number {
-    let best = -1, bestD = Infinity;
     const playerReady = !this.opts.tutorial && this.gameTimeMs >= this.opts.front.graceMs;
-    const provs = this.map.provinces;
-    for (let p = 0; p < provs.length; p++) {
-      const o = this.provOwner[p], a = provs[p].anchor;
-      if (o === NEUTRAL || o === f || a < 0 || (o === PLAYER && !playerReady) || !this.atWar(f, o)) continue;
-      const d = hexDistance(from, a) * (o === PLAYER ? BALANCE.aiUnits.playerBias : 1);
-      if (d < bestD) {
-        bestD = d;
-        best = a;
+    const provs = this.map.provinces, { cols, rows } = BALANCE.map, C = RunState.ACELL;
+    const gw = Math.ceil(cols / C), gh = Math.ceil(rows / C);
+    if (!this.anchorCells) {
+      this.anchorCells = Array.from({ length: gw * gh }, () => []);
+      for (let p = 0; p < provs.length; p++) {
+        const a = provs[p].anchor;
+        if (a >= 0) this.anchorCells[(((a / cols) | 0) / C | 0) * gw + ((a % cols) / C | 0)].push(p);
       }
+    }
+    // stesso risultato della scansione di tutte le province (a pari distanza vince l'indice più basso), ma ad anelli di celle
+    // attorno alla pedina, fermandosi quando nessuna cella più lontana può battere il migliore (scatti con 150 fazioni)
+    const bias = BALANCE.aiUnits.playerBias, minBias = Math.min(1, bias);
+    const cx = (from % cols) / C | 0, cy = ((from / cols) | 0) / C | 0;
+    let best = -1, bestP = Infinity, bestD = Infinity;
+    const look = (x: number, y: number) => {
+      if (x < 0 || y < 0 || x >= gw || y >= gh) return;
+      for (const p of this.anchorCells![y * gw + x]) {
+        const o = this.provOwner[p], a = provs[p].anchor;
+        if (o === NEUTRAL || o === f || (o === PLAYER && !playerReady) || !this.atWar(f, o)) continue;
+        const d = hexDistance(from, a) * (o === PLAYER ? bias : 1);
+        if (d < bestD || (d === bestD && p < bestP)) { bestD = d; bestP = p; best = a; }
+      }
+    };
+    for (let r = 0; r <= Math.max(gw, gh); r++) {
+      if (r > 0 && ((2 / 3) * (r - 1) * C - 1) * minBias > bestD) break;
+      if (r === 0) { look(cx, cy); continue; }
+      for (let k = -r; k <= r; k++) { look(cx + k, cy - r); look(cx + k, cy + r); }
+      for (let k = -r + 1; k <= r - 1; k++) { look(cx - r, cy + k); look(cx + r, cy + k); }
     }
     return best;
   }
 
   /** Milizia: prende la provincia libera più economica vicino a casa, se se la può permettere. */
   private botExpand(f: Faction) {
+    for (let k = 0; k < BALANCE.bots.expandPerAct; k++) if (!this.botExpandOne(f)) break;
+  }
+
+  private botExpandOne(f: Faction): boolean {
     const home = this.map.starts[f.id];
-    let best = -1, bestCost = Infinity;
+    let best = -1, bestCost = Infinity, bestScore = Infinity;
     for (const p of this.frontier(f.id)) {
       if (this.provOwner[p] !== NEUTRAL || hexDistance(this.map.provinces[p].anchor, home) > BALANCE.bots.homeRadius) continue;
-      const cost = this.provCost(f.id, p);
-      if (cost < bestCost) { best = p; bestCost = cost; }
+      const cost = this.provCost(f.id, p), score = cost * this.compact(f.id, p);
+      if (score < bestScore) { best = p; bestCost = cost; bestScore = score; }
     }
-    if (best >= 0 && f.troops > bestCost * BALANCE.ai.reserve) this.attackProvince(f.id, best);
+    return best >= 0 && f.troops > bestCost * BALANCE.ai.reserve && this.attackProvince(f.id, best).ok;
+  }
+
+  /**
+   * Quanto "pesa" allargarsi su `p` per la forma del territorio (Nico: meno border gore): meno se la provincia è già
+   * circondata dalle tue (chiude i buchi), di più se è lontana dalla capitale (niente lingue di terra nel nulla).
+   */
+  private compact(f: number, p: number): number {
+    const C = BALANCE.ai.compact, nb = this.map.provinces[p].neighbors;
+    let mine = 0;
+    for (const q of nb) if (this.provOwner[q] === f) mine++;
+    const cap = this.capitalProv[f], a = this.map.provinces[p].anchor, ca = cap >= 0 ? this.map.provinces[cap].anchor : a;
+    return (1 + C.surround * (1 - mine / Math.max(1, nb.length))) * (1 + hexDistance(a, ca) / C.reach);
   }
 
   /** IA: attacca la provincia vicina più debole, se se lo può permettere. */
+  /**
+   * Più prese in un colpo: il confine si legge una volta sola e si prendono le `n` province libere migliori (prima si
+   * rileggeva dopo ogni presa: con 25 imperi grandi un tick costava fino a 40 ms).
+   */
+  private aiAttackMany(f: Faction, n: number) {
+    if (n <= 1) { this.aiAttack(f); return; }
+    const cand: { p: number; score: number; cost: number; r: number }[] = [];
+    for (const p of this.frontier(f.id)) {
+      if (this.provOwner[p] !== NEUTRAL || this.battleAt(p)) continue;
+      const prov = this.map.provinces[p];
+      const capital = prov.city >= 0 && this.map.tiles[prov.city]!.capital ? BALANCE.provinces.aiCityAttraction : 1;
+      const cost = this.provCost(f.id, p);
+      cand.push({ p, score: cost * capital * this.compact(f.id, p), cost, r: this.aiRng() });
+    }
+    cand.sort((a, b) => a.score - b.score || a.r - b.r);
+    for (const c of cand.slice(0, n)) {
+      if (this.provOwner[c.p] !== NEUTRAL || f.troops <= c.cost * BALANCE.ai.reserve) break;
+      if (!this.attackProvince(f.id, c.p).ok) break;
+    }
+  }
+
   private aiAttack(f: Faction): boolean {
     let best = -1, bestScore = Infinity, bestCost = 0;
     for (const p of this.frontier(f.id)) {
@@ -1985,7 +3307,7 @@ export class RunState {
       const prov = this.map.provinces[p];
       const capital = prov.city >= 0 && this.map.tiles[prov.city]!.capital ? BALANCE.provinces.aiCityAttraction : 1; // le capitali attirano
       const cost = this.provCost(f.id, p);
-      const score = cost * capital;
+      const score = cost * capital * this.compact(f.id, p);
       if (score < bestScore || (score === bestScore && this.aiRng() < 0.5)) {
         best = p;
         bestScore = score;
@@ -2012,7 +3334,8 @@ export class RunState {
   provDefense(p: number): number {
     let d = 0;
     for (const i of this.map.provinces[p].tiles) if (this.passable(i)) d += this.defenseOf(i);
-    return d;
+    const g = this.guardUntil.get(p);
+    return g !== undefined && g > this.gameTimeMs ? d * BALANCE.events.guardMult : d; // rinforzata dopo un rapporto del radar
   }
 
   /** Truppe che `by` spende per prendere la provincia: la sua difesa (fissa: niente sovraestensione, Nico come in HOI4). */
@@ -2035,7 +3358,9 @@ export class RunState {
   costFor(by: number, i: number): number {
     let d = this.defenseOf(i);
     if (this.supportBy[i] === by) d = Math.ceil(d * BALANCE.units.supportCostMult); // fuoco di copertura della cannoniera
-    return by === PLAYER && this.owner[i] === NEUTRAL ? Math.ceil(d * this.opts.mods.neutralCostMult) : d;
+    if (this.owner[i] !== NEUTRAL) return d;
+    const emp = BALANCE.ai.neutralCostMult * (this.opts.sandbox ? BALANCE.sandboxWorld.neutralCostMult : 1); // sandbox: la carta si riempie in 5 minuti
+    return Math.ceil(d * (by === PLAYER ? this.opts.mods.neutralCostMult : this.factions[by]?.kind === 'bot' ? BALANCE.bots.neutralCostMult : emp));
   }
 
   /** Difesa attuale. Provincia libera = prezzo in truppe della casella (Nico: il vuoto si compra con gli uomini).
@@ -2052,7 +3377,6 @@ export class RunState {
     const mine = o === PLAYER;
     const fort = this.fortBy[i] === o ? BALANCE.units.fortifyDefense : 0;
     const front = mine ? this.opts.mods.ownedDefenseMult : this.opts.tutorial ? 1 : this.opts.front.aiDefenseMult; // fronti difficili: IA trincerate
-    if (this.supplyDirty) this.recomputeSupply();
     const L = BALANCE.logistics, sup = L.defenseMin + (1 - L.defenseMin) * this.supply[t.province]; // province mal rifornite cedono prima
     return Math.ceil((garrison * bunker + fort) * front * sup);
   }
@@ -2068,14 +3392,68 @@ export class RunState {
   }
 
   /** Province attaccabili: confinanti con il territorio della fazione. */
+  /**
+   * Unico punto che cambia il padrone di una provincia: tiene l'elenco delle province di ogni fazione e svuota solo i
+   * confini toccati (prima ogni conquista di una qualunque delle 150 milizie rifaceva i confini di tutti, scorrendo
+   * tutte le 18 000 province: il gioco scattava).
+   */
+  private owned: Set<number>[] = [];
+  /** Province di una fazione (insieme vivo: non modificarlo). */
+  ownedProvinces(f: number): ReadonlySet<number> {
+    return this.owned[f] ?? new Set();
+  }
+  /** Cresce a ogni cambio di padrone di una provincia (il disegno rifà i nomi solo se cambia). */
+  ownVersion = 0;
+
+  /** Replay: padroni all'inizio, cambi in attesa (provincia, padrone) e fotogrammi chiusi ogni 2 s di gioco. */
+  private tl0: Int16Array | null = null;
+  private tlPending: number[] = [];
+  private tlFrames: { t: number; ch: number[] }[] = [];
+  private tlAt = 0;
+  chronicle: ChronEntry[] = [];
+  private lostWave = new Map<number, number>(); // chi ti ha preso province negli ultimi 2 s → quante
+
+  private chron(e: Omit<ChronEntry, 't'>) {
+    this.chronicle.push({ t: this.gameTimeMs, ...e });
+  }
+
+  /** Chiude il fotogramma del replay ogni 2 s (e la riga "ti hanno preso N province" se sono tante). */
+  private replayTick() {
+    if (this.opts.tutorial) return;
+    if (!this.tl0) { this.tl0 = Int16Array.from(this.provOwner); this.tlAt = this.gameTimeMs; }
+    if (this.gameTimeMs - this.tlAt < 2000) return;
+    this.tlAt = this.gameTimeMs;
+    if (this.tlPending.length) { this.tlFrames.push({ t: this.gameTimeMs, ch: this.tlPending }); this.tlPending = []; }
+    for (const [by, n] of this.lostWave) if (n >= 5) this.chron({ k: 'lost', a: by, b: PLAYER, n });
+    this.lostWave.clear();
+  }
+
+  /** Tutto il replay, per il resoconto di fine partita. */
+  replayData(): ReplayData | null {
+    if (!this.tl0) return null;
+    const frames = this.tlPending.length ? [...this.tlFrames, { t: this.gameTimeMs, ch: this.tlPending }] : this.tlFrames;
+    return { own0: this.tl0, frames, chronicle: this.chronicle, endMs: this.gameTimeMs };
+  }
+
+  private setProvOwner(p: number, f: number) {
+    this.ownVersion++;
+    if (this.tl0) this.tlPending.push(p, f);
+    const o = this.provOwner[p];
+    if (o >= 0) this.owned[o]?.delete(p);
+    this.provOwner[p] = f;
+    if (f >= 0) (this.owned[f] ??= new Set()).add(p);
+    this.frontierCache.delete(o);
+    this.frontierCache.delete(f);
+    for (const q of this.map.provinces[p].neighbors) if (q >= 0) this.frontierCache.delete(this.provOwner[q]);
+  }
+
   frontier(f = PLAYER): number[] {
     const cached = this.frontierCache.get(f);
     if (cached) return cached;
-    const set = new Set<number>();
-    this.map.provinces.forEach((prov, p) => {
-      if (this.provOwner[p] !== f) return;
-      for (const q of prov.neighbors) if (this.provOwner[q] !== f && this.provPassable(q) && this.atWar(f, this.provOwner[q])) set.add(q);
-    });
+    const set = new Set<number>(), provs = this.map.provinces;
+    for (const p of this.owned[f] ?? []) {
+      for (const q of provs[p].neighbors) if (this.provOwner[q] !== f && this.provPassable(q) && this.atWar(f, this.provOwner[q])) set.add(q);
+    }
     const out = [...set];
     this.frontierCache.set(f, out);
     return out;
@@ -2099,9 +3477,12 @@ export class RunState {
     if (this.provOwner[p] === by) return { ok: false, reason: 'owned' };
     if (!this.isFrontierProv(p, by)) return { ok: false, reason: 'not-adjacent' };
     if (this.battleAt(p)) return { ok: false, reason: 'battle' };
-    // Nico: con le truppe si compra il territorio vuoto; le province degli imperi si prendono con le pedine (alla HOI4). Le milizie
-    // il giocatore le assalta anche con le truppe (assalto a tempo), altrimenti a metà campagna restava con le truppe ferme
-    if (this.provOwner[p] !== NEUTRAL && !(by === PLAYER && this.isMilitia(this.provOwner[p]))) return { ok: false, reason: 'units' };
+    // Nico: con le truppe si compra solo il territorio vuoto; le province di qualcuno (imperi e milizie) si prendono con le pedine,
+    // alla Call of War (25 novembre 2026: "conquistare le province nemiche comprando non ha senso")
+    if (this.provOwner[p] !== NEUTRAL) return { ok: false, reason: 'units' };
+    // il giocatore prende anche la terra libera solo con gli eserciti, alla Call of War (Nico, 25 novembre 2026: "scopiazzerei
+    // completamente Call of War"); la run guidata e le IA comprano ancora il vuoto con le truppe
+    if (by === PLAYER && !this.opts.tutorial) return { ok: false, reason: 'units' };
     const cost = this.provCost(by, p);
     const att = this.factions[by];
     if (att.troops <= cost) return { ok: false, reason: 'troops', need: cost };
@@ -2124,10 +3505,11 @@ export class RunState {
     const B = BALANCE.battle, prov = this.map.provinces[p];
     const weight = unit !== undefined ? this.provDefense(p) : troops;
     const move = BALANCE.terrain[prov.terrain].move;
-    const ms = clamp((B.baseMs + weight * B.msPerCost) * (1 + (move - 1) * 0.5), B.minMs, B.maxMs);
+    // assedio di una capitale: dura di più (prima costava il triplo della vita)
+    const capital = unit !== undefined && this.capitalProv[this.provOwner[p]] === p ? B.capitalSiegeMult : 1;
+    const ms = clamp((B.baseMs + weight * B.msPerCost) * (1 + (move - 1) * 0.5), B.minMs, B.maxMs) * capital;
     const b: Battle = { id: this.nextBattleId++, p, by, from: this.provOwner[p], troops, def0: this.provDefense(p), startMs: this.gameTimeMs, endMs: this.gameTimeMs + ms, unit };
     this.battles.push(b);
-    this.frontierCache.clear();
     this.events.push({ type: 'battle', phase: 'start', battle: b });
     return b;
   }
@@ -2135,26 +3517,49 @@ export class RunState {
   /** Assalti che finiscono: vince chi ha ancora abbastanza truppe (o la pedina che resiste); gli altri si sciolgono. */
   private battlesTick() {
     const B = BALANCE.battle;
+    if (!this.battles.length) return;
+    // pedine vive per provincia e per id, una volta per tick (prima ogni assedio scorreva tutte le pedine tre volte)
+    const inProv = new Map<number, Unit[]>(), byId = new Map<number, Unit>();
+    for (const u of this.units) {
+      if (u.hp <= 0) continue;
+      byId.set(u.id, u);
+      const p = this.provOf(u.tile), l = inProv.get(p);
+      if (l) l.push(u); else inProv.set(p, [u]);
+    }
     for (const b of [...this.battles]) {
-      const unit = b.unit !== undefined ? this.units.find((u) => u.id === b.unit && u.hp > 0) : undefined;
-      const unitHere = !!unit && this.provOf(unit.tile) === b.p;
+      let unit = b.unit !== undefined ? byId.get(b.unit) : undefined;
+      if (unit && unit.hp <= 0) unit = undefined;
+      let unitHere = !!unit && this.provOf(unit.tile) === b.p;
+      const here = inProv.get(b.p) ?? [];
+      // assedio di pedine: contano tutte quelle dell'attaccante dentro la provincia (Nico: 5 pedine non possono metterci
+      // quanto una). Se quella che l'ha iniziato muore o se ne va, lo porta avanti un'altra
+      const group = b.unit !== undefined ? here.filter((u) => u.owner === b.by && u.hp > 0 && !isNaval(u.type)) : [];
+      if (b.unit !== undefined && !unitHere && group.length) { unit = group[0]; b.unit = unit.id; unitHere = true; }
       const gone = this.provOwner[b.p] !== b.from || !this.factions[b.by].alive || !this.atWar(b.by, b.from) || (b.unit !== undefined && !unitHere);
       if (gone) {
         // la provincia è cambiata di mano, è arrivata la pace o la pedina se n'è andata: le truppe tornano
         this.battles = this.battles.filter((x) => x !== b);
         this.factions[b.by].troops += b.troops;
-        this.frontierCache.clear();
         this.events.push({ type: 'battle', phase: 'off', battle: b });
         continue;
       }
+      if (unit && group.length > 1) {
+        // somma con calo: la più forte conta intera, ogni altra un po' meno (×0,85 a testa). 2 pedine ≈ ×1,85, 5 ≈ ×3,7
+        const atk = (u: Unit) => BALANCE.units[u.type].attack * u.size, ref = atk(unit);
+        const m = group.map(atk).sort((x, y) => y - x).reduce((sum, a, k) => sum + a * B.stackFalloff ** k, 0) / Math.max(1e-6, ref);
+        if (m > 1) b.endMs -= BALANCE.tick.ms * (m - 1); // l'assedio avanza m volte più veloce
+      }
       if (this.gameTimeMs < b.endMs) continue;
+      // assedio di pedine (Nico, 26 novembre 2026: "un'armata che entra in una terra con un po' di civili non muore"): l'assedio
+      // costa solo tempo, mai vita. Finisce quando nella provincia non c'è più nessuna pedina del difensore: finché ce n'è
+      // una si combatte (le pedine si sparano) e l'assedio aspetta. La difesa della provincia (fortificazione, montagna,
+      // capitale) decide solo quanto dura. Prima a fine assedio la pedina perdeva vita = difesa × captureCost (×3 sulle
+      // capitali) e se non bastava moriva tutto il gruppo
+      if (unit && here.some((v) => v.hp > 0 && v.owner === b.from)) continue;
       this.battles = this.battles.filter((x) => x !== b);
-      this.frontierCache.clear();
       let win: boolean;
-      if (unit) {
-        unit.hp -= this.provDefense(b.p) * BALANCE.units[unit.type].captureCost; // l'assedio costa vita alla pedina
-        win = unit.hp > 0;
-      } else {
+      if (unit) win = true;
+      else {
         // conta solo quanto si è rinforzato il difensore (non la sovraestensione dell'attaccante, che intanto cresce altrove)
         const ratio = this.provDefense(b.p) / Math.max(1, b.def0);
         win = ratio * B.winRatio <= 1;
@@ -2172,29 +3577,76 @@ export class RunState {
   // ---------- logistica ----------
 
   /** Rifornimento: visita del territorio a partire dalla capitale di ogni fazione (una volta per tick, se qualcosa è cambiato). */
+  /** Catena dei tuoi depositi: [deposito, a chi si lega] (per disegnarla nella mappa logistica). */
+  depotLinks: [number, number][] = [];
+
+  /** Fazioni il cui rifornimento va rifatto (territorio, depositi o capitale cambiati); `supplyDirty` = tutte. */
+  private supplyDirtyF = new Set<number>();
+  private markSupply(f: number) {
+    if (f >= 0) this.supplyDirtyF.add(f);
+  }
+  private supplyDist = new Int16Array(0);
+
+  /** Rifornimento rifatto solo per le fazioni cambiate (Nico, 27 novembre 2026: "molto più efficiente"): prima tutte le 260
+   *  fazioni ogni mezzo secondo, un quinto del tempo del motore. Il rifornimento di una provincia dipende solo dal suo padrone. */
   private recomputeSupply() {
+    const all = this.supplyDirty;
     this.supplyDirty = false;
-    const L = BALANCE.logistics, own = this.provOwner, provs = this.map.provinces;
-    this.supply.fill(L.cutOff);
-    const dist = new Int16Array(own.length).fill(-1);
-    for (const f of this.factions) {
-      if (!f.alive) continue;
+    const own = this.provOwner, L = BALANCE.logistics;
+    if (this.supplyDist.length !== own.length) this.supplyDist = new Int16Array(own.length).fill(-1);
+    const list = all ? this.factions.map((f) => f.id) : [...this.supplyDirtyF].sort((a, b) => a - b);
+    this.supplyDirtyF.clear();
+    if (all) this.supply.fill(L.cutOff);
+    for (const id of list) {
+      const f = this.factions[id];
+      if (!f) continue;
+      if (!all) for (const p of this.owned[id] ?? []) this.supply[p] = L.cutOff;
+      if (id === PLAYER) this.depotLinks = [];
+      if (f.alive) this.supplyOf(f);
+    }
+  }
+
+  private supplyOf(f: Faction) {
+    const L = BALANCE.logistics, own = this.provOwner, provs = this.map.provinces, dist = this.supplyDist;
+    const depot = WORKS.indexOf('rifornimenti'), depots: number[] = [];
+    for (const p of this.owned[f.id] ?? []) if (this.provWork[p] === depot && this.provWorkAt[p] === 0) depots.push(p);
+    {
       let c = this.capitalProv[f.id];
       if (c < 0 || own[c] !== f.id) {
         c = this.capitalProv[f.id] = this.newCapital(f.id, c);
         if (c >= 0) this.events.push({ type: 'capital', faction: f.id, p: c });
       }
-      if (c < 0) continue;
-      // depositi di rifornimento pronti: la logistica riparte anche da lì
-      const q = [c];
-      dist[c] = 0;
-      for (let p = 0; p < own.length; p++) {
-        if (own[p] === f.id && p !== c && this.provWorkAt[p] === 0 && this.provWork[p] === WORKS.indexOf('rifornimenti')) { dist[p] = 0; q.push(p); }
-      }
-      for (let h = 0; h < q.length; h++) {
-        const p = q[h], d = dist[p];
-        this.supply[p] = d <= L.range ? 1 : Math.max(L.min, 1 - (d - L.range) * L.decay);
-        for (const n of provs[p].neighbors) if (dist[n] < 0 && own[n] === f.id) { dist[n] = d + 1; q.push(n); }
+      if (c < 0) return;
+      // dalla capitale rifornimento pieno fino a `range` passi; un deposito pronto solo per pochi passi attorno (Nico: prima
+      // copriva un'area enorme come la capitale, allo stesso prezzo di un bunker che difende una provincia sola)
+      const spread = (src: number, range: number, local = false, base = 1, decay: number = L.decay) => {
+        const q = [src];
+        dist[src] = 0;
+        for (let h = 0; h < q.length; h++) {
+          const p = q[h], d = dist[p];
+          const v = d <= range ? base : Math.max(L.min, base - (d - range) * decay);
+          this.supply[p] = Math.max(this.supply[p], v);
+          if (local && v <= L.min) continue; // il deposito si ferma dove il suo rifornimento non serve più
+          for (const n of provs[p].neighbors) if (dist[n] < 0 && own[n] === f.id) { dist[n] = d + 1; q.push(n); }
+        }
+        for (const p of q) dist[p] = -1;
+      };
+      spread(c, L.range);
+      // catena dei depositi: dal più vicino alla capitale in poi, ognuno si lega al nodo già in catena più vicino (capitale o
+      // deposito) e vale il 10% in meno di lui
+      const nodes: { p: number; hops: number }[] = [{ p: c, hops: 0 }], cap = provs[c].anchor;
+      // le città che costruisci sono nodi della rete come la capitale, altre "capitali" (Nico: solo quelle costruite, non le
+      // città della carta che conquisti)
+      for (const p of this.builtCity) if (p !== c && this.provOwner[p] === f.id) nodes.push({ p, hops: 0 });
+      const list = depots.filter((p) => p !== c).sort((a, b) => hexDistance(provs[a].anchor, cap) - hexDistance(provs[b].anchor, cap) || a - b);
+      for (const p of list) {
+        let par = nodes[0], bd = Infinity;
+        for (const n of nodes) { const d = hexDistance(provs[n.p].anchor, provs[p].anchor); if (d < bd) { bd = d; par = n; } }
+        const hops = par.hops + 1;
+        nodes.push({ p, hops });
+        if (f.id === PLAYER) this.depotLinks.push([p, par.p]);
+        const range = Math.max(L.depotRangeMin, L.depotRange - Math.floor((hops - 1) / L.depotHopsPerStep));
+        spread(p, f.id === PLAYER && this.depotsUnpaid() ? Math.floor(range / 2) : range, true, 1, L.depotDecay); // mantenimento non pagato: metà area
       }
     }
   }
@@ -2203,8 +3655,8 @@ export class RunState {
   private newCapital(f: number, old: number): number {
     const provs = this.map.provinces, from = old >= 0 ? provs[old].anchor : this.map.starts[f];
     let best = -1, bd = Infinity;
-    for (let p = 0; p < this.provOwner.length; p++) {
-      if (this.provOwner[p] !== f || provs[p].anchor < 0) continue;
+    for (const p of this.owned[f] ?? []) { // solo le sue province (prima tutte le 18 000, per ogni fazione senza capitale)
+      if (provs[p].anchor < 0) continue;
       const d = hexDistance(provs[p].anchor, from);
       if (d < bd) { bd = d; best = p; }
     }
@@ -2213,7 +3665,8 @@ export class RunState {
 
   /** Rifornimento migliore tra le province di `by` che confinano con `p` (da lì parte l'attacco). */
   private supplyFrom(by: number, p: number): number {
-    if (this.supplyDirty) this.recomputeSupply(); // sempre aggiornato: le province appena prese contano subito
+    // niente ricalcolo qui: con 150 milizie la logistica si rifaceva a ogni conquista (8 FPS); si rifà una volta per tick e
+    // la provincia appena presa eredita il rifornimento dei vicini (transferProvince)
     let s = 0;
     for (const q of this.map.provinces[p].neighbors) if (this.provOwner[q] === by && this.supply[q] > s) s = this.supply[q];
     return s || 1;
@@ -2223,6 +3676,8 @@ export class RunState {
   private transferProvince(by: number, p: number, cost: number, unit?: number): { loot: number; lootType: Resource } {
     const prov = this.map.provinces[p];
     const from = this.provOwner[p];
+    if (from !== NEUTRAL && by !== NEUTRAL && this.capitalProv[from] === p && (by === PLAYER || from === PLAYER || this.factions[from].kind === 'empire')) this.chron({ k: 'capital', a: by, b: from });
+    if (from === PLAYER && by !== NEUTRAL) this.lostWave.set(by, (this.lostWave.get(by) ?? 0) + 1);
     const f = this.factions[by];
     if (from !== NEUTRAL) {
       const def = this.factions[from];
@@ -2243,12 +3698,16 @@ export class RunState {
       this.owner[i] = by;
       f.tiles++;
     }
-    this.provOwner[p] = by;
-    this.supplyDirty = true;
+    if (by === PLAYER) { // conti per gli obiettivi
+      if (this.isCity(p)) this.objStats.cities.add(p);
+      if (from !== NEUTRAL && this.factions[from].kind === 'empire') this.objStats.empireProv++;
+    }
+    this.setProvOwner(p, by);
+    this.markSupply(by); this.markSupply(from);
+    this.supply[p] = this.supplyFrom(by, p); // fino al prossimo tick: come i vicini da cui è stata presa
     f.provinces++;
     f.maxProvinces = Math.max(f.maxProvinces, f.provinces);
     f.maxTiles = Math.max(f.maxTiles, f.tiles);
-    this.frontierCache.clear();
     f.loot = addBag(f.loot, bag);
     const loot = bag.metallo + bag.benzina + bag.cibo;
     const lootType = (Object.keys(bag) as Resource[]).reduce((a, b) => (bag[b] > bag[a] ? b : a), 'metallo');
@@ -2257,13 +3716,48 @@ export class RunState {
     if (prov.city >= 0 && this.map.tiles[prov.city]!.capital && !this.capitalsTaken.has(prov.city)) {
       // capitale: truppe a chi la prende per primo
       this.capitalsTaken.add(prov.city);
+      if (by === PLAYER) this.objStats.capitals++;
       const bonus = Math.round(BALANCE.provinces.capitalTroops * (by === PLAYER ? this.opts.mods.capitalTroopsMult : 1));
       f.troops += bonus;
       const nation = this.map.nations.find((n) => n.id === prov.country)?.name ?? '';
       this.events.push({ type: 'province', by, province: p, count: prov.tiles.length, capital: true, nation, bonus });
     }
     if (from !== NEUTRAL && this.factions[from].tiles <= 0) this.eliminate(from, by);
+    else if (this.surrenders(from, by, p)) this.annex(from, by);
     return { loot, lootType };
+  }
+
+  /**
+   * Resa (Nico, 26 novembre 2026: "gli imperi devono essere più aggressivi, alla fine ne restano pochi, le superpotenze, che si
+   * prendono tutto"; prima dopo un'ora restavano 44 imperi su 45): un impero IA che perde la capitale contro un impero IA
+   * almeno grande quanto lui si arrende, e tutta la sua terra passa al vincitore. Tu non ti arrendi mai e le tue conquiste
+   * restano province per provincia.
+   */
+  private surrenders(from: number, by: number, p: number): boolean {
+    if (from <= PLAYER || by <= PLAYER || this.opts.tutorial || this.capitalProv[from] !== p) return false;
+    const a = this.factions[by], d = this.factions[from];
+    return a.kind === 'empire' && d.kind === 'empire' && d.alive;
+  }
+
+  private annex(from: number, by: number) {
+    const f = this.factions[by], d = this.factions[from];
+    for (const q of [...(this.owned[from] ?? [])]) {
+      for (const i of this.map.provinces[q].tiles) {
+        if (!this.passable(i) || this.owner[i] !== from) continue;
+        this.owner[i] = by;
+        d.tiles--;
+        f.tiles++;
+      }
+      this.setProvOwner(q, by);
+      d.provinces--;
+      f.provinces++;
+      this.events.push({ type: 'conquer', by, from, p: q, i: this.map.provinces[q].anchor, cost: 0, loot: 0, lootType: 'metallo' });
+    }
+    f.maxProvinces = Math.max(f.maxProvinces, f.provinces);
+    f.maxTiles = Math.max(f.maxTiles, f.tiles);
+    f.troops += d.troops;
+    this.markSupply(by); this.markSupply(from);
+    this.eliminate(from, by);
   }
 
   /** Prima volta che una fazione prende questa provincia: truppe e bottino (il "picco" alla Clash). */
@@ -2287,17 +3781,125 @@ export class RunState {
   /** Provincia assegnata senza combattere (partenza). */
   private claimProvince(f: number, p: number) {
     const fac = this.factions[f];
-    this.supplyDirty = true;
+    this.markSupply(f);
     for (const i of this.map.provinces[p].tiles) {
       if (!this.passable(i) || this.owner[i] !== NEUTRAL) continue;
       this.owner[i] = f;
       fac.tiles++;
     }
-    this.provOwner[p] = f;
+    this.setProvOwner(p, f);
     fac.provinces++;
     fac.maxProvinces = Math.max(fac.maxProvinces, fac.provinces);
     fac.maxTiles = Math.max(fac.maxTiles, fac.tiles);
+  }
+
+  /** Sandbox, prima della scelta: niente tuo sulla carta (Nico: "una tabella blu" che non si capiva). Si chiama a carta
+   *  pronta (dopo il costruttore, che assegna comunque una partenza). */
+  clearStart() {
+    if (!this.placing) return;
+    for (const u of this.unitsOf(PLAYER)) u.hp = 0;
+    this.removeDead();
+    this.drainEvents();
+    this.map.provinces.forEach((prov, q) => {
+      if (this.provOwner[q] !== PLAYER) return;
+      for (const i of prov.tiles) if (this.owner[i] === PLAYER) this.owner[i] = NEUTRAL;
+      this.setProvOwner(q, NEUTRAL);
+    });
+    this.player.tiles = 0;
+    this.player.provinces = 0;
     this.frontierCache.clear();
+  }
+
+  /** Sandbox: il giocatore si cala sulla provincia toccata (libera); la partenza di prima torna terra libera. */
+  placePlayer(p: number): boolean {
+    if (!this.placing || p < 0 || !this.provPassable(p) || this.provOwner[p] !== NEUTRAL) return false;
+    const f = this.player;
+    this.map.provinces.forEach((prov, q) => {
+      if (this.provOwner[q] !== PLAYER) return;
+      for (const i of prov.tiles) if (this.owner[i] === PLAYER) this.owner[i] = NEUTRAL;
+      this.setProvOwner(q, NEUTRAL);
+    });
+    f.tiles = 0;
+    f.provinces = 0;
+    this.claimProvince(PLAYER, p);
+    this.capitalProv[PLAYER] = p;
+    this.supplyDirty = true;
+    this.frontierCache.clear();
+    this.placing = false;
+    this.starterArmy();
+    return true;
+  }
+
+  // ---------- obiettivi e svolte ----------
+
+  /** Attiva il prossimo obiettivo della lista; false se è finita. */
+  private pullObjective(): boolean {
+    const L = BALANCE.objectives.list;
+    if (this.objNext >= L.length) return false;
+    const d = L[this.objNext++];
+    const o: Objective = { id: d.id, kind: d.kind, target: d.target, progress: 0, troops: d.troops, loot: d.loot,
+      deadline: d.deadlineMs !== undefined ? this.gameTimeMs + d.deadlineMs : undefined };
+    this.objectives.push(o);
+    if (this.gameTimeMs > 0) this.events.push({ type: 'objective', phase: 'new', objective: o });
+    return true;
+  }
+
+  private objectiveValue(kind: string): number {
+    const S = this.objStats;
+    switch (kind) {
+      case 'provinces': return this.player.provinces;
+      case 'cities': return S.cities.size;
+      case 'capitals': return S.capitals;
+      case 'empireProv': return S.empireProv;
+      case 'repelled': return S.repelled;
+      case 'rank': return this.rank().pos === 1 ? 1 : 0;
+      default: return 0;
+    }
+  }
+
+  /** Aggiorna gli obiettivi: premio a chi completa, via quelli scaduti, nuovi al loro posto; la svolta del dominio. */
+  private objectivesTick() {
+    if (this.opts.tutorial || this.opts.sandbox || this.over || !this.player.alive) return;
+    const B = BALANCE.objectives, now = this.gameTimeMs;
+    for (const o of [...this.objectives]) {
+      if (o.decisive) continue;
+      o.progress = Math.min(o.target, this.objectiveValue(o.kind));
+      const done = o.progress >= o.target, late = o.deadline !== undefined && now > o.deadline;
+      if (!done && !late) continue;
+      this.objectives.splice(this.objectives.indexOf(o), 1);
+      if (done) {
+        this.player.troops += o.troops;
+        const loot = this.lootFor(PLAYER, o.loot);
+        this.player.loot.metallo += Math.ceil(loot / 2);
+        this.player.loot.benzina += Math.floor(loot / 4);
+        this.player.loot.cibo += Math.floor(loot / 4);
+        const d = B.list.find((x) => x.id === o.id);
+        if (d?.growthMult) this.growthBoost = { mult: d.growthMult, until: now + (d.growthMs ?? 0) };
+      }
+      this.events.push({ type: 'objective', phase: done ? 'done' : 'failed', objective: o });
+      this.pullObjective();
+    }
+    // svolta: dal minuto 6 compare il dominio; tenuto per un minuto chiude la campagna con la vittoria
+    const D = B.dominate;
+    let dom = this.objectives.find((o) => o.decisive);
+    if (!dom && now >= D.fromMs) {
+      dom = { id: 'dominate', kind: 'dominate', target: Math.round(D.holdMs / 1000), progress: 0, troops: 0, loot: 0, decisive: true };
+      this.objectives.unshift(dom);
+      this.events.push({ type: 'objective', phase: 'new', objective: dom });
+    }
+    if (dom) {
+      const top = Math.max(0, ...this.factions.filter((f) => f.kind === 'empire' && f.alive).map((f) => f.provinces));
+      const ok = this.player.provinces >= D.minProvinces && this.player.provinces >= top * D.ratio;
+      if (!ok) { dom.holdSince = undefined; dom.progress = 0; }
+      else {
+        dom.holdSince ??= now;
+        dom.progress = Math.min(dom.target, Math.floor((now - dom.holdSince) / 1000));
+        if (now - dom.holdSince >= D.holdMs) {
+          this.events.push({ type: 'objective', phase: 'done', objective: dom });
+          this.end('victory', 'dominance');
+        }
+      }
+    }
   }
 
   // ---------- offensive nemiche ----------
@@ -2315,7 +3917,9 @@ export class RunState {
         this.offensive = { faction: o.faction, phase: 'on', until: this.gameTimeMs + O.durationMs, lostAtStart: this.player.tiles };
         this.events.push({ type: 'offensive', faction: o.faction, phase: 'start' });
       } else {
-        this.events.push({ type: 'offensive', faction: o.faction, phase: 'end', lost: Math.max(0, o.lostAtStart - this.player.tiles) });
+        const lost = Math.max(0, o.lostAtStart - this.player.tiles);
+        if (lost <= o.lostAtStart * BALANCE.objectives.repelMaxLoss) this.objStats.repelled++;
+        this.events.push({ type: 'offensive', faction: o.faction, phase: 'end', lost });
         this.offensive = null;
         this.nextOffensiveAt = this.gameTimeMs + this.opts.front.offensiveEveryMs + (this.aiRng() * 2 - 1) * O.jitterMs;
       }
@@ -2331,51 +3935,13 @@ export class RunState {
     this.events.push({ type: 'offensive', faction: f.id, phase: 'warn' });
   }
 
-  /** Forza di una fazione per l'assorbimento: truppe in cassa più la vita delle sue pedine. */
-  private might(f: number): number {
-    let m = this.factions[f].troops;
-    for (const u of this.units) if (u.owner === f) m += u.hp;
-    return m;
-  }
-
-  /**
-   * Gli imperi forti mangiano i deboli (Nico): dopo i primi minuti, ogni tanto ogni impero prende una provincia di confine
-   * al vicino più debole se è molto più forte (milizie e imperi, mai il giocatore); un vicino ridotto a poche province lo
-   * annette tutto. Più la campagna va avanti, più spesso succede.
-   */
-  private absorbTick() {
-    const A = BALANCE.absorb;
-    if (this.opts.tutorial || this.gameTimeMs < A.fromMs) return;
-    for (const f of this.factions) {
-      if (f.kind !== 'empire' || !f.alive || this.gameTimeMs < (this.absorbAt[f.id] ?? 0)) continue;
-      const mins = (this.gameTimeMs - A.fromMs) / 60_000;
-      this.absorbAt[f.id] = this.gameTimeMs + Math.max(A.minEveryMs, A.everyMs - mins * A.speedupPerMin) * (0.8 + this.aiRng() * 0.4);
-      const mine = this.might(f.id);
-      // vicini (non il giocatore, non alleati di coalizione) e la loro forza
-      let prey = -1, preyMight = Infinity;
-      for (const p of this.frontier(f.id)) {
-        const o = this.provOwner[p];
-        if (o === NEUTRAL || o === PLAYER || o === prey || !this.atWar(f.id, o)) continue;
-        const m = this.might(o);
-        if (m < preyMight) { preyMight = m; prey = o; }
-      }
-      if (prey < 0 || mine < A.ratio * Math.max(1, preyMight)) continue;
-      const theirs = this.map.provinces.map((_, p) => p).filter((p) => this.provOwner[p] === prey);
-      if (theirs.length <= A.annexBelow && mine >= A.annexRatio * Math.max(1, preyMight)) {
-        for (const p of theirs) if (this.factions[prey].alive) this.transferProvince(f.id, p, 0); // annessione
-        continue;
-      }
-      const border = this.frontier(f.id).filter((p) => this.provOwner[p] === prey && !this.battleAt(p));
-      if (border.length) this.transferProvince(f.id, border[Math.floor(this.aiRng() * border.length)], 0);
-    }
-  }
-
   private lootFor(by: number, n: number): number {
     return by === PLAYER ? Math.round(n * this.opts.mods.lootMult) : n;
   }
 
   private eliminate(f: number, by: number) {
     const dead = this.factions[f];
+    if (f === PLAYER || dead.kind === 'empire') this.chron({ k: 'fall', a: f, b: by });
     dead.alive = false;
     dead.troops = 0;
     for (const u of this.unitsOf(f)) u.hp = 0;

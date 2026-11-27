@@ -4,9 +4,9 @@ import type { Resource } from '../config/balance';
 export const RESOURCES: Resource[] = ['metallo', 'benzina', 'cibo'];
 
 export const RESOURCE_INFO: Record<Resource, { name: string; color: number }> = {
-  metallo: { name: 'Metallo', color: 0xa9bccb },
-  benzina: { name: 'Benzina', color: 0xf2b84b },
-  cibo: { name: 'Cibo', color: 0x9dbf6b },
+  metallo: { name: 'Metal', color: 0xa9bccb },
+  benzina: { name: 'Fuel', color: 0xf2b84b },
+  cibo: { name: 'Food', color: 0x9dbf6b },
 };
 
 export type Bag = Record<Resource, number>;

@@ -2,34 +2,34 @@
   {
     "id": "mercato",
     "rare": false,
-    "text": "Un emissario del Consiglio Ombra offre razioni sigillate in cambio di 30 uomini. Sul contratto non c'è scritto per cosa.",
+    "text": "An emissary of the Shadow Council offers sealed rations in exchange for 30 men. The contract does not say what for.",
     "left": {
-      "label": "Rifiuta",
+      "label": "Refuse",
       "effects": {},
-      "result": "L'emissario sorride e prende nota. Ci rivedremo."
+      "result": "The emissary smiles and takes note. We will meet again."
     },
     "right": {
-      "label": "Accetta",
+      "label": "Accept",
       "effects": {
         "troops": -30,
         "loot": {
           "cibo": 15
         }
       },
-      "result": "Le razioni sono buone. Degli uomini non si sa più nulla."
+      "result": "The rations are good. Of the men, nothing more is heard."
     }
   },
   {
     "id": "disertori",
     "rare": false,
-    "text": "Un reparto dell'Imperium diserta dopo aver visto cadere un Alato vicino alle sue trincee. Chiedono asilo e portano le armi.",
+    "text": "An Imperium unit deserts after seeing one of the Winged fall near its trenches. They ask for asylum and bring their weapons.",
     "left": {
-      "label": "Respingi",
+      "label": "Turn away",
       "effects": {},
-      "result": "Tornano indietro. L'Imperium non perdona i disertori."
+      "result": "They go back. The Imperium does not forgive deserters."
     },
     "right": {
-      "label": "Accogli",
+      "label": "Take them in",
       "effects": {
         "troops": 25
       },
@@ -40,71 +40,71 @@
           "metallo": -10
         }
       },
-      "result": "Nuove reclute, addestrate e silenziose.",
-      "failResult": "Nuove reclute. E 10 metallo spariti dal magazzino del reparto."
+      "result": "New recruits, trained and silent.",
+      "failResult": "New recruits. And 10 metal gone from the unit's store."
     }
   },
   {
     "id": "trasmettitore",
     "rare": false,
-    "text": "In un bunker della Concordia una radio a valvole è ancora accesa. Ripete un appello alla pace registrato prima della Caduta.",
+    "text": "In a bunker of the Concord a valve radio is still on. It repeats a call for peace recorded before the Fall.",
     "left": {
-      "label": "Smontala",
+      "label": "Dismantle it",
       "effects": {
         "loot": {
           "metallo": 20
         }
       },
-      "result": "Valvole e rame. L'appello tace."
+      "result": "Valves and copper. The call falls silent."
     },
     "right": {
-      "label": "Ritrasmetti",
+      "label": "Rebroadcast",
       "effects": {
         "growth": {
           "mult": 1.5,
           "durationMs": 30000
         }
       },
-      "result": "Qualcuno ci crede ancora. Arrivano volontari, per un po'."
+      "result": "Someone still believes. Volunteers arrive, for a while."
     }
   },
   {
     "id": "convoglio",
     "rare": false,
-    "text": "Un convoglio delle Grandi Casate attraversa il nostro territorio. Benzina, e casse col sigillo di un'accademia.",
+    "text": "A convoy of the Great Houses crosses our territory. Fuel, and crates with the seal of an academy.",
     "left": {
-      "label": "Lascialo passare",
+      "label": "Let it pass",
       "effects": {
         "troops": 15
       },
-      "result": "In segno di riconoscenza lasciano una scorta armata."
+      "result": "In gratitude they leave behind an armed escort."
     },
     "right": {
-      "label": "Requisisci",
+      "label": "Requisition",
       "effects": {
         "troops": -10,
         "loot": {
           "benzina": 12
         }
       },
-      "result": "La benzina è nostra. Le Casate se ne ricorderanno."
+      "result": "The fuel is ours. The Houses will remember."
     }
   },
   {
     "id": "razioni",
     "rare": false,
-    "text": "Il servizio sanitario propone un siero ricavato dalla polvere dei Frammenti. Nessuno l'ha ancora provato su un reparto intero.",
+    "text": "The medical service proposes a serum made from Fragment dust. No one has tried it on a whole unit yet.",
     "left": {
-      "label": "Conserva",
+      "label": "Store it",
       "effects": {
         "loot": {
           "cibo": 5
         }
       },
-      "result": "Le fiale restano in deposito. Etichettate, per sicurezza."
+      "result": "The vials stay in the depot. Labelled, just in case."
     },
     "right": {
-      "label": "Distribuisci",
+      "label": "Distribute",
       "effects": {
         "troops": 40
       },
@@ -112,104 +112,106 @@
       "fail": {
         "troops": -20
       },
-      "result": "Le truppe non dormono più. Nessuno chiede perché.",
-      "failResult": "Metà del reparto in quarantena. La pelle si è fatta fredda e lucida."
+      "result": "The troops no longer sleep. Nobody asks why.",
+      "failResult": "Half the unit in quarantine. Their skin has turned cold and glossy."
     }
   },
   {
     "id": "nebbia",
     "rare": false,
-    "text": "Una brina viola scende sul fronte. Le sentinelle giurano di aver visto ali tra la nebbia.",
+    "text": "A violet frost settles on the front. The sentries swear they saw wings in the fog.",
     "left": {
-      "label": "Tieni le posizioni",
+      "label": "Hold position",
       "effects": {
         "troops": 15
       },
-      "result": "La brina si scioglie. Le posizioni reggono."
+      "result": "The frost melts. The positions hold."
     },
     "right": {
-      "label": "Avanza nella brina",
+      "label": "Advance into the frost",
       "effects": {
         "unit": "ricognitori"
       },
-      "result": "Dalla brina esce una squadra di ricognitori. Senza insegne, ma con i nostri codici."
+      "result": "A squad of scouts comes out of the frost. No insignia, but our codes."
     }
   },
   {
     "id": "ingegnere",
     "rare": false,
-    "text": "Un ingegnere del Senato è in fuga dalla sua stessa capitale. In cambio di protezione offre di rimettere in funzione i nostri pezzi.",
+    "text": "A Senate engineer is fleeing his own capital. In exchange for protection he offers to get our guns working again.",
     "left": {
-      "label": "Rifiuta",
+      "label": "Refuse",
       "effects": {},
-      "result": "Riparte verso nord. Qualcun altro lo accoglierà."
+      "result": "He heads north. Someone else will take him in."
     },
     "right": {
-      "label": "Proteggilo",
+      "label": "Protect him",
       "effects": {
         "unit": "artiglieria"
       },
-      "result": "Un pezzo d'artiglieria torna operativo in una notte."
+      "result": "An artillery piece is back in action overnight."
     }
   },
   {
     "id": "frequenza",
     "rare": true,
-    "text": "Sulla frequenza della Caduta una voce di donna conta alla rovescia. Poi dice: «La Prova non è finita.»",
+    "text": "On the frequency of the Fall a woman's voice counts down. Then she says: «The Trial is not over.»",
     "left": {
-      "label": "Ignora",
+      "label": "Ignore",
       "effects": {
         "troops": 20
       },
-      "result": "Il Comando archivia il messaggio. Le truppe restano concentrate."
+      "result": "Command files the message. The troops stay focused."
     },
     "right": {
-      "label": "Segui il conto",
+      "label": "Follow the count",
       "effects": {
-        "loot": { "metallo": 25 }
+        "loot": {
+          "metallo": 25
+        }
       },
-      "result": "Il conteggio porta a un deposito della Concordia sepolto sotto il ghiaccio. Dentro, metallo e silenzio."
+      "result": "The count leads to a Concord depot buried under the ice. Inside, metal and silence."
     }
   },
   {
     "id": "archivio",
     "rare": true,
-    "text": "Nell'archivio della Concordia trovate schede perforate di un progetto: «Annunciazione». Datate un anno prima della Caduta.",
+    "text": "In the archive of the Concord you find punched cards from a project: «Annunciation». Dated one year before the Fall.",
     "left": {
-      "label": "Bruciale",
+      "label": "Burn them",
       "effects": {
         "troops": 30
       },
-      "result": "Certe cose è meglio non saperle. Il morale sale."
+      "result": "Some things are better not known. Morale rises."
     },
     "right": {
-      "label": "Decifrale",
+      "label": "Decode them",
       "effects": {
         "loot": {
           "benzina": 10
         }
       },
-      "result": "Tra le schede, una mappa di depositi. E una frase battuta a macchina: «Li abbiamo chiamati noi.»"
+      "result": "Among the cards, a map of depots. And a typewritten line: «We called them.»"
     }
   },
   {
     "id": "cartografo",
     "rare": true,
-    "text": "Un pilota di dirigibile ha fotografato le linee nemiche dall'alto. Vuole metallo, non promesse.",
+    "text": "An airship pilot has photographed the enemy lines from above. He wants metal, not promises.",
     "left": {
-      "label": "Lascia stare",
+      "label": "Leave it",
       "effects": {},
-      "result": "Il dirigibile riprende quota con le sue lastre."
+      "result": "The airship climbs away with its plates."
     },
     "right": {
-      "label": "Compra (15 metallo)",
+      "label": "Buy (15 metal)",
       "effects": {
         "loot": {
           "metallo": -15
         },
         "timeBonusMs": 60000
       },
-      "result": "Le lastre sono nitide. Il Comando concede un minuto in più alla campagna."
+      "result": "The plates are sharp. Command grants the campaign one more minute."
     }
   }
 ]

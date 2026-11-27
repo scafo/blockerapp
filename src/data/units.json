@@ -1,12 +1,12 @@
 [
-  { "id": "fanteria", "cls": "fanteria", "name": "Fanteria", "short": "FANTERIA", "beats": ["ricognitori"], "desc": "Lenta e dura. Tiene le conquiste lunghe, ferma i ricognitori." },
-  { "id": "ricognitori", "cls": "ricognitori", "name": "Ricognitori", "short": "RICOGN.", "beats": ["artiglieria", "genio"], "desc": "Veloci e leggeri. Entrano nelle retrovie, travolgono artiglieria e genio." },
-  { "id": "artiglieria", "cls": "artiglieria", "name": "Artiglieria", "short": "ARTIGL.", "beats": ["fanteria", "corazzati"], "desc": "Colpisce a 3 caselle. Lenta, micidiale su fanteria e corazzati." },
-  { "id": "corazzati", "cls": "corazzati", "name": "Corazzati", "short": "CORAZZ.", "beats": ["fanteria", "ricognitori"], "desc": "Carri pesanti: tanta vita, conquistano spendendo poco. Temono artiglieria e genio." },
-  { "id": "genio", "cls": "genio", "name": "Genio", "short": "GENIO", "beats": ["corazzati"], "desc": "Fortifica le tue caselle attorno (+difesa) e mina i corazzati." },
-  { "id": "cannoniera", "cls": "cannoniera", "name": "Cannoniera", "short": "CANNON.", "naval": true, "beats": ["fanteria", "genio"], "desc": "Nave da costa: si schiera da una tua costa, colpisce a 3 caselle e copre gli sbarchi (-30% costo)." },
-  { "id": "legionari", "cls": "fanteria", "name": "Legionari", "short": "LEGIONE", "beats": ["ricognitori"], "desc": "Fanteria d'élite dell'Imperium: più vita e più forza." },
-  { "id": "guardia", "cls": "fanteria", "name": "Guardia repubblicana", "short": "GUARDIA", "beats": ["ricognitori"], "desc": "Fanteria della Republica: costa poco, resiste a lungo." },
-  { "id": "prototipo", "cls": "artiglieria", "name": "Prototipo", "short": "PROTOT.", "beats": ["fanteria", "corazzati"], "desc": "Arma sperimentale dell'Aristocrazia: colpisce a 4 caselle, fragile." },
-  { "id": "infiltrati", "cls": "ricognitori", "name": "Infiltrati", "short": "INFILTR.", "beats": ["artiglieria", "genio"], "desc": "Agenti della Cabal: velocissimi, conquistano spendendo poco." }
+  { "id": "fanteria", "cls": "fanteria", "name": "Infantry", "short": "INFANTRY", "beats": ["ricognitori"], "desc": "Slow and tough. Holds long conquests, stops scouts." },
+  { "id": "ricognitori", "cls": "ricognitori", "name": "Scouts", "short": "SCOUTS", "beats": ["artiglieria", "genio"], "desc": "Fast and light. Slip behind the lines, overrun artillery and engineers." },
+  { "id": "artiglieria", "cls": "artiglieria", "name": "Artillery", "short": "ARTY", "beats": ["fanteria", "corazzati"], "desc": "Hits 3 tiles away. Slow, deadly against infantry and armour." },
+  { "id": "corazzati", "cls": "corazzati", "name": "Armour", "short": "ARMOUR", "beats": ["fanteria", "ricognitori"], "desc": "Heavy tanks: lots of health, conquer cheaply. Fear artillery and engineers." },
+  { "id": "genio", "cls": "genio", "name": "Engineers", "short": "ENGINEER", "beats": ["corazzati"], "desc": "Fortify your tiles around them (+defence) and mine enemy armour." },
+  { "id": "cannoniera", "cls": "cannoniera", "name": "Gunboat", "short": "GUNBOAT", "naval": true, "beats": ["fanteria", "genio"], "desc": "Coastal ship: deploys from your coast, hits 3 tiles away and covers landings (-30% cost)." },
+  { "id": "legionari", "cls": "fanteria", "name": "Legionaries", "short": "LEGION", "beats": ["ricognitori"], "desc": "Elite infantry of the Imperium: more health and more strength." },
+  { "id": "guardia", "cls": "fanteria", "name": "Republican Guard", "short": "GUARD", "beats": ["ricognitori"], "desc": "Infantry of the Republica: cheap, holds out for a long time." },
+  { "id": "prototipo", "cls": "artiglieria", "name": "Prototype", "short": "PROTO", "beats": ["fanteria", "corazzati"], "desc": "Experimental weapon of the Aristocracy: hits 4 tiles away, fragile." },
+  { "id": "infiltrati", "cls": "ricognitori", "name": "Infiltrators", "short": "INFILTR.", "beats": ["artiglieria", "genio"], "desc": "Cabal agents: very fast, conquer cheaply." }
 ]

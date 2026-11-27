@@ -1,26 +1,26 @@
 {
   "republica": {
-    "name": "Republica", "motto": "Ciò che è nostro, resta.",
-    "regime": "Repubblica senatoria", "classe": "Il Senato · senatori e alti funzionari", "dottrina": "Stabilità e legge",
-    "lore": "Nata dalle assemblee della Concordia, crede ancora di poter ricostruire il mondo di prima. Il Senato vota ogni guerra: nessuna è mai stata respinta.",
-    "bonus": "Stabilità: le tue province si difendono il 20% meglio", "building": "Senato", "buildingText": "Insediamenti: +6 difesa", "unlock": ""
+    "name": "Republica", "motto": "What is ours, stays ours.",
+    "regime": "Senatorial republic", "classe": "The Senate, senators and high officials", "dottrina": "Stability and law",
+    "lore": "Born from the assemblies of the Concord, it still believes it can rebuild the world as it was. The Senate votes on every war: none has ever been rejected.",
+    "bonus": "Stability: your provinces defend 20% better", "building": "Senate", "buildingText": "Settlements: +6 defence", "unlock": ""
   },
   "imperium": {
-    "name": "Imperium", "motto": "Un solo cielo, un solo comando.",
-    "regime": "Impero militare", "classe": "Lo Stato Maggiore · il Trono e i generali", "dottrina": "Ordine e dominio",
-    "lore": "Le caserme non hanno chiuso nemmeno durante la Concordia. Per l'Imperium la Caduta non è stata una tragedia: è stata una chiamata alle armi.",
-    "bonus": "Espansione: prendere province neutrali costa il 15% in meno", "building": "Caserma", "buildingText": "Insediamenti: +2 caselle di crescita truppe", "unlock": ""
+    "name": "Imperium", "motto": "One sky, one command.",
+    "regime": "Military empire", "classe": "The General Staff, the Throne and the generals", "dottrina": "Order and dominion",
+    "lore": "The barracks never closed, not even during the Concord. For the Imperium the Fall was not a tragedy: it was a call to arms.",
+    "bonus": "Expansion: taking neutral provinces costs 15% less", "building": "Barracks", "buildingText": "Settlements: +2 troop growth tiles", "unlock": ""
   },
   "aristocrazia": {
-    "name": "Aristocrazia", "motto": "Il futuro appartiene a chi può pagarlo.",
-    "regime": "Oligarchia delle Casate", "classe": "Le Grandi Casate · nobiltà e accademie", "dottrina": "Cultura, tecnologia e degrado",
-    "lore": "Nei saloni si balla ancora. Nei sotterranei le Casate studiano il Lume più a fondo di chiunque, e ne pagano il prezzo un po' alla volta.",
-    "bonus": "Tecnologia: unità -30% costo, ma truppe -8% di crescita", "building": "Accademia", "buildingText": "Vista +3 nelle campagne", "unlock": "Vinci 3 campagne"
+    "name": "Aristocracy", "motto": "The future belongs to those who can pay for it.",
+    "regime": "Oligarchy of the Houses", "classe": "The Great Houses, nobility and academies", "dottrina": "Culture, technology and decay",
+    "lore": "In the ballrooms they still dance. In the cellars the Houses study the Lumen more deeply than anyone, and pay the price a little at a time.",
+    "bonus": "Technology: units -30% cost, but troops -8% growth", "building": "Academy", "buildingText": "Sight +3 in campaigns", "unlock": "Win 3 campaigns"
   },
   "cabal": {
-    "name": "Cabal", "motto": "Ogni guerra ha un conto. Lo teniamo noi.",
-    "regime": "Consiglio occulto", "classe": "Il Consiglio Ombra · banchieri e servizi", "dottrina": "Ombra ed economia",
-    "lore": "Nessuno ha mai visto il Consiglio riunito. Eppure ogni convoglio, ogni prestito, ogni Frammento venduto passa per le sue mani.",
-    "bonus": "Ombra: bottino +30%", "building": "Mercato nero", "buildingText": "Insediamenti: producono metallo e benzina", "unlock": "Completa 3 spedizioni"
+    "name": "Cabal", "motto": "Every war has a bill. We keep it.",
+    "regime": "Occult council", "classe": "The Shadow Council, bankers and secret services", "dottrina": "Shadow and economy",
+    "lore": "No one has ever seen the Council gathered. Yet every convoy, every loan, every Fragment sold passes through its hands.",
+    "bonus": "Shadow: spoils +30%", "building": "Black market", "buildingText": "Settlements: produce metal and fuel", "unlock": "Complete 3 expeditions"
   }
 }

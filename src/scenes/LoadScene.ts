@@ -4,7 +4,9 @@
 import { sfx } from '../audio/sfx';
 import Phaser from 'phaser';
 import loading from '../data/loading.json';
-import { loadWorld } from '../map/worldAsset';
+import { loadWorld, preloadWorld } from '../map/worldAsset';
+import type { MapId } from '../map/region';
+import type { RunOptions } from '../game/camp';
 import { FONT_PIXEL } from '../ui/style';
 import { uiCamera, view } from '../ui/screen';
 
@@ -31,6 +33,7 @@ interface LogLine { gut: string; text: string; indent: number }
 export class LoadScene extends Phaser.Scene {
   private launched = false;
   private needWorld = false;
+  private worldKey = 'world-world';
   private ready = false;
   private leaving = false;
   private startAt = -1; // primo fotogramma (il tempo della scena in create era ancora quello vecchio: il testo partiva a metà)
@@ -103,11 +106,11 @@ export class LoadScene extends Phaser.Scene {
     const docN = String(311 + k * 47).padStart(4, '0');
     const L: LogLine[] = [
       { gut: '', text: 'ARCHEON // archivio di comando', indent: 0 },
-      { gut: '', text: `sessione ${docN}.${String(screens.length).padStart(2, '0')}`, indent: 0 },
+      { gut: '', text: `session ${docN}.${String(screens.length).padStart(2, '0')}`, indent: 0 },
       { gut: '', text: '', indent: 0 },
-      { gut: '0x01', text: 'collegamento al terminale ...... ok', indent: 0 },
-      { gut: '0x02', text: `apertura documento ${docN} ...... ok`, indent: 0 },
-      { gut: '0x03', text: `oggetto: ${sc.title}`, indent: 0 },
+      { gut: '0x01', text: 'terminal link ...... ok', indent: 0 },
+      { gut: '0x02', text: `opening document ${docN} ...... ok`, indent: 0 },
+      { gut: '0x03', text: `subject: ${sc.title}`, indent: 0 },
       { gut: '', text: '', indent: 0 },
     ];
     sc.lines.forEach((ln, i) => wrap(ln, cols - 4).forEach((w, j) => L.push({ gut: j ? '' : `${String(i + 1).padStart(2, '0')}  `, text: w, indent: 4 })));
@@ -115,7 +118,7 @@ export class LoadScene extends Phaser.Scene {
     wrap(`«${sc.quote}»`, cols - 4).forEach((w) => L.push({ gut: '', text: w, indent: 4 }));
     L.push({ gut: '', text: `— ${sc.source}`, indent: 4 });
     L.push({ gut: '', text: '', indent: 0 });
-    L.push({ gut: '0x04', text: 'caricamento carta', indent: 0 }); // l'ultima riga riporta l'avanzamento
+    L.push({ gut: '0x04', text: 'loading map', indent: 0 }); // l'ultima riga riporta l'avanzamento
     this.log = L;
     this.total = L.reduce((n, l) => n + l.gut.length + l.text.length + 1, 0);
     const m = P ? 24 : 40;
@@ -155,7 +158,6 @@ export class LoadScene extends Phaser.Scene {
     this.minMs = Phaser.Math.Clamp(this.total * this.charMs + 1800, MIN_MS, MAX_MS);
     if (d.quick) this.minMs = 400;
     this.time.addEvent({ delay: 420, loop: true, callback: () => { this.cursor = !this.cursor; this.shown = -1; } });
-    this.scatter(width, height, x0, y0, blockW, L.length * lineH, size);
 
     // tocco: salta solo quando il documento è scritto e la scena dopo è pronta
     this.add.zone(0, 0, width, height).setOrigin(0).setInteractive().on('pointerup', () => {
@@ -164,52 +166,12 @@ export class LoadScene extends Phaser.Scene {
     this.cameras.main.fadeIn(450, 0, 0, 0);
 
     // la carta serve solo alla campagna: si decodifica al primo caricamento che porta in partita (la base ci arriva senza caricamento)
-    this.needWorld = d.next === 'Run' && !this.registry.get('world');
-    if (this.needWorld) this.time.delayedCall(200, () => this.registry.set('world', loadWorld())); // carta già pronta: solo decodifica
-  }
-
-  /**
-   * Frammenti di dati sparsi in altri punti dello schermo (Nico: "più scritte in posti diversi, più random"): coordinate,
-   * frequenze, orari, che compaiono a scatti in momenti a caso e si spengono, lontano dal documento principale.
-   */
-  private scatter(W: number, H: number, bx: number, by: number, bw: number, bh: number, size: number) {
-    const pick = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
-    const frag = () => pick([
-      () => `LAT ${(30 + Math.random() * 40).toFixed(2)} N · LON ${(Math.random() * 50 - 10).toFixed(2)} E`,
-      () => `FREQ ${(2 + Math.random() * 12).toFixed(3)} MHz · ${Math.round(-60 + Math.random() * 40)} dB`,
-      () => `SEGNALE ${String(Math.floor(Math.random() * 9999)).padStart(4, '0')} · ricevuto`,
-      () => `${String(Math.floor(Math.random() * 24)).padStart(2, '0')}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')} · turno di notte`,
-      () => `SETTORE ${String.fromCharCode(65 + Math.floor(Math.random() * 8))}-${Math.floor(Math.random() * 90 + 10)} · nessun contatto`,
-      () => `ARCHIVIO ${Math.floor(Math.random() * 900 + 100)}/${Math.floor(Math.random() * 90 + 10)} · protetto`,
-    ])();
-    // lontano dal documento e dagli altri frammenti (prima finivano uno sull'altro)
-    const taken: [number, number, number, number][] = [[bx - 20, by - 20, bw + 40, bh + 40]];
-    const free = (x: number, y: number, w: number) => taken.every(([tx, ty, tw, th]) => x + w < tx || x > tx + tw || y + 30 < ty || y > ty + th);
-    const count = 4 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < count; i++) {
-      const text = frag();
-      let x = 0, y = 0;
-      for (let tries = 0; tries < 20; tries++) {
-        x = 24 + Math.random() * (W - 340);
-        y = 24 + Math.random() * (H - 80);
-        if (free(x, y, 320)) break;
-      }
-      if (!free(x, y, 320)) continue;
-      taken.push([x, y, 320, 30]);
-      const t = this.add.text(x, y, '', { fontFamily: FONT_PIXEL, fontSize: `${Math.max(10, size - 2)}px`, color: '#cfe3f0', resolution: 2 }).setAlpha(0.55);
-      // a scatti: pezzi di parola che arrivano di colpo, poi resta un po' e sparisce
-      let n = 0;
-      this.time.delayedCall(300 + Math.random() * (MAX_MS - 1500), () => {
-        const ev = this.time.addEvent({
-          delay: 60, loop: true, callback: () => {
-            if (Math.random() < 0.45) return; // pause irregolari
-            n = Math.min(text.length, n + 1 + Math.floor(Math.random() * 5));
-            t.setText(text.slice(0, n) + (n < text.length ? '█' : ''));
-            if (n >= text.length) { ev.remove(); this.tweens.add({ targets: t, alpha: 0, delay: 1200 + Math.random() * 1500, duration: 500 }); }
-          },
-        });
-      });
-    }
+    // carte della sandbox (Europa, America): file a parte, scaricati qui la prima volta
+    const opts = (d.data as { opts?: RunOptions } | undefined)?.opts ?? (this.registry.get('resume') as { opts?: RunOptions } | undefined)?.opts;
+    const mapId: MapId = opts?.sandbox?.map ?? 'world';
+    this.worldKey = `world-${mapId}`;
+    this.needWorld = d.next === 'Run' && !this.registry.get(this.worldKey);
+    if (this.needWorld) this.time.delayedCall(200, () => void preloadWorld(mapId).then(() => this.registry.set(this.worldKey, loadWorld(mapId)))); // carta già pronta: solo decodifica
   }
 
   /** Registro scritto fino al carattere n, con l'avanzamento sull'ultima riga. */
@@ -252,7 +214,7 @@ export class LoadScene extends Phaser.Scene {
       this.draw(n, pct);
     }
     // la scena successiva parte sotto, coperta da questa (che resta in cima)
-    if (!this.launched && t > 0.5 && (!this.needWorld || this.registry.get('world'))) {
+    if (!this.launched && t > 0.5 && (!this.needWorld || this.registry.get(this.worldKey))) {
       this.launched = true;
       const key = this.target.next;
       this.scene.get(key).events.once('create', () => this.time.delayedCall(50, () => (this.ready = true)));

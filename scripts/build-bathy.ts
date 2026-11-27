@@ -1,8 +1,14 @@
 // Fondali veri del mare (Natural Earth 1:10M, batimetria, pubblico dominio) → griglia di profondità per la carta.
 // Classe per cella: 0 piattaforma (< 200 m), 1 scarpata (200–3000 m), 2 oceano profondo (> 3000 m).
-// Uso: npx vite-node scripts/build-bathy.ts (i file .shp scaricati sono in scripts/data/bathy/).
+// Uso: npx vite-node scripts/build-bathy.ts [carta] (i file .shp scaricati sono in scripts/data/bathy/).
+// carta: world (default, src/data/bathy.ts) oppure una carta della sandbox (src/data/bathy-<id>.ts, sul suo riquadro)
 import { readFileSync, writeFileSync } from 'node:fs';
-import { latToV } from '../src/map/projection';
+import { latToV, lonToU } from '../src/map/projection';
+import { REGIONS, setRegion, type MapId } from '../src/map/region';
+
+const MAP = (process.argv[2] ?? 'world') as MapId;
+if (!REGIONS[MAP]) throw new Error(`carta sconosciuta: ${MAP}`);
+setRegion(MAP);
 
 export const BW = 1440, BH = 640; // celle della griglia (sulla carta in Mercatore, come il resto)
 
@@ -39,8 +45,8 @@ for (const [name, c] of layers) {
   for (const ring of rings) for (let j = 0; j + 3 < ring.length + 2; j += 2) {
     const k = (j + 2) % ring.length;
     if (j >= ring.length) break;
-    const x1 = ((ring[j] + 180) / 360) * BW, y1 = latToV(Math.max(-85, Math.min(85, ring[j + 1]))) * BH;
-    const x2 = ((ring[k] + 180) / 360) * BW, y2 = latToV(Math.max(-85, Math.min(85, ring[k + 1]))) * BH;
+    const x1 = lonToU(ring[j]) * BW, y1 = latToV(Math.max(-85, Math.min(85, ring[j + 1]))) * BH;
+    const x2 = lonToU(ring[k]) * BW, y2 = latToV(Math.max(-85, Math.min(85, ring[k + 1]))) * BH;
     if (y1 !== y2) ex.push(x1, y1, x2, y2);
   }
   // pari-dispari riga per riga (i buchi sono anelli anche loro)
@@ -70,7 +76,7 @@ for (let i = 0; i < cls.length;) {
   i += n;
 }
 const b64 = Buffer.from(Uint8Array.from(runs)).toString('base64');
-writeFileSync('src/data/bathy.ts', `// Generato da scripts/build-bathy.ts (Natural Earth 1:10M, batimetria): non modificare a mano.\n// Classe per cella ${BW}×${BH} (Mercatore): 0 piattaforma < 200 m, 1 scarpata 200–3000 m, 2 oceano > 3000 m. Corse [valore, lunghezza].\nexport const BATHY = { w: ${BW}, h: ${BH}, runs: '${b64}' };\n`);
+writeFileSync(MAP === 'world' ? 'src/data/bathy.ts' : `src/data/bathy-${MAP}.ts`, `// Generato da scripts/build-bathy.ts (Natural Earth 1:10M, batimetria): non modificare a mano.\n// Classe per cella ${BW}×${BH} (Mercatore): 0 piattaforma < 200 m, 1 scarpata 200–3000 m, 2 oceano > 3000 m. Corse [valore, lunghezza].\nexport const BATHY = { w: ${BW}, h: ${BH}, runs: '${b64}' };\n`);
 const cnt = [0, 0, 0];
 for (const v of cls) cnt[v]++;
 console.log('celle', cnt, 'kB', Math.round(b64.length / 1024));

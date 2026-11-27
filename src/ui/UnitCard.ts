@@ -25,7 +25,7 @@ export class UnitCard extends Phaser.GameObjects.Container {
   baseY = 0;
 
   /** Carta del reparto: l'icona e basta; se non bastano truppe o risorsa si spegne. */
-  constructor(scene: Phaser.Scene, readonly type: UnitType, onClick: () => void) {
+  constructor(scene: Phaser.Scene, readonly type: UnitType, onClick: () => void, onHover?: (on: boolean) => void) {
     super(scene, 0, 0);
     this.bg = scene.add.rectangle(0, 0, CARD_W, CARD_H, TCOL.bg, 0.92).setOrigin(0).setStrokeStyle(1, TCOL.edge, 0.75);
     this.cool = scene.add.rectangle(0, 0, CARD_W, 0, TCOL.bg, 0.75).setOrigin(0);
@@ -34,6 +34,7 @@ export class UnitCard extends Phaser.GameObjects.Container {
     this.bringToTop(this.bg);
     this.setSize(CARD_W, CARD_H);
     this.bg.setInteractive({ useHandCursor: true }).on('pointerup', () => { sfx('select'); onClick(); });
+    this.bg.on('pointerover', () => onHover?.(true)).on('pointerout', () => onHover?.(false));
     scene.add.existing(this);
   }
 

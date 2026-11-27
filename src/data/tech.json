@@ -1,170 +1,65 @@
 {
   "branches": {
-    "armamenti": "Armamenti",
-    "esercito": "Esercito",
-    "logistica": "Logistica",
-    "economia": "Economia",
-    "difesa": "Difesa",
-    "caduta": "La Caduta"
+    "armamenti": "Weapons",
+    "esercito": "Army",
+    "logistica": "Logistics",
+    "economia": "Economy",
+    "difesa": "Defence",
+    "caduta": "The Fall"
   },
-  "ricognitori": {
-    "name": "Ricognitori",
-    "desc": "Sblocca i Ricognitori: veloci, battono l'artiglieria"
-  },
-  "artiglieria": {
-    "name": "Artiglieria",
-    "desc": "Sblocca l'Artiglieria: colpisce da lontano, batte la fanteria"
-  },
-  "corazzati": {
-    "name": "Corazzati",
-    "desc": "Sblocca i Corazzati: travolgono fanteria e ricognitori"
-  },
-  "munizioni": {
-    "name": "Munizioni perforanti",
-    "desc": "Le tue unità infliggono +15% danni"
-  },
-  "ricognizione": {
-    "name": "Ricognizione aerea",
-    "desc": "Abilità: svela una zona della mappa per 15 s"
-  },
-  "bombardamento": {
-    "name": "Bombardamento",
-    "desc": "Abilità: la provincia nemica colpita torna neutrale"
-  },
-  "unica": {
-    "name": "Unità della potenza",
-    "desc": "Sblocca l'unità unica della tua potenza"
-  },
-  "genio": {
-    "name": "Genio",
-    "desc": "Sblocca il Genio: fortifica le tue caselle, ferma i corazzati"
-  },
-  "cannoniera": {
-    "name": "Cannoniera",
-    "desc": "Sblocca la Cannoniera: nave che copre le coste"
-  },
-  "corazze": {
-    "name": "Corazze rinforzate",
-    "desc": "Le tue unità +10% vita"
-  },
-  "addestramento": {
-    "name": "Addestramento",
-    "desc": "Unità +15% vita"
-  },
-  "elite": {
-    "name": "Unità d'élite",
-    "desc": "Unità -15% costo"
-  },
-  "strade": {
-    "name": "Strade",
-    "desc": "Avanzata +25% più veloce"
-  },
-  "rifornimenti": {
-    "name": "Rifornimenti",
-    "desc": "+40 truppe a inizio campagna"
-  },
-  "estrazione": {
-    "name": "Estrazione+",
-    "desc": "Spedizioni -25% di tempo"
-  },
-  "industria": {
-    "name": "Città industriali",
-    "desc": "Capitali conquistate: +50% truppe"
-  },
-  "trincee": {
-    "name": "Trincee",
-    "desc": "Tue caselle +10% difesa"
-  },
-  "radar": {
-    "name": "Rete radar",
-    "desc": "Vista +2 nelle campagne"
-  },
+  "ricognitori": { "name": "Scouts", "desc": "Unlocks Scouts: fast, they beat artillery" },
+  "artiglieria": { "name": "Artillery", "desc": "Unlocks Artillery: strikes from afar, beats infantry" },
+  "corazzati": { "name": "Armour", "desc": "Unlocks Armour: overruns infantry and scouts" },
+  "munizioni": { "name": "Armour-piercing rounds", "desc": "Your units deal +15% damage" },
+  "ricognizione": { "name": "Air reconnaissance", "desc": "Ability: reveals an area of the map for 15 s" },
+  "bombardamento": { "name": "Bombardment", "desc": "Ability: the enemy province hit turns neutral" },
+  "unica": { "name": "Unique unit", "desc": "Unlocks the unique unit of your power" },
+  "genio": { "name": "Engineers", "desc": "Unlocks Engineers: fortify your tiles, stop armour" },
+  "cannoniera": { "name": "Gunboat", "desc": "Unlocks the Gunboat: a ship that covers the coasts" },
+  "corazze": { "name": "Reinforced plating", "desc": "Your units +10% health" },
+  "addestramento": { "name": "Training", "desc": "Units +15% health" },
+  "elite": { "name": "Elite units", "desc": "Units -15% cost" },
+  "strade": { "name": "Roads", "desc": "Advance 25% faster" },
+  "rifornimenti": { "name": "Supplies", "desc": "+40 troops at the start of a campaign" },
+  "estrazione": { "name": "Extraction+", "desc": "Expeditions -25% time" },
+  "industria": { "name": "Industrial cities", "desc": "Captured capitals: +50% troops" },
+  "trincee": { "name": "Trenches", "desc": "Your tiles +10% defence" },
+  "radar": { "name": "Radar network", "desc": "Sight +2 in campaigns" },
   "segnale": {
-    "name": "Segnale",
-    "desc": "Vista +2 nelle campagne",
-    "lore": "Le anomalie non sono crateri: sono Frammenti degli Alati. Emettono lo stesso segnale registrato la notte della Caduta, a intervalli regolari. Come un battito."
+    "name": "Signal",
+    "desc": "Sight +2 in campaigns",
+    "lore": "The anomalies are not craters: they are Fragments of the Winged. They emit the same signal recorded on the night of the Fall, at regular intervals. Like a heartbeat."
   },
   "frammenti": {
-    "name": "Il Lume",
-    "desc": "Bottino +10%",
-    "lore": "Il Lume, la luce fredda dei Frammenti, muove motori, radio e armi. Chi lo maneggia troppo a lungo smette di sentire il freddo. Poi smette di sentire."
+    "name": "The Lumen",
+    "desc": "Spoils +10%",
+    "lore": "The Lumen, the cold light of the Fragments, drives engines, radios and weapons. Whoever handles it too long stops feeling the cold. Then stops feeling at all."
   },
   "prototipo": {
-    "name": "Prototipo",
-    "desc": "Unità +10% vita",
-    "lore": "Il Progetto Annunciazione univa le quattro potenze. Durante la Concordia cercavano una voce nel cielo. La trovarono, e risposero."
+    "name": "Prototype",
+    "desc": "Units +10% health",
+    "lore": "Project Annunciation united the four powers. During the Concord they searched for a voice in the sky. They found it, and they answered."
   },
   "caduta": {
-    "name": "Tecnologia della Caduta",
-    "desc": "Truppe +8% di crescita",
-    "lore": "La Caduta non fu una punizione: fu una Prova. Il segnale è un conto alla rovescia verso l'Avvento. Quando il cielo si riaprirà, conterà solo chi tiene il mondo."
+    "name": "Technology of the Fall",
+    "desc": "Troops +8% growth",
+    "lore": "The Fall was not a punishment: it was a Trial. The signal is a countdown to the Advent. When the sky opens again, only those who hold the world will count."
   },
-  "assalto": {
-    "name": "Dottrina d'assalto",
-    "desc": "Prendere province costa il 15% di truppe in meno"
-  },
-  "ferrovie": {
-    "name": "Ferrovie militari",
-    "desc": "Truppe +12% di crescita"
-  },
-  "pianificazione": {
-    "name": "Piano quinquennale",
-    "desc": "Province +40% di produzione"
-  },
-  "fortezze": {
-    "name": "Fortezze",
-    "desc": "Fortificazioni +40% e province +10% di difesa"
-  },
-  "fanteria_vita": {
-    "name": "Elmetti e giubbe",
-    "desc": "Fanteria: +20% vita"
-  },
-  "fanteria_danni": {
-    "name": "Fucili a ripetizione",
-    "desc": "Fanteria: +20% danni"
-  },
-  "ricognitori_vita": {
-    "name": "Telai rinforzati",
-    "desc": "Ricognitori: +20% vita"
-  },
-  "ricognitori_danni": {
-    "name": "Mitragliatrici leggere",
-    "desc": "Ricognitori: +20% danni"
-  },
-  "artiglieria_vita": {
-    "name": "Affusti blindati",
-    "desc": "Artiglieria: +20% vita"
-  },
-  "artiglieria_danni": {
-    "name": "Granate ad alto esplosivo",
-    "desc": "Artiglieria: +20% danni"
-  },
-  "corazzati_vita": {
-    "name": "Piastre spesse",
-    "desc": "Corazzati: +20% vita"
-  },
-  "corazzati_danni": {
-    "name": "Cannoni lunghi",
-    "desc": "Corazzati: +20% danni"
-  },
-  "genio_vita": {
-    "name": "Scudi da cantiere",
-    "desc": "Genio: +20% vita"
-  },
-  "genio_danni": {
-    "name": "Cariche da demolizione",
-    "desc": "Genio: +20% danni"
-  },
-  "cannoniera_vita": {
-    "name": "Scafo corazzato",
-    "desc": "Cannoniera: +20% vita"
-  },
-  "cannoniera_danni": {
-    "name": "Pezzi navali",
-    "desc": "Cannoniera: +20% danni"
-  },
-  "fanteria_costo": {
-    "name": "Leva rapida",
-    "desc": "Fanteria: -15% truppe per schierarla"
-  }
+  "assalto": { "name": "Assault doctrine", "desc": "Taking provinces costs 15% fewer troops" },
+  "ferrovie": { "name": "Military railways", "desc": "Troops +12% growth" },
+  "pianificazione": { "name": "Five-year plan", "desc": "Provinces +40% production" },
+  "fortezze": { "name": "Fortresses", "desc": "Fortifications +40% and provinces +10% defence" },
+  "fanteria_vita": { "name": "Helmets and tunics", "desc": "Infantry: +20% health" },
+  "fanteria_danni": { "name": "Repeating rifles", "desc": "Infantry: +20% damage" },
+  "ricognitori_vita": { "name": "Reinforced frames", "desc": "Scouts: +20% health" },
+  "ricognitori_danni": { "name": "Light machine guns", "desc": "Scouts: +20% damage" },
+  "artiglieria_vita": { "name": "Armoured carriages", "desc": "Artillery: +20% health" },
+  "artiglieria_danni": { "name": "High-explosive shells", "desc": "Artillery: +20% damage" },
+  "corazzati_vita": { "name": "Thick plates", "desc": "Armour: +20% health" },
+  "corazzati_danni": { "name": "Long guns", "desc": "Armour: +20% damage" },
+  "genio_vita": { "name": "Work shields", "desc": "Engineers: +20% health" },
+  "genio_danni": { "name": "Demolition charges", "desc": "Engineers: +20% damage" },
+  "cannoniera_vita": { "name": "Armoured hull", "desc": "Gunboat: +20% health" },
+  "cannoniera_danni": { "name": "Naval guns", "desc": "Gunboat: +20% damage" },
+  "fanteria_costo": { "name": "Rapid conscription", "desc": "Infantry: -15% troops to deploy" }
 }

@@ -25,12 +25,14 @@ export class EventCard extends Phaser.GameObjects.Container {
     ev: GameEvent,
     canChoose: (c: EventChoice) => boolean,
     private onChoose: (side: 'left' | 'right') => void,
+    onClose?: () => void, // tocco fuori dalla carta: si chiude senza scegliere (resta nel RADAR)
   ) {
     super(scene, 0, 0);
     const { width, height } = view(scene);
     const W = Math.min(MAX_W, width - 24);
     this.cardW = W;
     const shade = scene.add.rectangle(0, 0, width, height, 0x000000, 0.55).setOrigin(0).setInteractive();
+    if (onClose) shade.on('pointerup', () => { if (this.done) return; this.done = true; this.destroy(); onClose(); });
     const cx = width / 2, cy = height / 2;
 
     // altezza su misura del racconto
@@ -38,12 +40,13 @@ export class EventCard extends Phaser.GameObjects.Container {
     const H = IMG_H + 30 + probe.height + 46;
     probe.destroy();
     const bg = scene.add.rectangle(0, 0, W, H, TCOL.bg).setStrokeStyle(1, ev.rare ? 0x9fe0a8 : TCOL.edge, 0.6);
-    const art = scene.textures.exists(`ev-${ev.id}`) ? coverImage(scene, `ev-${ev.id}`, -W / 2, -H / 2, W, IMG_H, 0.5) : null;
+    const key = ev.img ?? `ev-${ev.id}`;
+    const art = scene.textures.exists(key) ? coverImage(scene, key, -W / 2, -H / 2, W, IMG_H, 0.5) : null;
     const artFade = fade(scene, -W / 2, -H / 2 + IMG_H * 0.55, W, IMG_H * 0.45 + 1, TCOL.bg, 0, 1);
-    const head = scene.add.text(-W / 2 + 20, -H / 2 + IMG_H + 6, ev.rare ? 'Frammento dalla Caduta' : 'Rapporto dal campo', italic(11, ev.rare ? 0x9fe0a8 : TCOL.label));
+    const head = scene.add.text(-W / 2 + 20, -H / 2 + IMG_H + 6, ev.rare ? 'Fragment of the Fall' : 'Field report', italic(11, ev.rare ? 0x9fe0a8 : TCOL.label));
     const body = scene.add.text(-W / 2 + 20, head.y + 22, ev.text, textStyle(13, PALETTE.carta, false))
       .setWordWrapWidth(W - 40).setLineSpacing(4);
-    const hintTxt = scene.add.text(0, H / 2 - 18, '← trascina la carta →', italic(11)).setOrigin(0.5);
+    const hintTxt = scene.add.text(0, H / 2 - 18, '← drag the card →', italic(11)).setOrigin(0.5);
     this.card = scene.add.container(cx, cy - 20, [bg, ...(art ? [art] : []), artFade, head, body, hintTxt]);
 
     // scelte sotto la carta (anche toccabili)

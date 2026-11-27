@@ -1,6 +1,8 @@
 // Genera UNA VOLTA la carta delle province (src/data/worldmap.json): mappa del mondo vera (Natural Earth 1:50M)
 // con dentro le province, celle di Voronoi rilassate e ritagliate sulle nazioni. A runtime niente calcoli pesanti.
-// Uso: npx vite-node scripts/build-map.ts   (da rifare se cambia la griglia in balance.ts)
+// Uso: npx vite-node scripts/build-map.ts [carta]   (da rifare se cambia la griglia in balance.ts)
+// carta: world (default, src/data/worldmap.ts) oppure una carta della sandbox di src/map/region.ts (src/data/worldmap-<id>.ts,
+// coi fondali di scripts/build-bathy.ts <id>)
 import { writeFileSync } from 'node:fs';
 import { feature } from 'topojson-client';
 import { presimplify, simplify } from 'topojson-simplify';
@@ -13,19 +15,24 @@ import namesIt from '../src/data/countries-it.json';
 import terrainSrc from './data/ne-terrain.json'; // Natural Earth 1:10M, regioni fisiche: catene, altopiani, deserti (pubblico dominio)
 import { BALANCE } from '../src/config/balance';
 import { neighbors, WORLD_W, center, lonLat } from '../src/map/hexGrid';
-import { latToV } from '../src/map/projection';
+import { latToV, lonToU } from '../src/map/projection';
 import { createRng } from '../src/map/rng';
+import { REGIONS, setRegion, type MapId } from '../src/map/region';
 
-const TARGET = 17700; // province circa
+const MAP = (process.argv[2] ?? 'world') as MapId;
+if (!REGIONS[MAP]) throw new Error(`carta sconosciuta: ${MAP}`);
+setRegion(MAP); // griglia e proiezione della carta
+const R = REGIONS[MAP];
+const TARGET = R.provinces; // province circa
 const SCALE = 8; // coordinate salvate in 1/8 di pixel-mondo
 const { latMax, latMin, rows, cols, hexSize: S } = BALANCE.map;
-const rng = createRng('ashen-atlas-province');
+const rng = createRng(MAP === 'world' ? 'ashen-atlas-province' : `ashen-atlas-province-${MAP}`);
 
 type Pt = [number, number];
 type Ring = Pt[];
 type Poly = Ring[]; // [esterno, buchi...]
 
-const X = (lon: number) => ((lon + 180) / 360) * WORLD_W;
+const X = (lon: number) => lonToU(lon) * WORLD_W;
 const Y = (lat: number) => 1.5 * S * (latToV(lat) * rows - 0.5) + S; // Mercatore (src/map/projection.ts)
 
 const area = (r: Ring) => {
@@ -68,10 +75,12 @@ const bbox = (rings: Ring[]) => {
 const topo0 = world as unknown as Topology<{ countries: GeometryObject<{ name: string }> }>;
 const topo = simplify(presimplify(topo0 as never), 0.0015) as typeof topo0;
 const fc = feature(topo, topo.objects.countries);
-const feats = ('features' in fc ? fc.features : [fc]).filter((f) => f.geometry && f.properties?.name !== 'Antarctica');
+const feats = ('features' in fc ? fc.features : [fc]).filter((f) => f.geometry && f.properties?.name !== 'Antarctica'
+  && (!R.countries || R.countries.includes(f.properties?.name ?? ''))); // carta della sandbox: solo le sue nazioni
 const it = namesIt as Record<string, string>;
 const names = feats.map((f) => { const en = f.properties?.name ?? '?'; return it[en] ?? en; });
-const worldBox: Poly = [[[-180, latMin], [180, latMin], [180, latMax], [-180, latMax], [-180, latMin]]];
+const { lonMin, lonMax } = BALANCE.map;
+const worldBox: Poly = [[[lonMin, latMin], [lonMax, latMin], [lonMax, latMax], [lonMin, latMax], [lonMin, latMin]]];
 const countryParts: Poly[][] = feats.map((f) => {
   const g = f.geometry as Polygon | MultiPolygon;
   const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
@@ -379,7 +388,8 @@ const runs = (a: Int16Array | Int8Array) => {
 runs(tileProv);
 runs(terrain);
 const b64 = Buffer.from(Uint8Array.from(bytes)).toString('base64');
-writeFileSync('src/data/worldmap.ts', `// Generato da scripts/build-map.ts (npm run build:map): non modificare a mano.\n`
+writeFileSync(MAP === 'world' ? 'src/data/worldmap.ts' : `src/data/worldmap-${MAP}.ts`, `// Generato da scripts/build-map.ts (npm run build:map): non modificare a mano.\n`
+  + (MAP === 'world' ? '' : `export { BATHY } from './bathy-${MAP}';\n`)
   + `export const WORLD_META = ${JSON.stringify({ v: 2, scale: SCALE, cols, rows, names })};\n`
   + `export const WORLD_DATA =\n  '${b64}';\n`);
 console.log(`carta: ${(bytes.length / 1e6).toFixed(2)} MB binari, ${(b64.length / 1e6).toFixed(2)} MB in base64`);

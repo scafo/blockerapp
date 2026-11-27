@@ -1,4 +1,4 @@
-// Pedine sulla mappa come segni della pianta: simboli militari essenziali (rettangolo = tue, rombo = nemiche, cerchio = navi),
+// Pedine sulla mappa come segni della pianta: simboli militari essenziali (rettangolo = tue, rombo = nemiche, anche le navi),
 // disegnati in punti d'interfaccia e mostrati a grandezza costante sullo schermo. Forma + colore: leggibili anche per i daltonici.
 import Phaser from 'phaser';
 import type { UnitType } from '../config/balance';
@@ -7,16 +7,20 @@ import { PALETTE } from '../config/palette';
 const INK = PALETTE.inchiostro; // fondo ardesia dentro la cornice
 
 /** Simbolo della pedina centrato in (0,0): cornice, segno della specialità, alone tenue. */
-export function drawUnitSymbol(g: Phaser.GameObjects.Graphics, type: UnitType, friendly: boolean, color: number) {
+/** `bg` = fondo dentro la cornice; scambiato con `color` dà la pedina in negativo (selezionata). */
+export function drawUnitSymbol(g: Phaser.GameObjects.Graphics, type: UnitType, friendly: boolean, color: number, bg: number = INK, embarked = false) {
   const naval = type === 'cannoniera';
+  // truppa imbarcata (Nico): il suo segno sopra uno scafo, come le unità anfibie nei segni militari; linea d'acqua sotto
+  if (embarked && !naval) {
+    const hull = [{ x: -17, y: 10 }, { x: 17, y: 10 }, { x: 12, y: 17 }, { x: -12, y: 17 }];
+    g.fillStyle(color, 1).fillPoints(hull, true);
+    g.lineStyle(1.2, color, 0.8).lineBetween(-19, 20, -11, 20).lineBetween(-6, 20, 6, 20).lineBetween(11, 20, 19, 20);
+  }
   // niente alone: cornice netta su fondo ardesia, come le stanze della pianta
-  g.lineStyle(1.8, color, 1).fillStyle(INK, 0.95);
-  // cornice: rettangolo (tue), rombo (nemiche), cerchio (navi)
+  g.lineStyle(1.8, color, 1).fillStyle(bg, 0.95);
+  // cornice: rettangolo (tue), rombo (nemiche); le navi come le altre (Nico, 27 novembre 2026: "l'unica forma rotonda")
   let hw = 12, hh = 8; // area utile del segno
-  if (naval) {
-    g.fillCircle(0, 0, 11).strokeCircle(0, 0, 11);
-    hw = 7; hh = 6;
-  } else if (friendly) {
+  if (friendly) {
     g.fillRect(-13, -9, 26, 18);
     g.fillStyle(color, 1).fillRect(-13.9, -9.9, 27.8, 1.8).fillRect(-13.9, 8.1, 27.8, 1.8).fillRect(-13.9, -8.1, 1.8, 16.2).fillRect(12.1, -8.1, 1.8, 16.2); // cornice ad angoli netti
   } else {
@@ -36,7 +40,7 @@ export function drawUnitSymbol(g: Phaser.GameObjects.Graphics, type: UnitType, f
       break;
     case 'guardia': // fanteria della Republica: croce + anello
       X();
-      g.fillStyle(INK, 1).fillCircle(0, 0, 3.4).lineStyle(1.4, color, 1).strokeCircle(0, 0, 3.4);
+      g.fillStyle(bg, 1).fillCircle(0, 0, 3.4).lineStyle(1.4, color, 1).strokeCircle(0, 0, 3.4);
       break;
     case 'ricognitori':
       g.lineBetween(-hw, hh, hw, -hh);

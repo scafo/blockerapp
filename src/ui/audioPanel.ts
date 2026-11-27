@@ -38,12 +38,12 @@ export function openAudioPanel(scene: Phaser.Scene, x: number, y: number, look: 
     const toggle = (row: number, label: string, on: boolean, run: () => void) => {
       const yy = 26 + row * RH;
       box.add(scene.add.text(12, yy + 5, label, font(13, ink)));
-      btn(W - 72, yy, 60, on ? 'SÌ' : 'NO', run);
+      btn(W - 72, yy, 60, on ? 'YES' : 'NO', run);
     };
-    vol(0, 'Musica', 'music');
-    vol(1, 'Effetti', 'sfx');
-    toggle(2, 'Vibrazione', s.vibration, () => setAudio({ vibration: !s.vibration }));
-    toggle(3, 'Muto', s.muted, () => setAudio({ muted: !s.muted }));
+    vol(0, 'Music', 'music');
+    vol(1, 'Effects', 'sfx');
+    toggle(2, 'Vibration', s.vibration, () => setAudio({ vibration: !s.vibration }));
+    toggle(3, 'Mute', s.muted, () => setAudio({ muted: !s.muted }));
   };
   draw();
   return box;

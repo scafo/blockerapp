@@ -19,9 +19,8 @@ const safe = (fn: () => void) => {
   }
 };
 
-const debug = (...a: unknown[]) => {
-  if (!enabled && location.hostname === 'localhost') console.debug('[analytics]', ...a);
-};
+// eventi in console tolti (Nico, 27 novembre 2026): una riga per ogni pedina schierata, migliaia a partita
+const debug = (..._a: unknown[]) => {};
 
 /** GameAnalytics vuole id a parti separate da ":" con caratteri semplici. */
 const part = (s: string) => s.replace(/[^A-Za-z0-9_.()!?-]/g, '_').slice(0, 64);

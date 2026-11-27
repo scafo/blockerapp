@@ -71,8 +71,8 @@ forti + simboli (daltonismo).
   imperi lontani al Fronte I e sempre più vicini nei fronti alti (`fronts[].aiDistance`). **Diplomazia alla HOI4**: imperi in pace finché non vi toccate (poi possono
   dichiararti guerra), milizie ostili; tocca un impero (elenco, insegna sulla mappa, sua provincia in pace o tieni premuto) → scheda
   con potenza, forza, rapporto, opinione e azioni (guerra, pace, alleanza, doni di truppe/risorse, tributo dalle milizie).
-  **Accerchiamenti**: una sacca circondata da una sola fazione in guerra con lei si arrende (mai il cuore di una fazione: capitale o
-  più di metà delle sue province). Pedine: nessun danno in terra libera; in pace pedine e navi non combattono e non sbarcano.
+  **Accerchiamenti**: una sacca circondata da una sola fazione in guerra con lei si arrende: terra libera fino a 10 province; una
+  fazione solo se la sacca non tocca il mare e non ha sue pedine dentro (anche tutta la nazione, capitale compresa). Pedine: nessun danno in terra libera; in pace pedine e navi non combattono e non sbarcano.
 - **Puntata** (Nico: "tipo poker"): prima della campagna metti in gioco risorse del Deposito (0/60/180/450); finiscono nello zaino,
   le puoi spendere (ARRUOLA = risorse in truppe); il guadagno oltre la puntata rende ×1,25–2. Ritirata −25% (il Deposito liv. 3
   la riduce), eliminato −70%, fine campagna senza vincere = −25% della puntata (`stake.lossShare`: la puntata si può perdere),
@@ -182,14 +182,28 @@ Dopo ogni milestone Nico gioca 10 minuti prima di andare avanti. Obiettivo del t
   la pedina segue la freccia invece di tagliare dritto verso la punta.
 - **Ricerca a cubo e Radar in 3D** (Nico, 24 novembre 2026, dai suoi riferimenti: spaccato a strati e riquadri di luce con
   scie): three.js (dipendenza `three`) disegna su un canvas a parte, copiato in un canvas 2D che Phaser usa come texture.
-  **Ricerca** (`TreeScene` in modalità ricerca, `src/render/researchCube.ts`): niente più albero; al centro un parallelepipedo a fil
-  di ferro che gira col mouse, uno strato per ramo (La Caduta in cima, Esercito, Economia, Logistica, Difesa in fondo); ogni
-  ricerca fatta accende i suoi modelli low-poly (Blender: `../concept-art/stili/cubo_modelli.py` → `src/assets/models/cubo.glb`,
-  `PIECES`/`PLACE` dicono quale ricerca accende cosa), quella in corso si vede in trasparenza. A sinistra scritte fitte coi dati
-  veri, a destra un riquadro per ramo con le ricerche (si toccano); tocco su uno strato = la ricerca del suo ramo nella scheda di
-  sempre. L'Arsenale resta ad albero. **Sala Radar** (`src/render/registryRadar.ts`, `CampScene.makeRadar`): al posto della foto il
+  **Cubo** (`src/render/researchCube.ts`): parallelepipedo a fil di ferro che gira col mouse, uno strato per ramo; ogni ricerca
+  fatta accende i suoi modelli low-poly (Blender: `../concept-art/stili/cubo_modelli.py` → `src/assets/models/cubo.glb`). Il 25
+  novembre Nico l'ha tolto dalla Ricerca (tornata all'albero di prima) e l'ha messo nella **Sala Radar, scheda Archivio**: il cubo
+  si riempie dal fondo coi frammenti della Caduta trovati (`src/game/archive.ts`: le 4 ricerche con lore e i 3 eventi rari, che
+  ora restano in `profile.loreSeen` a fine campagna) e accanto si leggono i loro testi. Scheda Registro = i riquadri di luce. **Sala Radar** (`src/render/registryRadar.ts`, `CampScene.makeRadar`): al posto della foto il
   registro in 3D (blocchi smussati con scie, bagliore, lente col mouse e nome della voce sotto); le foto sono le ultime tre
   campagne, le potenze (le rivali dopo la prima campagna) e i frammenti dell'archivio. Mockup in `docs/mockups/`.
+- **Gioco in inglese** (Nico, 25 novembre 2026: "la lingua va messa in inglese", tutto, niente scelta della lingua): tutti i testi
+  per il giocatore sono in inglese (dati in `src/data/*.json`, scritte nelle scene e nella UI); i commenti e gli id interni restano
+  in italiano. Nomi fissi: Concord, the Fall, the Winged, Fragments (anche la moneta), the Signal, the Lumen, the Advent; stanze
+  Command Center, Radar Room, Laboratory, Arsenal, Depot, Extraction Teams, Market; risorse Metal, Fuel, Food. La carta ha i
+  nomi delle nazioni cotti in italiano: `worldAsset.ts` li riporta all'inglese con `countries-it.json` al contrario. **Immagini
+  nuove**: stanze della base in verticale e piene (`img/rooms/base-comando`, `base-radar`, `concept-art/stili/basi.py`), esterno
+  della montagna (`base-esterno`, la vecchia in `concept-art/old/v3`), intro con dodici foto della lore (`img/intro`,
+  `concept-art/stili/intro.py`).
+- **Aggiornamento di qualità** (Nico, 25 novembre 2026, dopo la Sandbox; lista e numeri in `docs/qol-update.md`): 150 milizie e
+  imperi che le assorbono (terra libera quasi finita in 3 minuti attorno a te; `scripts/world-sim.ts` misura il mondo),
+  schieramento multiplo, linee colorate, attacca nazione, pedine che scivolano col passo vero, scheda del reparto con barre,
+  fabbrica a 3 livelli, Città costruibile, COSTRUISCI che resta aperto, mappa terreno a colori, zoom fino a 66 con livelli di puntini più
+  fitti (niente esagoni: Nico li ha bocciati), linee del rifornimento nelle mappe. **Movimento alla Call of War**: da centro a
+  centro delle province, conquista al centro (`landPath`); centri e collegamenti visibili allo zoom massimo. Grafica di percorsi,
+  frecce e icone a puntini come la carta. `sim.ts` compra ancora la terra con le truppe: con le regole nuove (solo reparti) non misura più la campagna.
 - **Base in sezione alla XCOM 2** (Nico, novembre 2026: "UI migliore ispirata da altri giochi", scelta XCOM 2): la home è la montagna
   della base di notte con tre piani di stanze illustrate (`FLOORS` in `CampScene.ts`; in verticale Comando largo + due colonne);
   ogni stanza si tocca e apre la sua pagina, dove la foto della stanza fa da fondo (niente più pianta). A destra "In corso"

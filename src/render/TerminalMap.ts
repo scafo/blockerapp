@@ -56,6 +56,8 @@ export interface TermFrame {
   front?: { own: string[]; war: string[]; color: string };
   /** COSTRUISCI: linee tra le tue province */
   ownLines?: boolean;
+  provLines?: boolean; // vista politica: linee tra le province dentro ogni territorio, nel suo colore più scuro (da vicino)
+  provLineK?: number; // quanto scure (× del colore): logistica più leggere
   /** colori che per il confine contano come un territorio solo (logistica: le sfumature del tuo, senza linee in mezzo) */
   same?: string[];
 }

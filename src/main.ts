@@ -10,11 +10,30 @@ import { TreeScene } from './scenes/TreeScene';
 import { TitleScene } from './scenes/TitleScene';
 import { IntroScene } from './scenes/IntroScene';
 import { ResultScene } from './scenes/ResultScene';
+import { ReplayScene } from './scenes/ReplayScene';
 import { RunScene } from './scenes/RunScene';
 import { DevScene } from './scenes/dev/DevScene';
 import { DPR } from './ui/screen';
 import { installHotkeys } from './ui/hotkeys';
 import { initDevProfile } from './save/devProfiles';
+
+// misura dei font una volta per stile: Phaser la rifà per ogni testo nuovo (disegna su un canvas e legge i pixel), e i
+// pannelli che si ricostruiscono ne creano decine alla volta. Solo per i testi nuovi (lo stile completo è noto).
+{
+  type M = { ascent: number; descent: number; fontSize: number };
+  const TS = Phaser.GameObjects.TextStyle.prototype as unknown as { setStyle: (this: { metrics: M }, s: Record<string, unknown>, u: boolean, d: boolean) => unknown };
+  const orig = TS.setStyle, cache = new Map<string, M>();
+  document.fonts?.addEventListener?.('loadingdone', () => cache.clear()); // font arrivato dopo: si rimisura
+  TS.setStyle = function (style, updateText, setDefaults) {
+    if (!setDefaults || !style || style.metrics) return orig.call(this, style, updateText, setDefaults);
+    const key = [style.font, style.fontFamily, style.fontSize, style.fontStyle, style.testString, style.baselineX, style.baselineY].join('|');
+    const m = cache.get(key);
+    if (m) return orig.call(this, { ...style, metrics: m }, updateText, setDefaults);
+    const r = orig.call(this, style, updateText, setDefaults);
+    cache.set(key, { ascent: this.metrics.ascent, descent: this.metrics.descent, fontSize: this.metrics.fontSize });
+    return r;
+  };
+}
 
 initDevProfile(); // ?profile=nuovo|dopo1|medio|max: sposta il salvataggio su una chiave di prova, prima di tutto
 installHotkeys();
@@ -69,7 +88,7 @@ function boot() {
   if (w < MIN || h < MIN) return; // aspetta che la pagina abbia una misura vera
   // solo la prima scena dell'elenco si avvia da sola: ?debug=widgets apre la galleria al posto del gioco vero
   const debugWidgets = new URLSearchParams(location.search).get('debug') === 'widgets';
-  const scenes = [BootScene, CampScene, RunScene, HudScene, ResultScene, TreeScene, LoadScene, TitleScene, IntroScene, DevScene];
+  const scenes = [BootScene, CampScene, RunScene, HudScene, ResultScene, ReplayScene, TreeScene, LoadScene, TitleScene, IntroScene, DevScene];
   if (debugWidgets) scenes.unshift(scenes.pop()!); // DevScene (ultima) va in testa
   game = new Phaser.Game({
     type: Phaser.AUTO,

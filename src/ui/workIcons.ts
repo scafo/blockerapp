@@ -3,22 +3,23 @@ import type Phaser from 'phaser';
 import { BALANCE, type WorkId } from '../config/balance';
 
 export const WORK_NAME: Record<WorkId, string> = {
-  fabbrica: 'Fabbrica', bunker: 'Fortificazione', caserma: 'Caserma', ospedale: 'Ospedale', radar: 'Radar', porto: 'Porto', aeroporto: 'Aeroporto',
-  rifornimenti: 'Deposito rifornimenti', ferrovia: 'Ferrovia', contraerea: 'Contraerea', raffineria: 'Raffineria', fattoria: 'Fattoria',
+  fabbrica: 'Factory', bunker: 'Fortification', caserma: 'Barracks', ospedale: 'Hospital', radar: 'Radar', porto: 'Port', aeroporto: 'Airfield',
+  rifornimenti: 'Supply depot', ferrovia: 'Railway', contraerea: 'Anti-aircraft', raffineria: 'Refinery', fattoria: 'Farm', citta: 'City',
 };
 export const WORK_DESC: Record<WorkId, string> = {
-  fabbrica: `produzione ×${BALANCE.works.fabbrica.prodMult}`,
-  bunker: 'difesa ×1,7',
-  caserma: 'più truppe',
-  ospedale: 'cura ×3 qui',
-  radar: 'vista +7 caselle',
-  porto: 'navi: +50% mare',
-  aeroporto: 'abilità −30%',
-  rifornimenti: 'logistica riparte da qui',
-  ferrovia: 'pedine ×2 veloci qui e accanto',
-  contraerea: 'ferma i bombardamenti',
-  raffineria: `+${BALANCE.works.raffineria.prodAdd} benzina/min`,
-  fattoria: `+${BALANCE.works.fattoria.prodAdd} cibo/min`,
+  fabbrica: `production ×${BALANCE.works.fabbrica.prodMult}, up to ×${BALANCE.works.fabbrica.levelProd?.[BALANCE.works.fabbrica.levelProd.length - 1]} at level ${BALANCE.works.fabbrica.maxLevel}`,
+  bunker: 'defence ×1.7 here, ×1.25 next door',
+  caserma: 'more troops',
+  ospedale: 'healing ×3 here',
+  radar: `sees enemy units ${BALANCE.sight.radarDepth} provinces around`,
+  porto: 'ships: +50% sea',
+  aeroporto: 'abilities −30%',
+  rifornimenti: `links to the nearest depot, each link covers less area`,
+  ferrovia: 'units ×2 speed here and nearby',
+  contraerea: 'stops bombardments',
+  raffineria: `+${BALANCE.works.raffineria.prodAdd} fuel/min`,
+  fattoria: `+${BALANCE.works.fattoria.prodAdd} food/min`,
+  citta: 'becomes a city: more production, raises units',
 };
 
 /** Effetto della costruzione col nome della risorsa della provincia (fabbrica: "+1 metallo/min"). */
@@ -88,6 +89,9 @@ export function drawWorkIcon(g: Phaser.GameObjects.Graphics, w: WorkId, x: numbe
     // fienile: tetto a punta e porta
     g.fillPoints([{ x: x - r, y: y + r * 0.85 }, { x: x - r, y: y - r * 0.15 }, { x, y: y - r }, { x: x + r, y: y - r * 0.15 }, { x: x + r, y: y + r * 0.85 }], true);
     g.fillStyle(cut, 1).fillRect(x - r * 0.3, y + r * 0.1, r * 0.6, r * 0.75);
+  } else if (w === 'citta') {
+    // tre palazzi di altezze diverse
+    g.fillRect(x - r, y - r * 0.2, r * 0.6, r * 1.05).fillRect(x - r * 0.3, y - r, r * 0.6, r * 1.85).fillRect(x + r * 0.4, y - r * 0.55, r * 0.6, r * 1.4);
   } else {
     // tenda con bandiera
     g.fillTriangle(x - r, y + r * 0.8, x + r, y + r * 0.8, x, y - r * 0.3);

@@ -12,6 +12,7 @@ export interface EventEffects {
   focus?: number; // provincia da inquadrare
   alert?: { from: number; to: number }; // freccia sulla carta: armata nemica (casella) verso la tua provincia (casella)
   weak?: number; // provincia nemica sguarnita: per un minuto prenderla costa la metà
+  guard?: number; // tua provincia minacciata: difesa ×1,5 per 90 s (rapporto d'attacco del radar)
 }
 
 export interface EventChoice {
@@ -29,6 +30,8 @@ export interface GameEvent {
   text: string;
   left: EventChoice;
   right: EventChoice;
+  until?: number; // rapporti del radar: scadono (tempo di gioco), poi spariscono dal RADAR
+  img?: string; // immagine della carta (se no `ev-<id>`): i rapporti del radar ne scelgono una fra più
 }
 
 export const EVENTS = data as GameEvent[];

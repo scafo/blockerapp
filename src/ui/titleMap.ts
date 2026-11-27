@@ -15,6 +15,7 @@ import { ELEV } from '../render/WorldMap';
 
 const LAND = '#0e1219'; // terra
 import { loadWorld } from '../map/worldAsset';
+import { setRegion } from '../map/region';
 
 const css = (c: number, a = 1) => `rgba(${(c >> 16) & 255},${(c >> 8) & 255},${c & 255},${a})`;
 
@@ -36,6 +37,7 @@ function unwrap(ring: Position[]): Position[] {
 /** Carta in un canvas di `w`×`h` pixel veri (`px` = pixel per punto dello schermo); `pad` pixel di bordo in più per lato
  *  (la carta segue il mouse e non deve scoprire i lati). */
 async function drawMap(w: number, h: number, px: number, pad: number): Promise<HTMLCanvasElement> {
+  setRegion('world'); // la home usa sempre la carta del mondo (dopo una partita della sandbox su un'altra carta)
   const topo = (await import('world-atlas/countries-50m.json')).default as unknown as Topology<{ countries: GeometryObject }>;
   // proiezione: Mercatore della campagna, ingrandito sull'Europa (l'inquadratura vale per lo schermo, senza il bordo)
   const iw = w - 2 * pad, ih = h - 2 * pad;

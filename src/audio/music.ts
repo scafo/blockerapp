@@ -2,6 +2,7 @@
 // Strati: bordone grave filtrato, accordi lenti in La minore, statica radio, bip radar lontani; in guerra un battito basso,
 // durante un'offensiva anche un ticchettio teso. Nell'HQ è più calma (niente battito, accordi più lunghi).
 import { ac, buses, noise, onAudioChange } from './engine';
+import { hasSample, loopSample } from './samples';
 
 export type MusicMode = 'off' | 'hq' | 'run';
 
@@ -17,6 +18,7 @@ class Music {
   private timer: number | null = null;
   private next = { chord: 0, ping: 0, beat: 0, tick: 0 };
   private chordIdx = 0;
+  private amb: AudioBufferSourceNode[] = []; // ambiente registrato della campagna (vento, statica radio)
 
   constructor() {
     onAudioChange(() => { if (this.mode !== 'off' && !this.out) this.start(this.mode); });
@@ -95,7 +97,10 @@ class Music {
     out.gain.cancelScheduledValues(t);
     out.gain.setValueAtTime(Math.max(0.0001, out.gain.value), t);
     out.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+    const amb = this.amb;
+    this.amb = [];
     setTimeout(() => {
+      for (const a of amb) { try { a.stop(); } catch { /* già ferma */ } }
       for (const o of drone?.osc ?? []) { try { o.stop(); } catch { /* già ferma */ } }
       try { (drone as { src?: AudioBufferSourceNode } | null)?.src?.stop(); } catch { /* già ferma */ }
       out.disconnect();
@@ -109,6 +114,11 @@ class Music {
     const c = ac();
     if (!c || !this.out) return;
     const ahead = c.currentTime + 0.6, hq = this.mode === 'hq', I = this.intensity;
+    // ambiente vero in campagna (Nico: "migliora i suoni"): vento sulla carta e statica di una radio, appena sotto la musica;
+    // parte appena i file sono pronti
+    if (this.mode === 'run' && !this.amb.length && hasSample('ambWind') && hasSample('ambRadio')) {
+      this.amb = [loopSample('ambWind', 0.35, this.out), loopSample('ambRadio', 0.22, this.out)].filter((x): x is AudioBufferSourceNode => !!x);
+    }
     // accordi lenti
     while (this.next.chord < ahead) {
       const len = hq ? 12 : 9 - I * 1.5;

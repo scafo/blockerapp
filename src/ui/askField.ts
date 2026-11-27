@@ -49,7 +49,7 @@ export function askField(o: FieldOpts, done: (v: string | null) => void) {
         : `background:transparent;color:${hex(PALETTE.tenue)};border:1px solid ${hex(PALETTE.linea)};`);
     return b;
   };
-  const cancel = mk('ANNULLA', false), ok = mk('CONFERMA', true);
+  const cancel = mk('CANCEL', false), ok = mk('CONFIRM', true);
   row.append(cancel, ok);
   box.append(input, row);
   wrap.append(box);

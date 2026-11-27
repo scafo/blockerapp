@@ -14,8 +14,26 @@ import wheat from 'lucide-static/icons/wheat.svg?raw';
 import cog from 'lucide-static/icons/cog.svg?raw';
 import fuel from 'lucide-static/icons/fuel.svg?raw';
 import map from 'lucide-static/icons/map.svg?raw';
+import spline from 'lucide-static/icons/spline.svg?raw';
+import arrow from 'lucide-static/icons/arrow-big-right.svg?raw';
+import crosshair from 'lucide-static/icons/crosshair.svg?raw';
+import pointer from 'lucide-static/icons/mouse-pointer-2.svg?raw';
+import plus from 'lucide-static/icons/plus.svg?raw';
+import pencil from 'lucide-static/icons/pencil.svg?raw';
+import close from 'lucide-static/icons/x.svg?raw';
+import stop from 'lucide-static/icons/octagon-x.svg?raw';
+import radar from 'lucide-static/icons/radar.svg?raw';
+import flag from 'lucide-static/icons/flag.svg?raw';
+import mountain from 'lucide-static/icons/mountain.svg?raw';
+import chart from 'lucide-static/icons/chart-column.svg?raw';
+import clock from 'lucide-static/icons/clock.svg?raw';
+import settings from 'lucide-static/icons/settings.svg?raw';
+import coins from 'lucide-static/icons/coins.svg?raw';
+import waypoints from 'lucide-static/icons/waypoints.svg?raw';
+import exit from 'lucide-static/icons/log-out.svg?raw';
+import list from 'lucide-static/icons/list.svg?raw';
 
-const SVG: Record<string, string> = { hammer, flask, truck, hourglass, user, sparkles, back, volume, mute, wheat, cog, fuel, map };
+const SVG: Record<string, string> = { hammer, flask, truck, hourglass, user, sparkles, back, volume, mute, wheat, cog, fuel, map, spline, arrow, crosshair, pointer, plus, pencil, close, stop, radar, flag, mountain, chart, clock, settings, coins, waypoints, exit, list };
 export type LineIcon = keyof typeof SVG;
 
 const dataUrl = (src: string, size: number) =>

@@ -35,12 +35,12 @@ export class Button extends Phaser.GameObjects.Container {
       .setStrokeStyle(2, PALETTE.radioattivo, 1).setOrigin(0).setVisible(false);
     const labelX = opts.icon ? w / 2 + 10 : w / 2;
     this.label = scene.add.text(labelX, h / 2, text, textStyle(size, 0xffffff)).setOrigin(0.5).setLetterSpacing(Math.max(1.5, size * 0.14));
-    this.fitLabel();
     this.add([this.bg, this.edge, this.focusRing, this.label]);
     if (opts.icon) {
-      this.icon = scene.add.image(labelX - this.label.width / 2 - 12, h / 2, opts.icon).setDisplaySize(size + 2, size + 2);
+      this.icon = scene.add.image(0, h / 2, opts.icon).setDisplaySize(size + 2, size + 2);
       this.add(this.icon);
     }
+    this.fitLabel();
     if (opts.hotkey) {
       this.hotkeyBadge = scene.add.text(w - 4, 3, opts.hotkey, textStyle(9, PALETTE.tenue, false)).setOrigin(1, 0);
       this.add(this.hotkeyBadge);
@@ -140,7 +140,13 @@ export class Button extends Phaser.GameObjects.Container {
 
   /** Testi lunghi: si rimpiccioliscono per restare nel tasto. */
   private fitLabel() {
-    this.label.setScale(Math.min(1, (this.btnW - 16) / Math.max(1, this.label.width)));
+    // icona e scritta centrate insieme, rifatte a ogni cambio di scritta (prima l'icona restava dov'era e finiva sopra il
+    // testo nuovo, Nico: BUILD e RADAR)
+    const iw = this.icon ? this.icon.displayWidth + 8 : 0;
+    this.label.setScale(Math.min(1, (this.btnW - 16 - iw) / Math.max(1, this.label.width)));
+    const tw = this.label.width * this.label.scaleX, x0 = (this.btnW - iw - tw) / 2;
+    this.icon?.setX(x0 + (iw - 8) / 2);
+    this.label.setX(x0 + iw + tw / 2);
   }
 
   /** Disattiva il bottone: si scurisce, ignora i clic; se dai un motivo, appare al passaggio del mouse. */

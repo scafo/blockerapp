@@ -1,7 +1,8 @@
 // Genera la mappa di una run a partire dal seed: rovine, partenze (terreno e province vengono dalla carta pronta).
 import { BALANCE, type Resource, type Terrain, type TileType } from '../config/balance';
 import { createRng, randInt, type Rng } from './rng';
-import { neighbors, center, hexDistance } from './hexGrid';
+import { neighbors, center, hexDistance, WORLD_H } from './hexGrid';
+import { vToLat } from './projection';
 import type { WorldAsset } from './worldAsset';
 
 export interface Tile {
@@ -51,6 +52,8 @@ export interface RunMap {
   regionSize: number; // caselle attraversabili raggiungibili dalla partenza del giocatore
   provinces: Province[];
   nations: Nation[];
+  /** guadi: caselle di mare negli stretti brevi tra due province, attraversabili a piedi (1 = guado) */
+  ford: Uint8Array;
 }
 
 const M = BALANCE.map;
@@ -60,7 +63,7 @@ const M = BALANCE.map;
  * La griglia esagonale resta sotto, invisibile: serve per le forme, le pedine e le navi.
  */
 export function generateMap(seed: string, world: WorldAsset, aiCount: number = BALANCE.ai.count, botCount: number = BALANCE.bots.count,
-  aiDistance: [number, number] = BALANCE.fronts[0].aiDistance): RunMap {
+  aiDistance: [number, number] = BALANCE.fronts[0].aiDistance, spread = false): RunMap {
   const rng = createRng(seed);
   const tp = world.tileProv;
   const tiles: (Tile | null)[] = new Array(tp.length).fill(null);
@@ -75,7 +78,7 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
     land.push(i);
   }
 
-  const { provinces, nations } = buildProvinces(tiles, land, world);
+  const { provinces, nations, ford } = buildProvinces(tiles, land, world);
 
   // Rovine sparse (insediamenti).
   for (let k = 0; k < M.ruinsCount; k++) {
@@ -92,10 +95,10 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
     }
   }
 
-  const starts = pickStarts(rng, tiles, land, aiCount, provinces, aiDistance);
+  const starts = pickStarts(rng, tiles, land, aiCount, provinces, aiDistance, spread);
   const dist = bfs(tiles, starts[0]);
   const region = land.filter((i) => dist[i] >= 0);
-  const bots = pickBots(rng, tiles, land, botCount, starts, dist);
+  const bots = pickBots(rng, tiles, land, botCount, starts, dist, spread);
   const kinds: FactionKind[] = [...starts.map((_, k): FactionKind => (k === 0 ? 'player' : 'empire')), ...bots.map((): FactionKind => 'bot')];
   starts.push(...bots);
   // città e capitali più difese
@@ -105,7 +108,7 @@ export function generateMap(seed: string, world: WorldAsset, aiCount: number = B
     const t = tiles[p.city]!;
     t.defense = Math.round(t.defense * P.cityDefenseMult) + P.cityDefenseBonus + (t.capital ? P.capitalDefenseBonus : 0);
   }
-  return { seed, tiles, land, starts, kinds, regionSize: region.length, provinces, nations };
+  return { seed, tiles, land, starts, kinds, regionSize: region.length, provinces, nations, ford };
 }
 
 /**
@@ -167,8 +170,36 @@ function buildProvinces(tiles: (Tile | null)[], land: number[], world: WorldAsse
       if (q >= 0 && q !== p) nb[p].add(q);
     }
   }
+  // stretti brevi (fino a FORD caselle di mare): le province ai due lati diventano vicine e il mare in mezzo si passa a piedi
+  // (Nico, 27 novembre 2026: "non ci siano province irraggiungibili", in Danimarca un'isola accanto risultava irraggiungibile)
+  const FORD = 5, ford = new Uint8Array(tiles.length), joined = new Set<number>();
+  const parent = new Map<number, number>();
+  for (const i of land) {
+    const p = tiles[i]!.province;
+    if (p < 0 || !neighbors(i).some((n) => n >= 0 && !tiles[n])) continue; // solo dalla costa
+    parent.clear();
+    let ring = [i];
+    parent.set(i, -1);
+    for (let depth = 0; depth < FORD && ring.length; depth++) {
+      const next: number[] = [];
+      for (const c of ring) for (const n of neighbors(c)) {
+        if (n < 0 || parent.has(n)) continue;
+        parent.set(n, c);
+        const t = tiles[n];
+        if (!t) { next.push(n); continue; }
+        const q = t.province;
+        if (q < 0 || q === p || depth === 0) continue; // terra subito accanto: confine normale, non un guado
+        const key = Math.min(p, q) * 65536 + Math.max(p, q);
+        if (nb[p].has(q) || joined.has(key)) continue;
+        joined.add(key);
+        nb[p].add(q); nb[q].add(p);
+        for (let k = c; k >= 0 && !tiles[k]; k = parent.get(k) ?? -1) ford[k] = 1;
+      }
+      ring = next;
+    }
+  }
   provinces.forEach((p, k) => (p.neighbors = [...nb[k]]));
-  return { provinces, nations };
+  return { provinces, nations, ford };
 }
 
 function centroid(list: number[]): { x: number; y: number } {
@@ -192,18 +223,25 @@ function pickWeighted<K extends string>(rng: Rng, weights: Record<K, number>): K
  * Milizie provinciali (alla OpenFront): tante piccole forze sparse con molta terra libera attorno. La maggior parte nella
  * regione del giocatore, a distanze diverse (le prime prede), le altre nel resto del mondo.
  */
-function pickBots(rng: Rng, tiles: (Tile | null)[], land: number[], count: number, starts: number[], dist: Int32Array): number[] {
+function pickBots(rng: Rng, tiles: (Tile | null)[], land: number[], count: number, starts: number[], dist: Int32Array, spread = false): number[] {
   const B = BALANCE.bots;
   if (count <= 0) return [];
-  const all = land.filter((i) => goodStart(tiles, i));
+  // una casella buona per provincia: si sceglie per provincia, non per casella (Nico: troppe milizie in Africa, dove le
+  // province sono enormi e le caselle tante)
+  const seenProv = new Set<number>();
+  const all = land.filter((i) => goodStart(tiles, i) && !seenProv.has(tiles[i]!.province) && !!seenProv.add(tiles[i]!.province));
   const near = all.filter((i) => dist[i] >= B.near[0] && dist[i] <= B.near[1]);
   const out: number[] = [];
   const used = new Set(starts.map((s) => tiles[s]!.province));
-  const apart = (i: number) => [...starts, ...out].every((s) => hexDistance(s, i) >= B.minApart);
-  const take = (pool: number[], n: number) => {
+  // sparse: distanza in km veri (al nord una casella vale meno strada), così la densità è uguale ovunque
+  const apart = spread
+    ? (i: number) => { const k = Math.sqrt(areaWeight(i)); return [...starts, ...out].every((s) => hexDistance(s, i) * k >= B.minApart * 0.6); }
+    : (i: number) => [...starts, ...out].every((s) => hexDistance(s, i) >= B.minApart);
+  const take = (pool: number[], n: number, weighted = false) => {
     for (let k = 0; k < n && pool.length; k++) {
-      for (let t = 0; t < 30; t++) {
+      for (let t = 0; t < 300; t++) {
         const i = pool[Math.floor(rng() * pool.length)];
+        if (weighted && rng() > areaWeight(i)) continue;
         if (used.has(tiles[i]!.province) || !apart(i)) continue;
         used.add(tiles[i]!.province);
         out.push(i);
@@ -211,8 +249,9 @@ function pickBots(rng: Rng, tiles: (Tile | null)[], land: number[], count: numbe
       }
     }
   };
-  take(near, Math.round(count * B.nearShare));
-  take(all, count - out.length);
+  // sandbox: la partenza si sceglie dopo, quella provvisoria non conta (Nico: America del Nord vuota, tutte vicino all'Europa)
+  if (!spread) take(near, Math.round(count * B.nearShare));
+  take(all, count - out.length, true);
   return out;
 }
 
@@ -241,6 +280,10 @@ function bfs(tiles: (Tile | null)[], from: number): Int32Array {
   return dist;
 }
 
+// carta in Mercatore: al nord una provincia copre poca terra vera, quindi Canada, Groenlandia e Russia avevano tantissime
+// province e si prendevano quasi tutte le milizie (Nico: Alaska piena, Stati Uniti vuoti). Peso = area vera (cos² lat).
+const areaWeight = (i: number) => Math.cos((vToLat(center(i).y / WORLD_H) * Math.PI) / 180) ** 2;
+
 const goodStart = (tiles: (Tile | null)[], i: number) =>
   tiles[i]!.type === 'terra' && neighbors(i).every((n) => passable(tiles[n] ?? null));
 
@@ -248,7 +291,7 @@ const goodStart = (tiles: (Tile | null)[], i: number) =>
  * Partenza del giocatore casuale in una regione grande (niente isolette);
  * le IA partono nella stessa regione, a distanza giusta per incontrarsi presto.
  */
-function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[], count: number, provinces: Province[], [dMin, dMax]: [number, number]): number[] {
+function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[], count: number, provinces: Province[], [dMin, dMax]: [number, number], spread = false): number[] {
   const pick = <T>(a: T[]) => a[Math.floor(rng() * a.length)];
   // provincia di partenza abbastanza grande e con più vie d'uscita
   const roomy = (i: number) => {
@@ -262,7 +305,10 @@ function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[], count: num
     if (!p || growth(p) < BALANCE.start.minGrowth || !p.neighbors.length) return false;
     return p.neighbors.reduce((s, q) => s + growth(provinces[q]), 0) / p.neighbors.length >= BALANCE.start.minNearGrowth;
   };
-  const all = land.filter((i) => goodStart(tiles, i));
+  // una casella buona per provincia: si sceglie per provincia, non per casella (Nico: troppe milizie in Africa, dove le
+  // province sono enormi e le caselle tante)
+  const seenProv = new Set<number>();
+  const all = land.filter((i) => goodStart(tiles, i) && !seenProv.has(tiles[i]!.province) && !!seenProv.add(tiles[i]!.province));
   const pools = [all.filter((i) => roomy(i) && fertile(i)), all.filter(roomy), all];
   const ok = pools.find((a) => a.length > 50) ?? all;
   let player = -1;
@@ -297,6 +343,21 @@ function pickStarts(rng: Rng, tiles: (Tile | null)[], land: number[], count: num
   const starts = [player];
   const aiDist: Int32Array[] = [];
   const prov = (i: number) => tiles[i]!.province;
+  // sandbox e multiplayer (Nico: "come OpenFront, stessa densità ovunque"): imperi sparsi per il mondo, ognuno il più
+  // lontano possibile dagli altri, non attorno alla partenza provvisoria (quella vera si sceglie dopo)
+  if (spread) {
+    for (let k = 0; k < count; k++) {
+      let best = -1, bestD = -1;
+      for (let t = 0; t < 60; t++) {
+        const i = pick(ok);
+        if (rng() > areaWeight(i) || starts.some((s) => prov(s) === prov(i))) continue;
+        const d = Math.min(...starts.map((s) => hexDistance(s, i)));
+        if (d > bestD) { bestD = d; best = i; }
+      }
+      if (best >= 0) starts.push(best);
+    }
+    return starts;
+  }
   for (let k = 0; k < count; k++) {
     const apart = (i: number) => aiDist.every((d) => d[i] >= minDistanceBetween);
     const band = reachable.filter((i) => dist[i] >= dMin && dist[i] <= dMax && !starts.some((s) => prov(s) === prov(i)));

@@ -1,73 +1,73 @@
 {
   "arsenale": {
-    "name": "Arsenale",
-    "desc": "Sblocca i reparti e li potenzia: ogni livello apre nuove carte nelle righe dei reparti. Le casse arrivano sigillate: nessuno chiede da dove.",
+    "name": "Arsenal",
+    "desc": "Unlocks the units and upgrades them: every level opens new cards in the unit rows. The crates arrive sealed: nobody asks where from.",
     "levels": [
-      "Armamenti: Ricognitori · primo potenziamento della Fanteria",
-      "Armamenti: Artiglieria · potenziamenti di Fanteria e Ricognitori",
-      "Armamenti: Corazzati, Genio, Munizioni · nuovi potenziamenti",
-      "Armamenti: Cannoniera, Corazze · nuovi potenziamenti",
-      "Armamenti: Ricognizione aerea, Bombardamento · nuovi potenziamenti",
-      "Armamenti: unità della potenza · unità +25% vita"
+      "Weapons: Scouts, first Infantry upgrade",
+      "Weapons: Artillery, Infantry and Scout upgrades",
+      "Weapons: Armour, Engineers, Ammunition, new upgrades",
+      "Weapons: Gunboat, Armour plating, new upgrades",
+      "Weapons: Air reconnaissance, Bombardment, new upgrades",
+      "Weapons: unique unit of your power, units +25% health"
     ]
   },
   "comando": {
-    "name": "Centro di Comando",
-    "desc": "Il quartier generale. Il suo livello sblocca tutto: le altre postazioni non possono superarlo di più di un livello.",
+    "name": "Command Center",
+    "desc": "The headquarters. Its level unlocks everything: the other rooms can never be more than one level above it.",
     "levels": [
-      "Rapporti dal campo: eventi durante le campagne · truppe +4%",
-      "Intercettazioni: frammenti sul mistero della Caduta · truppe +8%",
-      "Rete di allerta: +30 s per ogni campagna · truppe +12%",
-      "Coordinamento: un'unità in più in campo · truppe +16%",
-      "Comando supremo: abilità -25% di ricarica · truppe +20%"
+      "Field reports: events during campaigns, troops +4%",
+      "Intercepts: fragments about the mystery of the Fall, troops +8%",
+      "Alert network: +30 s for every campaign, troops +12%",
+      "Coordination: one more unit on the field, troops +16%",
+      "Supreme command: abilities -25% cooldown, troops +20%"
     ]
   },
   "deposito": {
-    "name": "Deposito",
-    "desc": "Capienza delle risorse (alla base 3000 per tipo: oltre si perde) e quanto bottino salvi se la campagna va male.",
+    "name": "Depot",
+    "desc": "Resource capacity (3,000 per type at the start: anything above is lost) and how much of the spoils you keep if a campaign goes badly.",
     "levels": [
-      "Capienza 10.000 · se eliminato perdi solo il 40% · puntata assicurata al 10%",
-      "Capienza 24.000 · se eliminato perdi solo il 25% · puntata assicurata al 20%",
-      "Capienza 60.000 · ritirata ordinata: +10% sul bottino · puntata assicurata al 30%"
+      "Capacity 10,000, if eliminated you lose only 40%, stake insured at 10%",
+      "Capacity 24,000, if eliminated you lose only 25%, stake insured at 20%",
+      "Capacity 60,000, orderly retreat: +10% on the spoils, stake insured at 30%"
     ]
   },
   "spedizione": {
-    "name": "Squadre di Estrazione",
-    "desc": "Spedizioni a tempo nelle terre della Caduta. Tornano con cibo, metallo e benzina.",
+    "name": "Extraction Teams",
+    "desc": "Timed expeditions into the lands of the Fall. They come back with food, metal and fuel.",
     "kinds": {
-      "breve": "Ricognizione",
-      "media": "Le città spente",
-      "lunga": "Oltre il cratere"
+      "breve": "Reconnaissance",
+      "media": "The dark cities",
+      "lunga": "Beyond the crater"
     }
   },
   "laboratorio": {
-    "name": "Laboratorio",
-    "desc": "Studia la nuova tecnologia: ricerche che cambiano le campagne e, poco alla volta, il mistero della Caduta.",
+    "name": "Laboratory",
+    "desc": "Studies the new technology: research that changes campaigns and, little by little, the mystery of the Fall.",
     "levels": [
-      "Ricerche di base",
-      "Ricerche avanzate",
-      "Progetto Caduta: le ultime ricerche"
+      "Basic research",
+      "Advanced research",
+      "Project Fall: the final research"
     ]
   },
   "radar": {
-    "name": "Sala Radar",
-    "desc": "Ascolta e registra. Tiene il registro delle campagne e allunga la vista sul campo.",
+    "name": "Radar Room",
+    "desc": "Listens and records. Keeps the campaign log and extends your sight on the field.",
     "levels": [
-      "Registro delle campagne · vista +1 · mappe della zona",
-      "Vista +2 · mappe più ampie attorno alla partenza",
-      "Vista +3 · la regione quasi tutta già nota"
+      "Campaign log, sight +1, maps of the area",
+      "Sight +2, wider maps around the starting point",
+      "Sight +3, almost the whole region already known"
     ]
   },
   "abilita": {
     "ricognizione": {
-      "name": "Ricognizione aerea",
-      "short": "RICOGN. AEREA",
-      "desc": "Un aereo sorvola la zona toccata: svela nemici e territorio per 15 s."
+      "name": "Air reconnaissance",
+      "short": "AIR RECON",
+      "desc": "A plane flies over the tapped area: reveals enemies and territory for 15 s."
     },
     "bombardamento": {
-      "name": "Bombardamento",
-      "short": "BOMBARD.",
-      "desc": "Colpisce la zona toccata: le caselle nemiche tornano neutrali, le unità perdono vita."
+      "name": "Bombardment",
+      "short": "BOMBARD",
+      "desc": "Strikes the tapped area: enemy tiles turn neutral, units lose health."
     }
   }
 }

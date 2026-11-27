@@ -1,31 +1,31 @@
 {
- "title": "MERCATO",
- "desc": "Scambi e rifornimenti con le risorse del Deposito. Il Consiglio Ombra fissa i cambi: si perde sempre qualcosa.",
- "trade": "Scambio",
- "supplies": "Rifornimenti per la prossima campagna",
- "rush": "Finisci subito",
+ "title": "MARKET",
+ "desc": "Trades and supplies paid with the resources in your Depot. The Shadow Council sets the rates: you always lose something.",
+ "trade": "Trade",
+ "supplies": "Supplies for the next campaign",
+ "rush": "Finish now",
  "items": {
   "truppe": {
-   "name": "Truppe fresche",
-   "desc": "+80 truppe all'inizio"
+   "name": "Fresh troops",
+   "desc": "+80 troops at the start"
   },
   "mappe": {
-   "name": "Carte del Radar",
-   "desc": "zona nota più ampia"
+   "name": "Radar maps",
+   "desc": "larger known area"
   },
   "sabbia": {
-   "name": "Sacchi di sabbia",
-   "desc": "province tue +10% difesa"
+   "name": "Sandbags",
+   "desc": "your provinces +10% defence"
   }
  },
  "lume": {
-  "title": "Frammenti",
-  "desc": "La luce fredda dei Frammenti. Si compra con soldi veri e si spende per finire i timer, avere risorse o oggetti estetici.",
-  "login": "ACCEDI CON EMAIL",
-  "loginNote": "Ti mandiamo un codice di 6 cifre. I Frammenti restano legati all'email, su qualsiasi dispositivo.",
-  "codeTitle": "Codice di accesso",
-  "codeNote": "Scrivi il codice arrivato a {email}.",
-  "resources": "{amount} DI OGNI RISORSA · {cost} FRAMMENTI · 1 AL GIORNO",
-  "out": "Esci"
+  "title": "Fragments",
+  "desc": "The cold light of the Fragments. Bought with real money and spent to finish timers, get resources or cosmetic items.",
+  "login": "SIGN IN WITH EMAIL",
+  "loginNote": "We send you a 6-digit code. Your Fragments stay tied to your email, on any device.",
+  "codeTitle": "Access code",
+  "codeNote": "Enter the code sent to {email}.",
+  "resources": "{amount} OF EACH RESOURCE, {cost} FRAGMENTS, 1 PER DAY",
+  "out": "Sign out"
  }
 }

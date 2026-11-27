@@ -43,7 +43,7 @@ export interface Profile {
   stars?: Record<number, number>; // stelle ottenute per fronte (bitmask: 1 vittoria, 2 capitale mai persa, 4 vittoria veloce)
   medals?: string[]; // onorificenze ottenute (chiavi)
   patch?: string; // toppa di reparto scelta (decorativa)
-  loreSeen?: string[]; // documenti dell'archivio della Caduta già letti
+  loreSeen?: string[]; // eventi rari già visti in campagna (frammenti dell'Archivio della Sala Radar)
   eventSeen?: string[]; // eventi di carta già visti in questa run (si azzera a ogni campagna da chi gestisce la run)
   records?: Record<string, number>; // record personali (es. province massime per fronte)
   renditaAt?: number; // epoch ms dell'ultimo ritiro della rendita del Centro di Comando

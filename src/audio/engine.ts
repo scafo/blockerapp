@@ -1,4 +1,4 @@
-// Audio del gioco, tutto sintetizzato al volo con Web Audio (niente file da scaricare, niente licenze).
+// Audio del gioco: effetti e musica sintetizzati al volo con Web Audio, più alcuni suoni registrati CC0 (src/audio/samples.ts).
 // Tre volumi: generale (muto), musica, effetti. Le impostazioni restano tra le partite (localStorage).
 
 export interface AudioSettings { music: number; sfx: number; muted: boolean; vibration: boolean }
@@ -10,7 +10,7 @@ let settings: AudioSettings = { ...DEFAULTS };
 try { settings = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { /* valori di base */ }
 
 let ctx: AudioContext | null = null;
-let master: GainNode, musicBus: GainNode, sfxBus: GainNode;
+let master: GainNode, musicBus: GainNode, sfxBus: GainNode, verbIn: GainNode;
 let noiseBuf: AudioBuffer | null = null;
 const listeners = new Set<() => void>();
 
@@ -34,13 +34,34 @@ export function ac(): AudioContext | null {
   sfxBus = ctx.createGain();
   musicBus.connect(master);
   sfxBus.connect(master);
+  // sala: riverbero lungo e scuro per gli effetti (Nico, 28 novembre 2026: "suoni profondi, alla Hearts of Iron, non 8 bit")
+  verbIn = ctx.createGain();
+  const conv = ctx.createConvolver(), ret = ctx.createGain();
+  conv.buffer = hallImpulse(ctx, 2.6);
+  ret.gain.value = 0.5;
+  verbIn.connect(conv).connect(ret).connect(sfxBus);
   applyVolumes();
   return ctx;
 }
 
+/** Risposta all'impulso di una sala: rumore stereo che si spegne piano, con gli acuti che muoiono prima (suono scuro). */
+function hallImpulse(c: AudioContext, sec: number): AudioBuffer {
+  const n = Math.floor(c.sampleRate * sec), buf = c.createBuffer(2, n, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    let lp = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / n, k = 0.08 + 0.85 * t; // filtro che si chiude col tempo
+      lp += (Math.random() * 2 - 1 - lp) * (1 - k);
+      d[i] = lp * Math.pow(1 - t, 2.6) * (i < c.sampleRate * 0.012 ? i / (c.sampleRate * 0.012) : 1);
+    }
+  }
+  return buf;
+}
+
 export function buses() {
   ac();
-  return { music: musicBus, sfx: sfxBus };
+  return { music: musicBus, sfx: sfxBus, verb: verbIn };
 }
 
 /** Rumore bianco (2 s, riusato): base di click, telex, colpi e statica radio. */

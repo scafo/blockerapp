@@ -1,13 +1,26 @@
 // Esagoni "pointy-top", coordinate offset odd-r (righe dispari spostate a destra).
 import { BALANCE } from '../config/balance';
-import { vToLat } from './projection';
+import { uToLon, vToLat } from './projection';
 
-const { cols, rows, hexSize: S } = BALANCE.map;
+const { hexSize: S } = BALANCE.map;
 const SQRT3 = Math.sqrt(3);
+// colonne e righe cambiano con la carta scelta (src/map/region.ts → setGrid): variabili, non costanti
+let cols: number = BALANCE.map.cols, rows: number = BALANCE.map.rows;
 
 export const HEX_W = SQRT3 * S;
-export const WORLD_W = HEX_W * (cols + 0.5);
-export const WORLD_H = S * 1.5 * (rows - 1) + 2 * S;
+export let WORLD_W = HEX_W * (cols + 0.5);
+export let WORLD_H = S * 1.5 * (rows - 1) + 2 * S;
+/** Caselle della griglia (terra e mare). */
+export let CELLS = cols * rows;
+
+/** Nuova griglia (carta della sandbox). */
+export function setGrid(c: number, r: number) {
+  cols = c;
+  rows = r;
+  WORLD_W = HEX_W * (cols + 0.5);
+  WORLD_H = S * 1.5 * (rows - 1) + 2 * S;
+  CELLS = cols * rows;
+}
 
 export const idx = (col: number, row: number) => row * cols + col;
 export const colOf = (i: number) => i % cols;
@@ -20,7 +33,7 @@ export function center(i: number): { x: number; y: number } {
 
 export function lonLat(i: number): [number, number] {
   const c = colOf(i), r = rowOf(i);
-  const lon = -180 + ((c + 0.5 + 0.5 * (r & 1)) / (cols + 0.5)) * 360;
+  const lon = uToLon((c + 0.5 + 0.5 * (r & 1)) / (cols + 0.5));
   const lat = vToLat((r + 0.5) / rows);
   return [lon, lat];
 }
@@ -43,8 +56,6 @@ export function neighborsBySide(i: number): number[] {
 
 export const neighbors = neighborsBySide;
 
-/** Caselle della griglia (terra e mare). */
-export const CELLS = cols * rows;
 
 export function corners(x: number, y: number, size: number = S): { x: number; y: number }[] {
   const out = [];
@@ -70,14 +81,11 @@ export function pixelToIndex(px: number, py: number): number {
   return col < 0 || col >= cols || row < 0 || row >= rows ? -1 : idx(col, row);
 }
 
-function toCube(i: number): [number, number, number] {
-  const c = colOf(i), r = rowOf(i);
-  const x = c - (r - (r & 1)) / 2;
-  return [x, -x - r, r];
-}
-
-/** Distanza in passi esagonali (ignora ostacoli). */
+/** Distanza in passi esagonali (ignora ostacoli). Senza array di appoggio: è la funzione chiamata più spesso dal motore
+ *  (un decimo del tempo, più la spazzatura da raccogliere). */
 export function hexDistance(a: number, b: number): number {
-  const [ax, ay, az] = toCube(a), [bx, by, bz] = toCube(b);
-  return Math.max(Math.abs(ax - bx), Math.abs(ay - by), Math.abs(az - bz));
+  const ar = (a / cols) | 0, br = (b / cols) | 0;
+  const ax = a - ar * cols - (ar - (ar & 1)) / 2, bx = b - br * cols - (br - (br & 1)) / 2;
+  const dx = ax - bx, dz = ar - br, dy = -dx - dz;
+  return Math.max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy, dz < 0 ? -dz : dz);
 }

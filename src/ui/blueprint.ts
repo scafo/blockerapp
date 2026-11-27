@@ -27,7 +27,7 @@ export function drawBlueprint(scene: Phaser.Scene, x: number, y: number, w: numb
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   for (let i = 0; i < Math.round(w * h / 2400); i++) g.fillStyle(0xffffff, 0.12 + rnd() * 0.3).fillRect(x + rnd() * w, y + rnd() * h, 1.2, 1.2);
   dots(dots(dots(dots(g, x, y, x + w, y, 0xffffff, 0.5), x, y + h, x + w, y + h, 0xffffff, 0.5), x, y, x, y + h, 0xffffff, 0.5), x + w, y, x + w, y + h, 0xffffff, 0.5);
-  out.push(label(scene, x + 14, y + 12, `pianta · ${title}`, BP_CYAN, 9));
+  out.push(label(scene, x + 14, y + 12, `pianta, ${title}`, BP_CYAN, 9));
 
   // nucleo: la postazione stessa, grande e piena
   const pad = 18, coreW = Math.min(w - 2 * pad, 280), coreH = Math.max(48, Math.min(72, h * 0.13));

@@ -36,14 +36,14 @@ export class DevScene extends Phaser.Scene {
     const gap = (n = 24) => { y += n; };
 
     // Panel
-    label('Panel (semplice · titolo · accento)');
+    label('Panel (semplice, titolo, accento)');
     new Panel(this, 160, 60).setPosition(A.x0, y);
     new Panel(this, 160, 60, { title: 'Scheda' }).setPosition(A.x0 + 176, y);
     new Panel(this, 160, 60, { title: 'Scheda', accent: true }).setPosition(A.x0 + 352, y);
     gap(76);
 
     // Button
-    label('Button (normale · primario · disabilitato+motivo · con tasto rapido)');
+    label('Button (normale, primario, disabilitato+motivo, con tasto rapido)');
     new Button(this, 'NORMALE', 120, 40, () => {}).setPosition(A.x0, y);
     new Button(this, 'PRIMARIO', 120, 40, () => {}, 16).setPosition(A.x0 + 136, y).setPrimary();
     new Button(this, 'BLOCCATO', 140, 40, () => {}).setPosition(A.x0 + 272, y).setDisabled(true, 'Serve più metallo');
@@ -51,13 +51,13 @@ export class DevScene extends Phaser.Scene {
     gap(56);
 
     // Segmented + Tabs
-    label('Segmented · Tabs');
+    label('Segmented, Tabs');
     new Segmented(this, 220, 36, ['10 MIN', '20 MIN', '30 MIN'], 1, () => {}).setPosition(A.x0, y);
     new Tabs(this, 220, 36, ['SCAMBIO', 'RIFORNIM.', 'ACCELERA'], 0, () => {}).setPosition(A.x0 + 244, y);
     gap(52);
 
     // ProgressBar + Badge
-    label('ProgressBar (vari stati) · Badge');
+    label('ProgressBar (vari stati), Badge');
     new ProgressBar(this, 160, 10, PALETTE.ocra).setProgress(0.7).setPosition(A.x0, y);
     new ProgressBar(this, 160, 10, PALETTE.radioattivo).setProgress(0.3).setPosition(A.x0, y + 16);
     new ProgressBar(this, 160, 10, PALETTE.ko).setProgress(0.95).setPosition(A.x0, y + 32);
@@ -67,7 +67,7 @@ export class DevScene extends Phaser.Scene {
     gap(64);
 
     // CostChips + Table
-    label('CostChips (ok · manca) · Table');
+    label('CostChips (ok, manca), Table');
     costChips(this, A.x0, y, { metallo: 40, cibo: 120 }, { metallo: 20, cibo: 200, benzina: 0 });
     drawTable(this, A.x0 + 200, y + 12, 140,
       [{ k: 'VITA', v: '80/100', c: PALETTE.radioattivo }, { k: 'STATO', v: 'in marcia' }]);
@@ -89,7 +89,7 @@ export class DevScene extends Phaser.Scene {
     gap(48);
 
     // ConfirmDialog + Drawer
-    label('ConfirmDialog · Drawer · nome (campo HTML)');
+    label('ConfirmDialog, Drawer, nome (campo HTML)');
     new Button(this, 'CONFERMA…', 140, 36, () => {
       new ConfirmDialog(this, width, view(this).height, 'Sei sicuro?', 'Questa azione non si può annullare.', 'CONFERMA', () => {});
     }, 13).setPosition(A.x0, y);

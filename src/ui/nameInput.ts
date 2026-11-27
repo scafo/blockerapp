@@ -25,7 +25,7 @@ export function askName(title: string, current: string, done: (name: string | nu
   input.type = 'text';
   input.maxLength = NAME_MAX;
   input.value = current;
-  input.placeholder = 'Il tuo nome';
+  input.placeholder = 'Your name';
   input.autocomplete = 'off';
   input.style.cssText = `width:100%;box-sizing:border-box;font-family:${FONT};font-size:20px;padding:10px 12px;`
     + `background:${hex(PALETTE.pannello)};color:${hex(PALETTE.carta)};border:1px solid ${hex(PALETTE.ocra)};outline:none;`;
@@ -39,7 +39,7 @@ export function askName(title: string, current: string, done: (name: string | nu
         : `background:transparent;color:${hex(PALETTE.tenue)};border:1px solid ${hex(PALETTE.linea)};`);
     return b;
   };
-  const cancel = mk('ANNULLA', false), ok = mk('CONFERMA', true);
+  const cancel = mk('CANCEL', false), ok = mk('CONFIRM', true);
   row.append(cancel, ok);
   box.append(h, input, row);
   wrap.append(box);

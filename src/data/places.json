@@ -1,102 +1,482 @@
 {
   "_nota": "Nomi sulla carta da terminale: città in rosso, mari in grigio (come nell'immagine di riferimento di Nico). Coordinate [lon, lat].",
   "cities": [
-    ["Londra", -0.13, 51.5],
-    ["Parigi", 2.35, 48.86],
-    ["Berlino", 13.4, 52.52],
-    ["Roma", 12.5, 41.9],
-    ["Madrid", -3.7, 40.42],
-    ["Varsavia", 21.0, 52.23],
-    ["Mosca", 37.62, 55.75],
-    ["Stoccolma", 18.07, 59.33],
-    ["Istanbul", 28.98, 41.01],
-    ["Kiev", 30.52, 50.45],
-    ["Il Cairo", 31.24, 30.04],
-    ["Algeri", 3.06, 36.75],
-    ["Teheran", 51.39, 35.69],
-    ["Riad", 46.68, 24.71],
-    ["Casablanca", -7.59, 33.57],
-    ["Lagos", 3.38, 6.52],
-    ["Nairobi", 36.82, -1.29],
-    ["Johannesburg", 28.05, -26.2],
-    ["New York", -74.0, 40.71],
-    ["Washington", -77.04, 38.9],
-    ["Chicago", -87.63, 41.88],
-    ["Los Angeles", -118.24, 34.05],
-    ["Città del Messico", -99.13, 19.43],
-    ["Rio de Janeiro", -43.17, -22.9],
-    ["Buenos Aires", -58.38, -34.6],
-    ["Lima", -77.04, -12.05],
-    ["Bogotà", -74.07, 4.71],
-    ["Pechino", 116.4, 39.9],
-    ["Shanghai", 121.47, 31.23],
-    ["Tokyo", 139.69, 35.69],
-    ["Delhi", 77.21, 28.61],
-    ["Mumbai", 72.88, 19.08],
-    ["Karachi", 67.01, 24.86],
-    ["Giacarta", 106.85, -6.21],
-    ["Sydney", 151.21, -33.87],
-    ["Montréal", -73.57, 45.5],
-    ["Santiago", -70.67, -33.45],
-    ["Novosibirsk", 82.92, 55.03],
-    ["Ekaterinburg", 60.6, 56.84],
-    ["Krasnojarsk", 92.87, 56.01],
-    ["Irkutsk", 104.28, 52.29],
-    ["Jakutsk", 129.73, 62.03],
-    ["Vladivostok", 131.89, 43.12],
-    ["Norilsk", 88.2, 69.35],
-    ["Magadan", 150.8, 59.56],
-    ["Almaty", 76.95, 43.24],
-    ["Taškent", 69.24, 41.3],
-    ["Ulan Bator", 106.92, 47.89],
-    ["Kabul", 69.17, 34.53],
-    ["Ürümqi", 87.62, 43.83],
-    ["Chengdu", 104.07, 30.67],
-    ["Seul", 126.98, 37.57],
-    ["Hong Kong", 114.17, 22.32],
-    ["Bangkok", 100.5, 13.75],
-    ["Manila", 120.98, 14.6],
-    ["Dacca", 90.41, 23.81],
-    ["Kolkata", 88.36, 22.57],
-    ["Singapore", 103.82, 1.35],
-    ["Perth", 115.86, -31.95],
-    ["Darwin", 130.84, -12.46],
-    ["Auckland", 174.76, -36.85],
-    ["Kinshasa", 15.27, -4.32],
-    ["Addis Abeba", 38.75, 9.03],
-    ["Dakar", -17.44, 14.69],
-    ["Luanda", 13.23, -8.84],
-    ["Khartum", 32.53, 15.5],
-    ["Vancouver", -123.12, 49.28],
-    ["Anchorage", -149.9, 61.22],
-    ["Houston", -95.37, 29.76]
+    [
+      "London",
+      -0.13,
+      51.5
+    ],
+    [
+      "Paris",
+      2.35,
+      48.86
+    ],
+    [
+      "Berlin",
+      13.4,
+      52.52
+    ],
+    [
+      "Rome",
+      12.5,
+      41.9
+    ],
+    [
+      "Madrid",
+      -3.7,
+      40.42
+    ],
+    [
+      "Warsaw",
+      21.0,
+      52.23
+    ],
+    [
+      "Moscow",
+      37.62,
+      55.75
+    ],
+    [
+      "Stockholm",
+      18.07,
+      59.33
+    ],
+    [
+      "Istanbul",
+      28.98,
+      41.01
+    ],
+    [
+      "Kyiv",
+      30.52,
+      50.45
+    ],
+    [
+      "Cairo",
+      31.24,
+      30.04
+    ],
+    [
+      "Algiers",
+      3.06,
+      36.75
+    ],
+    [
+      "Tehran",
+      51.39,
+      35.69
+    ],
+    [
+      "Riyadh",
+      46.68,
+      24.71
+    ],
+    [
+      "Casablanca",
+      -7.59,
+      33.57
+    ],
+    [
+      "Lagos",
+      3.38,
+      6.52
+    ],
+    [
+      "Nairobi",
+      36.82,
+      -1.29
+    ],
+    [
+      "Johannesburg",
+      28.05,
+      -26.2
+    ],
+    [
+      "New York",
+      -74.0,
+      40.71
+    ],
+    [
+      "Washington",
+      -77.04,
+      38.9
+    ],
+    [
+      "Chicago",
+      -87.63,
+      41.88
+    ],
+    [
+      "Los Angeles",
+      -118.24,
+      34.05
+    ],
+    [
+      "Mexico City",
+      -99.13,
+      19.43
+    ],
+    [
+      "Rio de Janeiro",
+      -43.17,
+      -22.9
+    ],
+    [
+      "Buenos Aires",
+      -58.38,
+      -34.6
+    ],
+    [
+      "Lima",
+      -77.04,
+      -12.05
+    ],
+    [
+      "Bogotá",
+      -74.07,
+      4.71
+    ],
+    [
+      "Beijing",
+      116.4,
+      39.9
+    ],
+    [
+      "Shanghai",
+      121.47,
+      31.23
+    ],
+    [
+      "Tokyo",
+      139.69,
+      35.69
+    ],
+    [
+      "Delhi",
+      77.21,
+      28.61
+    ],
+    [
+      "Mumbai",
+      72.88,
+      19.08
+    ],
+    [
+      "Karachi",
+      67.01,
+      24.86
+    ],
+    [
+      "Jakarta",
+      106.85,
+      -6.21
+    ],
+    [
+      "Sydney",
+      151.21,
+      -33.87
+    ],
+    [
+      "Montreal",
+      -73.57,
+      45.5
+    ],
+    [
+      "Santiago",
+      -70.67,
+      -33.45
+    ],
+    [
+      "Novosibirsk",
+      82.92,
+      55.03
+    ],
+    [
+      "Yekaterinburg",
+      60.6,
+      56.84
+    ],
+    [
+      "Krasnoyarsk",
+      92.87,
+      56.01
+    ],
+    [
+      "Irkutsk",
+      104.28,
+      52.29
+    ],
+    [
+      "Yakutsk",
+      129.73,
+      62.03
+    ],
+    [
+      "Vladivostok",
+      131.89,
+      43.12
+    ],
+    [
+      "Norilsk",
+      88.2,
+      69.35
+    ],
+    [
+      "Magadan",
+      150.8,
+      59.56
+    ],
+    [
+      "Almaty",
+      76.95,
+      43.24
+    ],
+    [
+      "Tashkent",
+      69.24,
+      41.3
+    ],
+    [
+      "Ulaanbaatar",
+      106.92,
+      47.89
+    ],
+    [
+      "Kabul",
+      69.17,
+      34.53
+    ],
+    [
+      "Ürümqi",
+      87.62,
+      43.83
+    ],
+    [
+      "Chengdu",
+      104.07,
+      30.67
+    ],
+    [
+      "Seoul",
+      126.98,
+      37.57
+    ],
+    [
+      "Hong Kong",
+      114.17,
+      22.32
+    ],
+    [
+      "Bangkok",
+      100.5,
+      13.75
+    ],
+    [
+      "Manila",
+      120.98,
+      14.6
+    ],
+    [
+      "Dhaka",
+      90.41,
+      23.81
+    ],
+    [
+      "Kolkata",
+      88.36,
+      22.57
+    ],
+    [
+      "Singapore",
+      103.82,
+      1.35
+    ],
+    [
+      "Perth",
+      115.86,
+      -31.95
+    ],
+    [
+      "Darwin",
+      130.84,
+      -12.46
+    ],
+    [
+      "Auckland",
+      174.76,
+      -36.85
+    ],
+    [
+      "Kinshasa",
+      15.27,
+      -4.32
+    ],
+    [
+      "Addis Ababa",
+      38.75,
+      9.03
+    ],
+    [
+      "Dakar",
+      -17.44,
+      14.69
+    ],
+    [
+      "Luanda",
+      13.23,
+      -8.84
+    ],
+    [
+      "Khartoum",
+      32.53,
+      15.5
+    ],
+    [
+      "Vancouver",
+      -123.12,
+      49.28
+    ],
+    [
+      "Anchorage",
+      -149.9,
+      61.22
+    ],
+    [
+      "Houston",
+      -95.37,
+      29.76
+    ]
   ],
   "seas": [
-    ["Mare del Nord", 3.0, 56.5],
-    ["Mar Baltico", 19.5, 57.5],
-    ["Golfo di Biscaglia", -5.0, 45.0],
-    ["Mar Mediterraneo", 17.5, 34.5],
-    ["Mar Nero", 34.0, 43.3],
-    ["Mar Caspio", 50.5, 41.5],
-    ["Mare Adriatico", 15.5, 43.0],
-    ["Mar Tirreno", 11.5, 39.8],
-    ["Mar Egeo", 25.0, 38.8],
-    ["Mar Rosso", 38.5, 21.0],
-    ["Golfo Persico", 51.0, 27.0],
-    ["Mare di Norvegia", 3.0, 67.0],
-    ["Mare di Barents", 40.0, 73.0],
-    ["Oceano Atlantico", -35.0, 35.0],
-    ["Oceano Atlantico", -20.0, -15.0],
-    ["Oceano Indiano", 75.0, -15.0],
-    ["Oceano Pacifico", -140.0, 15.0],
-    ["Oceano Pacifico", 170.0, 20.0],
-    ["Mar dei Caraibi", -75.0, 15.0],
-    ["Golfo del Messico", -90.0, 25.0],
-    ["Mar Arabico", 64.0, 15.0],
-    ["Golfo del Bengala", 89.0, 15.0],
-    ["Mar Cinese Meridionale", 114.0, 13.0],
-    ["Mar del Giappone", 135.0, 40.0],
-    ["Baia di Hudson", -85.0, 60.0],
-    ["Mar Glaciale Artico", 0.0, 80.0]
+    [
+      "North Sea",
+      3.0,
+      56.5
+    ],
+    [
+      "Baltic Sea",
+      19.5,
+      57.5
+    ],
+    [
+      "Bay of Biscay",
+      -5.0,
+      45.0
+    ],
+    [
+      "Mediterranean Sea",
+      17.5,
+      34.5
+    ],
+    [
+      "Black Sea",
+      34.0,
+      43.3
+    ],
+    [
+      "Caspian Sea",
+      50.5,
+      41.5
+    ],
+    [
+      "Adriatic Sea",
+      15.5,
+      43.0
+    ],
+    [
+      "Tyrrhenian Sea",
+      11.5,
+      39.8
+    ],
+    [
+      "Aegean Sea",
+      25.0,
+      38.8
+    ],
+    [
+      "Red Sea",
+      38.5,
+      21.0
+    ],
+    [
+      "Persian Gulf",
+      51.0,
+      27.0
+    ],
+    [
+      "Norwegian Sea",
+      3.0,
+      67.0
+    ],
+    [
+      "Barents Sea",
+      40.0,
+      73.0
+    ],
+    [
+      "Atlantic Ocean",
+      -35.0,
+      35.0
+    ],
+    [
+      "Atlantic Ocean",
+      -20.0,
+      -15.0
+    ],
+    [
+      "Indian Ocean",
+      75.0,
+      -15.0
+    ],
+    [
+      "Pacific Ocean",
+      -140.0,
+      15.0
+    ],
+    [
+      "Pacific Ocean",
+      170.0,
+      20.0
+    ],
+    [
+      "Caribbean Sea",
+      -75.0,
+      15.0
+    ],
+    [
+      "Gulf of Mexico",
+      -90.0,
+      25.0
+    ],
+    [
+      "Arabian Sea",
+      64.0,
+      15.0
+    ],
+    [
+      "Bay of Bengal",
+      89.0,
+      15.0
+    ],
+    [
+      "South China Sea",
+      114.0,
+      13.0
+    ],
+    [
+      "Sea of Japan",
+      135.0,
+      40.0
+    ],
+    [
+      "Hudson Bay",
+      -85.0,
+      60.0
+    ],
+    [
+      "Arctic Ocean",
+      0.0,
+      80.0
+    ]
   ]
 }

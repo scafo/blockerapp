@@ -11,7 +11,7 @@ import { sfx } from '../audio/sfx';
 import { premiumOn } from '../online/premium';
 
 export type NavTab = 'gioca' | 'base' | 'ricerca' | 'arsenale' | 'mercato';
-const TABS: [NavTab, string][] = [['gioca', 'GIOCA'], ['base', 'BASE'], ['ricerca', 'RICERCA'], ['arsenale', 'ARSENALE'], ['mercato', 'MERCATO']];
+const TABS: [NavTab, string][] = [['gioca', 'PLAY'], ['base', 'BASE'], ['ricerca', 'RESEARCH'], ['arsenale', 'ARSENAL'], ['mercato', 'MARKET']];
 
 export const NAV_H = 64;
 export const LUME = 0x9fd0f5; // colore del Lume: la luce fredda
